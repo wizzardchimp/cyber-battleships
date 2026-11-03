@@ -55,29 +55,29 @@ test('start requires every team to have a player', () => {
 test('answers award points and a missile to the first correct team', () => {
   const { game, alpha } = startTwoTeamGame();
   game.start();
-  const question = game.round.question;
-  const result = game.submitAnswer(alpha.id, game.round.questionId, question.correctIndex);
+  const question = game.round.questions[0].question;
+  const result = game.submitAnswer(alpha.id, game.round.questions[0].questionId, question.correctIndex);
   assert.equal(result.correct, true);
   assert.equal(result.awarded, true);
   const team = game.getTeam(alpha.teamId);
-  assert.equal(team.missiles, 1);
+  assert.equal(team.missiles, 3);
   assert.equal(team.score, 15); // 10 correct + 5 first
-  assert.equal(game.round.firstCorrectTeamId, alpha.teamId);
+  assert.equal(game.round.questions[0].firstCorrectTeamId, alpha.teamId);
 });
 
 test('incorrect answers lock after the configured attempts', () => {
   const { game, alpha } = startTwoTeamGame({ maxAttempts: 2 });
   game.start();
-  const wrong = (game.round.question.correctIndex + 1) % 4;
-  const first = game.submitAnswer(alpha.id, game.round.questionId, wrong);
+  const wrong = (game.round.questions[0].question.correctIndex + 1) % 4;
+  const first = game.submitAnswer(alpha.id, game.round.questions[0].questionId, wrong);
   assert.equal(first.correct, false);
   assert.equal(first.locked, false);
   assert.equal(first.attempts, 1);
 
-  const second = game.submitAnswer(alpha.id, game.round.questionId, wrong);
+  const second = game.submitAnswer(alpha.id, game.round.questions[0].questionId, wrong);
   assert.equal(second.locked, true);
   assert.throws(
-    () => game.submitAnswer(alpha.id, game.round.questionId, game.round.question.correctIndex),
+    () => game.submitAnswer(alpha.id, game.round.questions[0].questionId, game.round.questions[0].question.correctIndex),
     /locked/i,
   );
 });
@@ -85,13 +85,13 @@ test('incorrect answers lock after the configured attempts', () => {
 test('award mode all gives every correct answer a missile', () => {
   const { game, alpha, bravo } = startTwoTeamGame({ awardMode: 'all' });
   game.start();
-  const correct = game.round.question.correctIndex;
-  const a = game.submitAnswer(alpha.id, game.round.questionId, correct);
-  const b = game.submitAnswer(bravo.id, game.round.questionId, correct);
+  const correct = game.round.questions[0].question.correctIndex;
+  const a = game.submitAnswer(alpha.id, game.round.questions[0].questionId, correct);
+  const b = game.submitAnswer(bravo.id, game.round.questions[0].questionId, correct);
   assert.equal(a.awarded, true);
   assert.equal(b.awarded, true);
-  assert.equal(game.getTeam(alpha.teamId).missiles, 1);
-  assert.equal(game.getTeam(bravo.teamId).missiles, 1);
+  assert.equal(game.getTeam(alpha.teamId).missiles, 3);
+  assert.equal(game.getTeam(bravo.teamId).missiles, 3);
   // Only the first correct answer gets the first bonus.
   assert.equal(game.getTeam(alpha.teamId).score, 15);
   assert.equal(game.getTeam(bravo.teamId).score, 10);
@@ -100,22 +100,22 @@ test('award mode all gives every correct answer a missile', () => {
 test('a missile cap blocks further awards', () => {
   const { game, alpha } = startTwoTeamGame({ awardMode: 'all', missileCap: 1 });
   game.start();
-  const correct = game.round.question.correctIndex;
-  game.submitAnswer(alpha.id, game.round.questionId, correct);
-  assert.equal(game.getTeam(alpha.teamId).missiles, 1);
+  const correct = game.round.questions[0].question.correctIndex;
+  game.submitAnswer(alpha.id, game.round.questions[0].questionId, correct);
+  assert.equal(game.getTeam(alpha.teamId).missiles, 3);
   game.revealQuestion();
   game.enterBattle();
   game.nextQuestion();
-  game.submitAnswer(alpha.id, game.round.questionId, game.round.question.correctIndex);
-  assert.equal(game.getTeam(alpha.teamId).missiles, 1);
+  game.submitAnswer(alpha.id, game.round.questions[0].questionId, game.round.questions[0].question.correctIndex);
+  assert.equal(game.getTeam(alpha.teamId).missiles, 3);
 });
 
 test('firing consumes a missile, scores a hit and rejects repeat shots', () => {
   const { game, alpha } = startTwoTeamGame();
   game.start();
-  game.submitAnswer(alpha.id, game.round.questionId, game.round.question.correctIndex);
   game.revealQuestion();
   game.enterBattle();
+  game.hostAwardMissiles(alpha.teamId, 1);
 
   const team = game.getTeam(alpha.teamId);
   const target = [...game.grids.values()].find((grid) => grid.ownerTeamId !== team.id);
@@ -204,8 +204,8 @@ test('projection hides ship cells and the answer key from the projector', () => 
   const host = project(game, 'host');
   const player = project(game, 'player', alpha.id);
 
-  assert.equal(display.question.correctIndex, undefined);
-  assert.equal(host.question.correctIndex, game.round.question.correctIndex);
+  assert.equal(display.round.questions[0].correctIndex, undefined);
+  assert.equal(host.round.questions[0].correctIndex, game.round.questions[0].question.correctIndex);
   assert.equal(display.teams.length, 2);
 
   const hostGrid = host.grids.find((grid) => grid.ownerTeamId === alpha.teamId);
@@ -224,8 +224,8 @@ test('projection hides ship cells and the answer key from the projector', () => 
 
   game.revealQuestion();
   const revealed = project(game, 'display');
-  assert.equal(revealed.question.correctIndex, game.round.question.correctIndex);
-  assert.ok(revealed.question.explanation.length > 10);
+  assert.equal(revealed.round.questions[0].correctIndex, game.round.questions[0].question.correctIndex);
+  assert.ok(revealed.round.questions[0].explanation.length > 10);
 });
 
 test('team rename and player moves update labels and capacity', () => {

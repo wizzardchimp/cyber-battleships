@@ -72,6 +72,7 @@ const ui = {
   setQuestionSeconds: $('#setQuestionSeconds'),
   setRevealSeconds: $('#setRevealSeconds'),
   setAutoInterval: $('#setAutoInterval'),
+  setQuestionsPerRound: $('#setQuestionsPerRound'),
   pacingNote: $('#pacingNote'),
 
   startBtn: $('#startBtn'),
@@ -557,6 +558,7 @@ function syncSettings() {
   syncInput(ui.setQuestionSeconds, settings.questionSeconds);
   syncInput(ui.setRevealSeconds, settings.revealSeconds);
   syncInput(ui.setAutoInterval, settings.autoIntervalSeconds);
+  syncInput(ui.setQuestionsPerRound, settings.questionsPerRound);
 
   setText(
     ui.pacingNote,
@@ -603,6 +605,7 @@ bindNumber(ui.setMissileCap, 'missileCap');
 bindNumber(ui.setQuestionSeconds, 'questionSeconds');
 bindNumber(ui.setRevealSeconds, 'revealSeconds');
 bindNumber(ui.setAutoInterval, 'autoIntervalSeconds');
+bindNumber(ui.setQuestionsPerRound, 'questionsPerRound');
 
 ui.setAwardMode.addEventListener('change', () => sendSettings({ awardMode: ui.setAwardMode.value }));
 ui.setQuestionMode.addEventListener('change', () => sendSettings({ questionMode: ui.setQuestionMode.value }));

@@ -51,31 +51,39 @@ function startIssues(game) {
   return issues;
 }
 
-function questionFor(game, role) {
+function roundFor(game, role) {
   if (!game.round) return null;
-  const { question } = game.round;
   const revealed = [PHASES.REVEAL, PHASES.BATTLE, PHASES.ENDED].includes(game.phase) || Boolean(game.round.revealedAt);
-  const base = {
-    id: game.round.questionId,
+  const questions = game.round.questions.map((rq) => {
+    const base = {
+      id: rq.questionId,
+      number: rq.number,
+      topic: rq.question.topic,
+      difficulty: rq.question.difficulty ?? 1,
+      question: rq.question.question,
+      options: [...rq.question.options],
+      endsAt: game.phase === PHASES.QUESTION ? game.round.endsAt : null,
+      revealed,
+      firstCorrectTeamId: rq.firstCorrectTeamId,
+    };
+    if (revealed || role === 'host') {
+      base.correctIndex = rq.question.correctIndex;
+      base.explanation = rq.question.explanation;
+    }
+    if (revealed) {
+      base.awards = [...rq.awards];
+      base.revealedAt = game.round.revealedAt;
+    }
+    return base;
+  });
+  return {
     number: game.round.number,
-    topic: question.topic,
-    difficulty: question.difficulty ?? 1,
-    question: question.question,
-    options: [...question.options],
-    endsAt: game.phase === PHASES.QUESTION ? game.round.endsAt : null,
+    startedAt: game.round.startedAt,
+    endsAt: game.round.endsAt,
+    revealedAt: game.round.revealedAt,
     revealed,
-    firstCorrectTeamId: game.round.firstCorrectTeamId,
+    questions,
   };
-
-  if (revealed || role === 'host') {
-    base.correctIndex = question.correctIndex;
-    base.explanation = question.explanation;
-  }
-  if (revealed) {
-    base.awards = [...game.round.awards];
-    base.revealedAt = game.round.revealedAt;
-  }
-  return base;
 }
 
 function gridProjection(game, grid, role, viewerTeamId) {
@@ -126,7 +134,12 @@ function answerStats(game, role, viewerPlayer) {
     const team = game.getTeam(player.teamId);
     return team && !team.eliminated;
   });
-  const answered = activePlayers.filter((player) => player.round?.questionId === game.round?.questionId && player.round.attempts > 0);
+  const roundQuestionIds = new Set((game.round?.questions || []).map((q) => q.questionId));
+
+  const answered = activePlayers.filter((player) => {
+    const answers = player.round || {};
+    return Object.keys(answers).some((qid) => roundQuestionIds.has(qid) && answers[qid]?.attempts > 0);
+  });
 
   const payload = {
     total: activePlayers.length,
@@ -137,25 +150,44 @@ function answerStats(game, role, viewerPlayer) {
   if (role === 'host') {
     payload.details = activePlayers.map((player) => {
       const team = game.getTeam(player.teamId);
+      const answers = player.round || {};
+      const attempts = Object.values(answers)
+        .filter((a) => roundQuestionIds.has(a.questionId))
+        .reduce((sum, a) => sum + (a.attempts || 0), 0);
+      const correctCount = Object.values(answers)
+        .filter((a) => roundQuestionIds.has(a.questionId) && a.correct).length;
+      const locked = Object.values(answers)
+        .some((a) => roundQuestionIds.has(a.questionId) && a.locked);
       return {
         playerId: player.id,
         name: player.name,
         teamId: player.teamId,
         teamName: team?.name ?? '',
         connected: player.connected,
-        attempts: player.round?.attempts ?? 0,
-        answerIndex: player.round?.answerIndex ?? null,
-        correct: player.round?.correct ?? null,
-        locked: player.round?.locked ?? false,
-        awarded: player.round?.awarded ?? false,
+        attempts,
+        correctCount,
+        locked,
+        answers: Object.fromEntries(
+          Object.entries(answers)
+            .filter(([qid]) => roundQuestionIds.has(qid))
+            .map(([qid, a]) => [qid, {
+              attempts: a.attempts ?? 0,
+              answerIndex: a.answerIndex ?? null,
+              correct: a.correct ?? null,
+              locked: a.locked ?? false,
+              awarded: a.awarded ?? false,
+            }]),
+        ),
       };
     });
   }
 
   if (role === 'player' && viewerPlayer) {
-    payload.mine = viewerPlayer.round?.questionId === game.round?.questionId
-      ? { ...viewerPlayer.round }
-      : null;
+    const answers = viewerPlayer.round || {};
+    payload.mine = {};
+    for (const qid of roundQuestionIds) {
+      payload.mine[qid] = answers[qid] ? { ...answers[qid] } : null;
+    }
   }
 
   return payload;
@@ -169,7 +201,7 @@ function meProjection(game, player) {
     .filter((grid) => (game.isOneGrid ? grid.id === 'target' : grid.ownerTeamId !== team.id))
     .map((grid) => grid.id);
   const canAct = !game.paused && !game.ending;
-  const canAnswer = canAct && game.phase === PHASES.QUESTION && !team.eliminated && !player.round?.locked;
+  const canAnswer = canAct && game.phase === PHASES.QUESTION && !team.eliminated;
   const canFire = canAct
     && game.phase === PHASES.BATTLE
     && !team.eliminated
@@ -189,10 +221,8 @@ function meProjection(game, player) {
     targets,
     canAnswer,
     canFire,
-    attemptsLeft: Math.max(0, game.settings.maxAttempts - (player.round?.attempts ?? 0)),
-    answer: player.round && game.round && player.round.questionId === game.round.questionId
-      ? { ...player.round }
-      : null,
+    attemptsLeft: game.settings.maxAttempts,
+    roundAnswers: player.round ? { ...player.round } : {},
     totals: { ...player.totals },
     teammates: team.players
       .map((id) => game.players.get(id))
@@ -247,7 +277,8 @@ export function project(game, role, playerId = null) {
     },
     teams: game.teams.map((team) => teamSummary(game, team)),
     grids: [...game.grids.values()].map((grid) => gridProjection(game, grid, role, viewerTeamId)),
-    question: questionFor(game, role),
+    round: roundFor(game, role),
+    question: roundFor(game, role)?.questions?.[0] ?? null,
     answerStats: game.round && [PHASES.QUESTION, PHASES.REVEAL].includes(game.phase)
       ? answerStats(game, role, viewerPlayer)
       : { total: 0, answered: 0, names: [] },

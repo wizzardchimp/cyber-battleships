@@ -77,43 +77,50 @@ test('a full round synchronises display, host and two phones', async () => {
 
   host.emit('host:start');
   const questionDisplay = await waitForState(display, (state) => state.phase === 'question');
-  assert.ok(questionDisplay.question);
-  assert.equal(questionDisplay.question.correctIndex, undefined);
+  assert.ok(questionDisplay.round.questions[0]);
+  assert.equal(questionDisplay.round.questions[0].correctIndex, undefined);
   assert.ok(questionDisplay.grids.every((grid) => grid.cells.flat().every((cell) => cell !== 'ship')));
 
-  const questionHost = await waitForState(host, (state) => state.phase === 'question' && state.question?.correctIndex !== undefined);
-  const correct = questionHost.question.correctIndex;
+  const questionHost = await waitForState(host, (state) => state.phase === 'question' && state.round?.questions?.[0]?.correctIndex !== undefined);
+  const correct = questionHost.round.questions[0].correctIndex;
 
-  const answeredHost = waitForState(host, (state) => state.answerStats.details?.some((row) => row.name === 'Alice' && row.correct === true));
-  alpha.emit('player:answer', { questionId: questionHost.question.id, optionIndex: correct });
+  const answeredHost = waitForState(host, (state) => state.answerStats.details?.some((row) => row.name === 'Alice' && row.correctCount > 0));
+  alpha.emit('player:answer', { questionId: questionHost.round.questions[0].id, optionIndex: correct });
   await answeredHost;
 
-  const alphaAwarded = await waitForState(alpha, (state) => state.me?.missiles === 1);
-  assert.equal(alphaAwarded.me.answer.correct, true);
-  assert.equal(alphaAwarded.me.answer.awarded, true);
+  const alphaAwarded = await waitForState(alpha, (state) => state.me?.missiles === 3);
+  assert.equal(alphaAwarded.me.roundAnswers[questionHost.round.questions[0].id]?.correct, true);
+  assert.equal(alphaAwarded.me.roundAnswers[questionHost.round.questions[0].id]?.awarded, true);
 
   host.emit('host:reveal');
   const revealDisplay = await waitForState(display, (state) => state.phase === 'reveal');
-  assert.equal(revealDisplay.question.correctIndex, correct);
-  assert.ok(revealDisplay.question.explanation.length > 10);
+  assert.equal(revealDisplay.round.questions[0].correctIndex, correct);
+  assert.ok(revealDisplay.round.questions[0].explanation.length > 10);
 
   host.emit('host:battle');
   await waitForState(display, (state) => state.phase === 'battle');
 
   const battleHost = await waitForState(host, (state) => state.phase === 'battle');
   const target = battleHost.grids.find((grid) => grid.ownerTeamId === 't2');
-  const cell = target.ships[0].cells[0];
   const shotPromise = waitForState(display, (state) => state.shots.length > 0);
-  alpha.emit('player:fire', { targetGridId: target.id, col: cell.col, row: cell.row, nonce: 'n1' });
+  alpha.emit('player:fire', { targetGridId: target.id, col: target.ships[0].cells[0].col, row: target.ships[0].cells[0].row, nonce: 'n1' });
   const afterShot = await shotPromise;
-  assert.equal(afterShot.shots[0].coord, `${'ABCDEFGHIJ'[cell.col]}${cell.row + 1}`);
+  assert.equal(afterShot.shots[0].coord, `${'ABCDEFGHIJ'[target.ships[0].cells[0].col]}${target.ships[0].cells[0].row + 1}`);
+
+  // Fire the remaining missiles.
+  for (let i = 1; i < 3; i++) {
+    const c = target.ships[0].cells[i] || { col: 9, row: 9 - i };
+    const p = waitForState(display, (state) => state.shots.length > i);
+    alpha.emit('player:fire', { targetGridId: target.id, col: c.col, row: c.row, nonce: `n${i + 1}` });
+    await p;
+  }
 
   const exhausted = await waitForState(alpha, (state) => state.me?.missiles === 0);
   assert.equal(exhausted.me.canFire, false);
 
   // No missiles left - a second shot must be rejected.
   const errorPromise = once(alpha, 'game:error');
-  alpha.emit('player:fire', { targetGridId: target.id, col: 8, row: 8, nonce: 'n2' });
+  alpha.emit('player:fire', { targetGridId: target.id, col: 7, row: 7, nonce: 'nX' });
   const error = await errorPromise;
   assert.equal(error.code, 'NO_MISSILES');
 
@@ -163,16 +170,16 @@ test('a restored snapshot keeps players, code and scores', async () => {
   game.join({ code: game.code, name: 'Alice', teamId: 't1' });
   game.join({ code: game.code, name: 'Bob', teamId: 't2' });
   game.start();
-  const correct = game.round.question.correctIndex;
+  const correct = game.round.questions[0].question.correctIndex;
   const alice = [...game.players.values()][0];
-  game.submitAnswer(alice.id, game.round.questionId, correct);
+  game.submitAnswer(alice.id, game.round.questions[0].questionId, correct);
   const snapshot = JSON.parse(JSON.stringify(game.toJSON()));
 
   const revived = new (game.constructor)({ store: game.store, snapshot });
   assert.equal(revived.code, game.code);
   assert.equal(revived.players.size, 2);
   assert.equal(revived.phase, 'question');
-  assert.equal(revived.getTeam(alice.teamId).missiles, 1);
+  assert.equal(revived.getTeam(alice.teamId).missiles, 3);
   assert.equal(revived.players.get(alice.id).connected, false);
   revived.resumeAfterRestore();
   revived._clearTimer();

@@ -138,6 +138,9 @@ export class Game extends EventEmitter {
     if ('questionSeconds' in patch) {
       next.questionSeconds = clamp(toInt(patch.questionSeconds, 30), 0, LIMITS.maxQuestionSeconds);
     }
+    if ('questionsPerRound' in patch) {
+      next.questionsPerRound = clamp(toInt(patch.questionsPerRound, 5), 1, LIMITS.maxQuestionsPerRound);
+    }
     if ('revealSeconds' in patch) {
       next.revealSeconds = clamp(toInt(patch.revealSeconds, 10), 0, 120);
     }
@@ -523,32 +526,42 @@ export class Game extends EventEmitter {
       });
     }
 
+    const roundSize = Math.max(1, Math.min(this.settings.questionsPerRound || 1, this.store.count));
     if (!this.deck.length) this.deck = shuffle(this.store.ids(), this.rng);
-    let question = null;
-    while (this.deck.length) {
+
+    const questions = [];
+    while (questions.length < roundSize && this.deck.length) {
       const id = this.deck.pop();
-      question = this.store.get(id);
-      if (question) break;
+      const question = this.store.get(id);
+      if (question) questions.push(question);
     }
-    if (!question) {
+    // Reshuffle if the deck ran dry before the round was full.
+    if (questions.length < roundSize) {
       this.deck = shuffle(this.store.ids(), this.rng);
-      const id = this.deck.pop();
-      question = id ? this.store.get(id) : null;
+      while (questions.length < roundSize && this.deck.length) {
+        const id = this.deck.pop();
+        const question = this.store.get(id);
+        if (question && !questions.some((q) => q.id === question.id)) questions.push(question);
+      }
     }
-    assert(question, 'NO_QUESTIONS', 'There are no questions available.');
+    assert(questions.length > 0, 'NO_QUESTIONS', 'There are no questions available.');
 
-    for (const player of this.players.values()) player.round = null;
+    for (const player of this.players.values()) player.round = {};
 
-    this.askedCount += 1;
+    this.askedCount += questions.length;
+    const roundNumber = Math.ceil(this.askedCount / (this.settings.questionsPerRound || 1));
     this.round = {
-      questionId: question.id,
-      question: { ...question, options: [...question.options] },
-      number: this.askedCount,
+      number: roundNumber,
       startedAt: Date.now(),
       endsAt: null,
       revealedAt: null,
-      firstCorrectTeamId: null,
-      awards: [],
+      questions: questions.map((question, index) => ({
+        questionId: question.id,
+        question: { ...question, options: [...question.options] },
+        number: this.askedCount - questions.length + index + 1,
+        firstCorrectTeamId: null,
+        awards: [],
+      })),
     };
 
     this.phase = PHASES.QUESTION;
@@ -564,7 +577,8 @@ export class Game extends EventEmitter {
   submitAnswer(playerId, questionId, optionIndex) {
     assert(!this.paused, 'PAUSED', 'The game is paused.');
     assert(this.phase === PHASES.QUESTION, 'NOT_ACCEPTING_ANSWERS', 'Answers are closed.');
-    assert(this.round && this.round.questionId === questionId, 'STALE_QUESTION', 'That question is no longer active.');
+    const roundQuestion = (this.round?.questions || []).find((q) => q.questionId === questionId);
+    assert(roundQuestion, 'STALE_QUESTION', 'That question is no longer active.');
 
     const player = this.players.get(playerId);
     assert(player, 'PLAYER_NOT_FOUND', 'Player not found.');
@@ -573,23 +587,26 @@ export class Game extends EventEmitter {
     assert(!team.eliminated, 'ELIMINATED', 'Your fleet has been destroyed - you are spectating.');
 
     const index = toInt(optionIndex, -1);
-    const optionCount = this.round.question.options.length;
+    const optionCount = roundQuestion.question.options.length;
     assert(index >= 0 && index < optionCount, 'INVALID_ANSWER', 'Choose one of the available answers.');
 
-    const existing = player.round;
+    if (!player.round) player.round = {};
+    const existing = player.round[questionId];
     if (existing?.locked) throw new GameError('ANSWER_LOCKED', 'Your answer is already locked in.');
 
     const attempts = (existing?.attempts || 0) + 1;
-    const correct = index === this.round.question.correctIndex;
+    const correct = index === roundQuestion.question.correctIndex;
 
-    player.round = {
+    const answer = {
       questionId,
       attempts,
       answerIndex: index,
       correct,
       locked: correct || attempts >= this.settings.maxAttempts,
       at: Date.now(),
+      awarded: false,
     };
+    player.round[questionId] = answer;
     player.totals.answers += 1;
 
     if (correct) {
@@ -597,9 +614,9 @@ export class Game extends EventEmitter {
       team.stats.correctAnswers += 1;
       team.score += POINTS.correct;
 
-      const isFirst = this.round.firstCorrectTeamId === null;
+      const isFirst = roundQuestion.firstCorrectTeamId === null;
       if (isFirst) {
-        this.round.firstCorrectTeamId = team.id;
+        roundQuestion.firstCorrectTeamId = team.id;
         team.score += POINTS.firstBonus;
       }
 
@@ -608,10 +625,11 @@ export class Game extends EventEmitter {
       const award = withinCap && (this.settings.awardMode === AWARD_MODES.ALL || isFirst);
 
       if (award) {
-        team.missiles += 1;
-        team.stats.missilesEarned += 1;
-        player.round.awarded = true;
-        this.round.awards.push({
+        const missileAward = 3;
+        team.missiles += missileAward;
+        team.stats.missilesEarned += missileAward;
+        answer.awarded = true;
+        roundQuestion.awards.push({
           teamId: team.id,
           teamName: team.name,
           playerName: player.name,
@@ -628,7 +646,7 @@ export class Game extends EventEmitter {
     }
 
     this.touch();
-    return player.round;
+    return answer;
   }
 
   revealQuestion() {
@@ -1025,7 +1043,7 @@ export class Game extends EventEmitter {
         connected: false,
       })),
       grids: [...this.grids.values()].map((grid) => grid.toJSON()),
-      round: this.round ? { ...this.round, question: { ...this.round.question, options: [...this.round.question.options] }, awards: [...this.round.awards] } : null,
+      round: this.round ? { ...this.round, questions: this.round.questions.map((q) => ({ ...q, question: { ...q.question, options: [...q.question.options] }, awards: [...q.awards] })) } : null,
       shots: this.shots.map((shot) => ({ ...shot })),
       deck: [...this.deck],
       askedCount: this.askedCount,
@@ -1072,7 +1090,7 @@ export class Game extends EventEmitter {
         return [restored.id, restored];
       }));
       this.round = snapshot.round
-        ? { ...snapshot.round, question: { ...snapshot.round.question, options: [...snapshot.round.question.options] }, awards: [...(snapshot.round.awards ?? [])] }
+        ? { ...snapshot.round, questions: (snapshot.round.questions ?? []).map((q) => ({ ...q, question: { ...q.question, options: [...q.question.options] }, awards: [...(q.awards ?? [])] })) }
         : null;
       this.shots = (snapshot.shots ?? []).map((shot) => ({ ...shot }));
       this.deck = [...(snapshot.deck ?? [])];

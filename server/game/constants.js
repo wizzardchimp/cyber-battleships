@@ -61,6 +61,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   missileCap: 0, // 0 = unlimited
   missilesRetained: true,
   questionSeconds: 30, // 0 = no timer
+  questionsPerRound: 5,
   revealSeconds: 10,
   autoIntervalSeconds: 30,
   questionMode: QUESTION_MODES.MANUAL,
@@ -79,6 +80,7 @@ export const LIMITS = Object.freeze({
   maxOptionLength: 200,
   maxExplanationLength: 800,
   maxQuestionSeconds: 300,
+  maxQuestionsPerRound: 10,
   maxAttempts: 3,
 });
 
