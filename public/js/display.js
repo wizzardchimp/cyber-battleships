@@ -87,7 +87,81 @@ soundToggle.addEventListener('click', () => {
 syncSoundLabel();
 
 const socket = connect();
-let connected = false;
+let hostToken = localStorage.getItem('cb.hostToken') || '';
+let pendingNext = false;
+
+socket.on('host:ok', ({ token } = {}) => {
+  if (token) {
+    hostToken = String(token);
+    localStorage.setItem('cb.hostToken', hostToken);
+  }
+  if (pendingNext) {
+    pendingNext = false;
+    socket.emit('host:next');
+  }
+});
+
+socket.on('host:denied', () => {
+  hostToken = '';
+  localStorage.removeItem('cb.hostToken');
+  pendingNext = false;
+  showToast('Presenter PIN rejected.', 'bad');
+});
+
+function requestNextQuestion() {
+  if (pendingNext) return;
+  if (hostToken) {
+    socket.emit('host:next');
+    return;
+  }
+  const pin = window.prompt('Enter the presenter PIN to advance the question');
+  if (!pin) return;
+  pendingNext = true;
+  socket.emit('host:auth', { pin: pin.trim() });
+  window.setTimeout(() => {
+    if (pendingNext) {
+      pendingNext = false;
+      showToast('No response from the server.', 'warn');
+    }
+  }, 5000);
+}
+
+function toggleFullscreen() {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen?.().catch(() => {
+      showToast('Fullscreen is not available in this browser.', 'warn');
+    });
+  } else {
+    document.exitFullscreen?.();
+  }
+}
+
+// Floating controls for the projector operator.
+const controlBar = document.createElement('div');
+controlBar.className = 'display-controls';
+controlBar.innerHTML = `
+  <button type="button" class="display-control" data-action="next" title="Next question (N / Space / →)">NEXT ▶</button>
+  <button type="button" class="display-control" data-action="fullscreen" title="Toggle fullscreen (F)">⛶</button>`;
+document.body.appendChild(controlBar);
+
+controlBar.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-action]');
+  if (!button) return;
+  if (button.dataset.action === 'next') requestNextQuestion();
+  else if (button.dataset.action === 'fullscreen') toggleFullscreen();
+});
+
+document.addEventListener('keydown', (event) => {
+  const tag = (event.target?.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+  if (event.key === ' ' || event.key === 'ArrowRight' || event.key === 'n' || event.key === 'N') {
+    event.preventDefault();
+    requestNextQuestion();
+  } else if (event.key === 'f' || event.key === 'F' || event.key === 'F11') {
+    event.preventDefault();
+    toggleFullscreen();
+  }
+});
 
 socket.on('connect', () => {
   connected = true;

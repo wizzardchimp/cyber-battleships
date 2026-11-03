@@ -1861,3 +1861,32 @@ table.results tr.winner-row {
   .battle-grids.count-3 { grid-template-columns: 1fr; overflow-y: auto; }
   .grid-panel { max-width: 100%; }
 }
+
+/* ------------------------------------------------------------------ projector controls */
+.display-controls {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 110;
+  display: flex;
+  gap: 8px;
+  opacity: 0.55;
+  transition: opacity 0.2s ease;
+}
+.display-controls:hover { opacity: 1; }
+.display-control {
+  background: rgba(6, 24, 38, 0.9);
+  border: 1px solid rgba(37, 230, 255, 0.4);
+  color: #eaf6ff;
+  border-radius: 8px;
+  padding: 0.55rem 0.85rem;
+  font-family: inherit;
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+}
+.display-control:hover {
+  background: rgba(37, 230, 255, 0.18);
+  border-color: #25e6ff;
+}

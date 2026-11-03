@@ -2052,6 +2052,35 @@ function fleetMatches(payload, ships) {
   });
 }
 
+/* ---------------------------------------------------------------- keyboard shortcuts */
+document.addEventListener('keydown', (event) => {
+  const tag = (event.target?.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+  if (event.metaKey || event.ctrlKey || event.altKey) return;
+
+  if (event.key === ' ' || event.key === 'ArrowRight' || event.key === 'n' || event.key === 'N') {
+    if (!state || state.phase === 'lobby' || state.phase === 'ended') return;
+    event.preventDefault();
+    socket.emit('host:next');
+  } else if (event.key === 'r' || event.key === 'R') {
+    if (!state || state.phase !== 'question') return;
+    event.preventDefault();
+    socket.emit('host:reveal');
+  } else if (event.key === 'b' || event.key === 'B') {
+    if (!state || (state.phase !== 'question' && state.phase !== 'reveal')) return;
+    event.preventDefault();
+    socket.emit('host:battle');
+  } else if (event.key === 'p' || event.key === 'P') {
+    if (!state || state.phase === 'lobby' || state.phase === 'ended') return;
+    event.preventDefault();
+    socket.emit('host:pause', { paused: !state.paused });
+  } else if (event.key === 'f' || event.key === 'F' || event.key === 'F11') {
+    event.preventDefault();
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
+    else document.exitFullscreen?.();
+  }
+});
+
 /* --------------------------------------------------------------------- init */
 
 document.addEventListener('pointerdown', () => {
