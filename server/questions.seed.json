@@ -1,0 +1,426 @@
+{
+  "version": 1,
+  "updated": "2026-01-01T00:00:00.000Z",
+  "questions": [
+    {
+      "id": "q001",
+      "topic": "Phishing",
+      "difficulty": 1,
+      "question": "An email from 'IT Support' says your mailbox is full and you must click a link to confirm your password. What should you do first?",
+      "options": [
+        "Click the link and enter your password so your mailbox keeps working",
+        "Reply to the sender asking them to prove they are genuine",
+        "Report the message as phishing and contact IT through a known, separate channel",
+        "Forward it to colleagues so everyone is aware"
+      ],
+      "correctIndex": 2,
+      "explanation": "Urgency plus a request for credentials is the classic phishing pattern. Report it with the phishing button and verify through a channel you already trust - never by replying or clicking the link."
+    },
+    {
+      "id": "q002",
+      "topic": "Phishing",
+      "difficulty": 1,
+      "question": "Which unexpected email attachment should make you most suspicious?",
+      "options": [
+        "A holiday photo saved as .jpg",
+        "An executable or compressed archive (.exe or .zip) you were not expecting",
+        "A meeting invitation in your calendar",
+        "A PDF invoice from a supplier you know"
+      ],
+      "correctIndex": 1,
+      "explanation": "Executables and archives are common malware carriers. Even files that look harmless, such as PDFs, should be verified when unexpected - but a surprise .exe or .zip is a major red flag."
+    },
+    {
+      "id": "q003",
+      "topic": "Phishing",
+      "difficulty": 2,
+      "question": "What makes spear phishing more dangerous than a generic phishing email?",
+      "options": [
+        "It is always sent from a government address",
+        "It is researched and personalised for a specific person or team",
+        "It only targets people without antivirus software",
+        "It never contains links or attachments"
+      ],
+      "correctIndex": 1,
+      "explanation": "Spear phishing uses real names, projects and context gathered from social media or previous breaches, making the request far more convincing. Verify unusual requests through a second channel."
+    },
+    {
+      "id": "q004",
+      "topic": "Social engineering",
+      "difficulty": 1,
+      "question": "Someone in a courier uniform tries to follow you through a secure door without swiping a badge. What is the best response?",
+      "options": [
+        "Hold the door open - the uniform proves they are legitimate",
+        "Politely challenge them and direct them to reception to be signed in",
+        "Ignore them and walk on quickly",
+        "Take their parcel and let them wait outside"
+      ],
+      "correctIndex": 1,
+      "explanation": "Tailgating bypasses every access control you have. A friendly challenge and a redirect to reception is not rude - it is exactly what a security-aware organisation expects."
+    },
+    {
+      "id": "q005",
+      "topic": "Social engineering",
+      "difficulty": 2,
+      "question": "An attacker invents a believable scenario - such as an urgent audit - to manipulate you into revealing information. What is this technique called?",
+      "options": [
+        "Pretexting",
+        "Patching",
+        "Port scanning",
+        "Phishing simulation"
+      ],
+      "correctIndex": 0,
+      "explanation": "Pretexting is a fabricated story used to establish trust and justify an unusual request. The defence is to verify identity and authority through an independent channel."
+    },
+    {
+      "id": "q006",
+      "topic": "Password security",
+      "difficulty": 1,
+      "question": "Why is reusing the same password across multiple services dangerous?",
+      "options": [
+        "It makes your keyboard wear out faster",
+        "A breach at one service can be used to access all your other accounts",
+        "Websites automatically share passwords with each other",
+        "It slows down your internet connection"
+      ],
+      "correctIndex": 1,
+      "explanation": "Attackers replay stolen username and password pairs against other services - credential stuffing. One breach then becomes many. Every account needs its own unique password."
+    },
+    {
+      "id": "q007",
+      "topic": "Password security",
+      "difficulty": 2,
+      "question": "Which of these is the strongest password approach?",
+      "options": [
+        "P@ssw0rd! - it has symbols and numbers",
+        "The same long random password everywhere",
+        "A long unique passphrase for each account, stored in a password manager",
+        "Your pet's name plus your birth year"
+      ],
+      "correctIndex": 2,
+      "explanation": "Length and uniqueness beat complexity tricks. A password manager lets you use a different long passphrase for every account without memorising them all."
+    },
+    {
+      "id": "q008",
+      "topic": "Password security",
+      "difficulty": 1,
+      "question": "Where should you store your work passwords?",
+      "options": [
+        "In a spreadsheet on your desktop",
+        "In a note taped inside your desk drawer",
+        "In an approved password manager",
+        "In your browser's autofill with no master password"
+      ],
+      "correctIndex": 2,
+      "explanation": "Use the password manager approved by your organisation. Spreadsheets and notes are easily copied, and an unprotected browser store is trivial to extract from a stolen device."
+    },
+    {
+      "id": "q009",
+      "topic": "Multi-factor authentication",
+      "difficulty": 1,
+      "question": "What does multi-factor authentication (MFA) add to a password?",
+      "options": [
+        "A second password that must be different",
+        "An additional proof of identity from a different category, such as a device or biometric",
+        "A longer password expiry period",
+        "A backup email address"
+      ],
+      "correctIndex": 1,
+      "explanation": "MFA combines something you know with something you have or are - for example a password plus an authenticator code or security key. A stolen password alone is then not enough."
+    },
+    {
+      "id": "q010",
+      "topic": "Multi-factor authentication",
+      "difficulty": 2,
+      "question": "Which second factor is generally the most resistant to phishing?",
+      "options": [
+        "A code sent by SMS",
+        "A code sent to your email",
+        "A hardware security key using FIDO2/WebAuthn",
+        "A security question about your first school"
+      ],
+      "correctIndex": 2,
+      "explanation": "Hardware security keys bind the login to the real website origin, so a fake login page cannot reuse the response. SMS and email codes can be intercepted or relayed."
+    },
+    {
+      "id": "q011",
+      "topic": "Multi-factor authentication",
+      "difficulty": 2,
+      "question": "Your phone receives five MFA approval prompts you did not initiate. What should you do?",
+      "options": [
+        "Approve one so the prompts stop",
+        "Ignore them and wait for them to expire",
+        "Deny them and report the activity - someone may already know your password",
+        "Turn your phone off and say nothing"
+      ],
+      "correctIndex": 2,
+      "explanation": "This is MFA fatigue or push bombing. Repeated prompts mean an attacker has your password and is trying to wear you down. Deny, report to IT, and change your password."
+    },
+    {
+      "id": "q012",
+      "topic": "Ransomware",
+      "difficulty": 1,
+      "question": "You suspect a file server is infected with ransomware. What is the safest first step?",
+      "options": [
+        "Disconnect it from the network and report it to IT security immediately",
+        "Restart it several times to see if the problem clears",
+        "Move important files to a USB drive",
+        "Pay the ransom quickly to get the files back"
+      ],
+      "correctIndex": 0,
+      "explanation": "Containment comes first. Isolating the device limits encryption and spread, and preserves evidence. Do not move files to removable media - you may carry the malware with them."
+    },
+    {
+      "id": "q013",
+      "topic": "Ransomware",
+      "difficulty": 2,
+      "question": "Which backup approach best protects an organisation from ransomware?",
+      "options": [
+        "One copy on a network drive mapped to every PC",
+        "Offline or immutable backups that are regularly tested for restore",
+        "A copy in the same server room as the live data",
+        "Weekly screenshots of important folders"
+      ],
+      "correctIndex": 1,
+      "explanation": "Ransomware hunts for connected backups. Offline or immutable copies, tested regularly, are the reliable way back. The 3-2-1 rule - three copies, two media types, one off-site - is a useful guide."
+    },
+    {
+      "id": "q014",
+      "topic": "Ransomware",
+      "difficulty": 1,
+      "question": "Why should you avoid enabling macros in a document received unexpectedly?",
+      "options": [
+        "Macros make the document too large to email",
+        "Macros can run code that installs malware",
+        "Macros stop the document from printing",
+        "Macros are only available to administrators"
+      ],
+      "correctIndex": 1,
+      "explanation": "Office macros are a well-used route for delivering malware, including ransomware. Treat any 'enable content' prompt on an unexpected document as a warning sign."
+    },
+    {
+      "id": "q015",
+      "topic": "Business email compromise",
+      "difficulty": 2,
+      "question": "An email appears to be from your CEO asking you to buy gift cards urgently and keep it confidential. What should you do?",
+      "options": [
+        "Buy the cards - it is the CEO",
+        "Reply to the email asking for confirmation",
+        "Verify the request with the CEO or a second manager using a known phone number",
+        "Forward the email to a colleague and ask them to handle it"
+      ],
+      "correctIndex": 2,
+      "explanation": "Urgency, secrecy and unusual payment methods are business email compromise hallmarks. Reply-to verification fails because the attacker controls the mailbox. Call a known number instead."
+    },
+    {
+      "id": "q016",
+      "topic": "Business email compromise",
+      "difficulty": 2,
+      "question": "A supplier emails to say their bank details have changed. What is the correct action?",
+      "options": [
+        "Update the payment details and pay the next invoice",
+        "Call the supplier on a previously known number to verify the change",
+        "Reply to the email and ask them to confirm the new account",
+        "Wait until the next invoice arrives and check the logo"
+      ],
+      "correctIndex": 1,
+      "explanation": "Payment-diversion fraud relies on you trusting the email itself. Verify using contact details you already hold, not the phone number or reply-to address in the suspicious message."
+    },
+    {
+      "id": "q017",
+      "topic": "Data protection",
+      "difficulty": 2,
+      "question": "What does the principle of least privilege mean?",
+      "options": [
+        "Everyone should have administrator rights so they can fix problems",
+        "People should only have the access they need for their current role",
+        "Access should be reviewed once every five years",
+        "Only senior managers may use email"
+      ],
+      "correctIndex": 1,
+      "explanation": "Least privilege limits the damage a compromised account or malicious insider can do. Access should be granted for a clear purpose and removed promptly when no longer needed."
+    },
+    {
+      "id": "q018",
+      "topic": "Data protection",
+      "difficulty": 3,
+      "question": "Under UK GDPR, how long do organisations generally have to report a serious personal data breach to the regulator?",
+      "options": [
+        "24 hours",
+        "72 hours",
+        "30 days",
+        "There is no time limit"
+      ],
+      "correctIndex": 1,
+      "explanation": "Where a breach is likely to result in a risk to people's rights and freedoms, the organisation must notify the regulator without undue delay and, where feasible, within 72 hours of becoming aware."
+    },
+    {
+      "id": "q019",
+      "topic": "Data protection",
+      "difficulty": 1,
+      "question": "Which of these is personal data?",
+      "options": [
+        "A company's public website address",
+        "A customer's name, home address and order history",
+        "The model of a office printer",
+        "A generic support mailbox address"
+      ],
+      "correctIndex": 1,
+      "explanation": "Personal data is information relating to an identified or identifiable living person. Names, addresses and purchase history all count and must be handled lawfully and securely."
+    },
+    {
+      "id": "q020",
+      "topic": "Cyber fraud",
+      "difficulty": 2,
+      "question": "Which control best defends against invoice or mandate fraud?",
+      "options": [
+        "Paying suppliers faster to avoid complaints",
+        "Verifying any change of bank details by calling a known contact",
+        "Using a shared finance mailbox for all payments",
+        "Relying on the supplier's email signature"
+      ],
+      "correctIndex": 1,
+      "explanation": "Mandate fraud succeeds when a convincing email changes payment details. An independent callback to a number you already hold breaks the attack chain."
+    },
+    {
+      "id": "q021",
+      "topic": "Cyber fraud",
+      "difficulty": 1,
+      "question": "An online investment offer promises guaranteed high returns if you act within the hour. What is the most likely explanation?",
+      "options": [
+        "A legitimate limited-time offer",
+        "A scam using urgency and unrealistic returns",
+        "A normal bank promotion",
+        "A government savings scheme"
+      ],
+      "correctIndex": 1,
+      "explanation": "Guaranteed high returns and time pressure are classic investment fraud signals. Genuine investments carry risk and never need an instant bank transfer to a stranger."
+    },
+    {
+      "id": "q022",
+      "topic": "Online safety",
+      "difficulty": 1,
+      "question": "You need to check your bank account while using public Wi-Fi in a cafe. What is the safest option?",
+      "options": [
+        "Use the cafe Wi-Fi - it is password protected",
+        "Use your mobile data or a trusted VPN instead",
+        "Ask another customer to log in for you",
+        "Disable your device password to speed things up"
+      ],
+      "correctIndex": 1,
+      "explanation": "A café password is shared with everyone in the room and says nothing about the network's safety. Mobile data or a trusted VPN avoids untrusted networks for sensitive activity."
+    },
+    {
+      "id": "q023",
+      "topic": "Online safety",
+      "difficulty": 2,
+      "question": "Why is posting real-time holiday photos on social media a security risk?",
+      "options": [
+        "It uses too much mobile data",
+        "It publicly advertises that your home is empty and reveals your location",
+        "It makes your phone battery drain faster",
+        "It can damage your camera"
+      ],
+      "correctIndex": 1,
+      "explanation": "Criminals use social media to time burglaries and to build convincing social engineering stories. Share the trip afterwards, and review your privacy settings."
+    },
+    {
+      "id": "q024",
+      "topic": "Device security",
+      "difficulty": 1,
+      "question": "Why should you install operating system and software updates promptly?",
+      "options": [
+        "They change the wallpaper automatically",
+        "They fix known security vulnerabilities that attackers actively exploit",
+        "They make your device run slower on purpose",
+        "They are only needed for new devices"
+      ],
+      "correctIndex": 1,
+      "explanation": "Updates close vulnerabilities that are often public and actively exploited within days. Delaying updates leaves a known door open. Enable automatic updates where possible."
+    },
+    {
+      "id": "q025",
+      "topic": "Device security",
+      "difficulty": 2,
+      "question": "Your work phone is lost. What should you do first?",
+      "options": [
+        "Wait a few days in case it turns up",
+        "Report it immediately so it can be located, locked or wiped remotely",
+        "Change your wallpaper from another device",
+        "Post about it on social media"
+      ],
+      "correctIndex": 1,
+      "explanation": "Fast reporting limits access to email, files and saved credentials. Device encryption and a screen lock are your safety net, but they do not replace reporting."
+    },
+    {
+      "id": "q026",
+      "topic": "Insider threats",
+      "difficulty": 2,
+      "question": "An employee who is leaving asks to copy the customer database 'for reference'. What is the correct response?",
+      "options": [
+        "Allow it - they built the database",
+        "Refuse, explain the policy and report the request through the proper channel",
+        "Copy it for them yourself",
+        "Send it to their personal email to avoid arguments"
+      ],
+      "correctIndex": 1,
+      "explanation": "Departing staff are a recognised data-loss risk. Access should be removed on schedule, and requests for bulk copies should be refused and reported, not negotiated informally."
+    },
+    {
+      "id": "q027",
+      "topic": "Insider threats",
+      "difficulty": 1,
+      "question": "A colleague asks to borrow your login to finish a task while you are on leave. What should you do?",
+      "options": [
+        "Share your password - it is only for one day",
+        "Write the password on a sticky note for them",
+        "Never share credentials; arrange delegated access with the right permissions",
+        "Let them use your session while you watch"
+      ],
+      "correctIndex": 2,
+      "explanation": "Shared accounts destroy accountability and are a gift to insider threats. Use proper delegation so actions are attributable and limited to what the task needs."
+    },
+    {
+      "id": "q028",
+      "topic": "Cyber crime prevention",
+      "difficulty": 1,
+      "question": "You receive a text saying a parcel is waiting and asking you to click a link to pay a small fee. What should you do?",
+      "options": [
+        "Click the link - the fee is tiny",
+        "Reply with your card details",
+        "Do not click; check the delivery through the courier's official app or website",
+        "Forward it to friends to warn them"
+      ],
+      "correctIndex": 2,
+      "explanation": "Smishing uses small payments and curiosity to harvest card details. Navigate to the courier yourself rather than trusting the link, and report the message."
+    },
+    {
+      "id": "q029",
+      "topic": "Cyber crime prevention",
+      "difficulty": 1,
+      "question": "You find a USB drive in the office car park. What should you do?",
+      "options": [
+        "Plug it into your laptop to see who owns it",
+        "Hand it to IT or security without connecting it",
+        "Take it home and format it for personal use",
+        "Try it on a colleague's computer first"
+      ],
+      "correctIndex": 1,
+      "explanation": "Dropped USB drives are a classic way to deliver malware - sometimes called baiting. Never connect unknown media. Give it to IT so it can be handled safely."
+    },
+    {
+      "id": "q030",
+      "topic": "Cyber crime prevention",
+      "difficulty": 2,
+      "question": "Which combination gives the strongest everyday protection for a work account?",
+      "options": [
+        "A short password changed every week",
+        "A unique long passphrase plus phishing-resistant MFA",
+        "Antivirus alone",
+        "Using the same password as your personal email"
+      ],
+      "correctIndex": 1,
+      "explanation": "A unique long passphrase defeats credential reuse and brute force, while phishing-resistant MFA blocks most account takeover even if the password leaks. Layer both."
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#02070d" />
+  <title>CYBER BATTLESHIPS — Operator Console</title>
+  <link rel="stylesheet" href="/css/base.css" />
+  <link rel="stylesheet" href="/css/play.css" />
+</head>
+<body class="play-body">
+  <div class="play-bg" aria-hidden="true"></div>
+
+  <section id="joinView" class="join-view">
+    <div class="join-card">
+      <div class="join-mark" aria-hidden="true">◈</div>
+      <span class="eyebrow">Operator uplink</span>
+      <h1>CYBER<br /><b>BATTLESHIPS</b></h1>
+      <p class="join-lede">Join the live cyber defence exercise. Answer security briefings, earn missiles and sink the opposing fleet.</p>
+
+      <form id="joinForm" novalidate>
+        <label class="field">
+          <span>Call sign</span>
+          <input id="joinName" name="name" type="text" maxlength="20" autocomplete="nickname" placeholder="e.g. Raven" required />
+        </label>
+        <label class="field">
+          <span>Game code</span>
+          <input id="joinCode" name="code" type="text" maxlength="6" inputmode="text" autocomplete="off" spellcheck="false" placeholder="ABC12" required />
+        </label>
+        <div class="field" id="teamField">
+          <span>Strike team</span>
+          <div id="teamChoices" class="team-choices"></div>
+        </div>
+        <button id="joinButton" class="btn btn-primary btn-lg btn-block" type="submit">ESTABLISH UPLINK</button>
+      </form>
+
+      <p id="joinError" class="join-error hidden" role="alert"></p>
+      <p id="joinNote" class="join-note">No download. No account. Keep this page open during the session.</p>
+    </div>
+  </section>
+
+  <section id="controller" class="controller hidden">
+    <header class="p-hud">
+      <div class="hud-identity">
+        <span id="hudTeam" class="hud-team">—</span>
+        <b id="hudPlayer">—</b>
+      </div>
+      <div class="hud-scores">
+        <div class="hud-stat"><span>Score</span><b id="hudScore">0</b></div>
+        <div class="hud-stat missiles"><span>Missiles</span><b id="hudMissiles">0</b></div>
+      </div>
+      <div class="hud-side">
+        <span id="hudPhase" class="hud-phase">STANDBY</span>
+        <button id="soundButton" class="sound-button" type="button" aria-label="Toggle sound">SND</button>
+      </div>
+    </header>
+
+    <main class="p-content">
+      <div id="quizPanel" class="p-panel"></div>
+      <div id="firePanel" class="p-panel hidden"></div>
+      <div id="fleetPanel" class="p-panel hidden"></div>
+    </main>
+
+    <nav class="p-nav" aria-label="Controller sections">
+      <button class="p-nav-btn active" data-tab="quiz" type="button"><span class="nav-icon">◈</span><span>Briefing</span></button>
+      <button class="p-nav-btn" data-tab="fire" type="button"><span class="nav-icon">▲</span><span>Fire</span><b id="navMissiles" class="nav-badge">0</b></button>
+      <button class="p-nav-btn" data-tab="fleet" type="button"><span class="nav-icon">▦</span><span>Fleet</span></button>
+    </nav>
+  </section>
+
+  <div id="resultOverlay" class="result-overlay hidden">
+    <div class="result-card">
+      <span class="eyebrow">Debrief</span>
+      <h2 id="resultTitle">OPERATION COMPLETE</h2>
+      <p id="resultWinner" class="result-winner">—</p>
+      <div id="resultStats" class="result-stats"></div>
+      <button id="resultClose" class="btn btn-primary btn-block" type="button">VIEW CONSOLE</button>
+    </div>
+  </div>
+
+  <div class="toast-layer" id="toasts" aria-live="polite"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="/js/play.js"></script>
+</body>
+</html>

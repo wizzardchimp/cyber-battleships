@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#02070d" />
+  <meta name="description" content="Cyber Battleships - a live multiplayer cyber security awareness game for teams." />
+  <title>CYBER BATTLESHIPS — Live Cyber Security Game</title>
+  <link rel="stylesheet" href="/css/base.css" />
+  <link rel="stylesheet" href="/css/landing.css" />
+</head>
+<body class="landing-body">
+  <div class="l-scene" aria-hidden="true">
+    <div class="l-radar"></div>
+    <div class="l-scan"></div>
+  </div>
+
+  <div class="landing-shell">
+    <header class="l-header">
+      <a class="l-brand" href="/">
+        <span class="l-mark" aria-hidden="true"><i></i></span>
+        <span class="l-brand-copy">
+          <span class="eyebrow">Cyber Awareness Operations</span>
+          <strong>CYBER <b>BATTLESHIPS</b></strong>
+        </span>
+      </a>
+      <nav class="l-nav" aria-label="Terminal links">
+        <a href="/display" class="icon-btn">PROJECTOR</a>
+        <a href="/host" class="icon-btn">PRESENTER</a>
+      </nav>
+    </header>
+
+    <main class="l-main">
+      <section class="l-hero">
+        <div class="l-copy">
+          <div class="l-kicker">
+            <span class="chip live">Live team exercise</span>
+            <span class="chip">No downloads</span>
+            <span class="chip">20–40 minutes</span>
+          </div>
+          <h1>SINK THE <span>THREAT.</span><br />DEFEND THE <span>FLEET.</span></h1>
+          <p class="l-lede">
+            A fast, competitive cyber security game for your team. Answer real-world
+            security questions to earn missiles, then hunt the opposing fleet on the
+            big screen. Every phone is a controller.
+          </p>
+
+          <form id="landingJoin" class="l-join" novalidate>
+            <label class="l-join-label" for="landingCode">Have a game code?</label>
+            <div class="l-join-row">
+              <input id="landingCode" type="text" inputmode="text" autocomplete="off" spellcheck="false"
+                maxlength="6" placeholder="ABC12" aria-describedby="landingHint" />
+              <button class="btn btn-primary btn-lg" type="submit">JOIN GAME</button>
+            </div>
+          </form>
+          <p id="landingHint" class="l-hint" role="status">Ask the presenter for the code shown on the projector.</p>
+
+          <div class="l-actions">
+            <a class="btn" href="/display">OPEN PROJECTOR</a>
+            <a class="btn btn-ghost" href="/host">PRESENTER CONSOLE</a>
+          </div>
+        </div>
+
+        <aside class="l-live panel" aria-label="Live session">
+          <div class="l-live-head">
+            <span class="eyebrow">Live session</span>
+            <span id="livePhase" class="chip">CONNECTING</span>
+          </div>
+          <div id="liveQr" class="l-qr">
+            <div class="l-qr-placeholder">Connecting to<br />operations server…</div>
+          </div>
+          <div class="l-code-row">
+            <span>Join code</span>
+            <b id="liveCode" class="mono">-----</b>
+          </div>
+          <div id="liveUrl" class="l-live-url">—</div>
+          <div id="liveStats" class="l-live-stats"></div>
+        </aside>
+      </section>
+
+      <section class="l-steps" aria-label="How it works">
+        <article class="l-step">
+          <span class="l-step-num">01</span>
+          <h3>Scan &amp; join</h3>
+          <p>Point your phone at the QR code, pick a call sign and join a strike team or fly solo.</p>
+        </article>
+        <article class="l-step">
+          <span class="l-step-num">02</span>
+          <h3>Answer fast</h3>
+          <p>Four cyber security options. First correct answer earns a missile — accuracy and speed both matter.</p>
+        </article>
+        <article class="l-step">
+          <span class="l-step-num">03</span>
+          <h3>Fire &amp; win</h3>
+          <p>Spend missiles on the hostile grid. Sink the fleet, protect your hull and top the scoreboard.</p>
+        </article>
+      </section>
+
+      <section class="l-topics" aria-label="Topics covered">
+        <span class="eyebrow">Briefing topics</span>
+        <div class="l-topic-list">
+          <span>Phishing</span><span>Social engineering</span><span>Password security</span>
+          <span>MFA</span><span>Ransomware</span><span>Business email compromise</span>
+          <span>Data protection</span><span>Cyber fraud</span><span>Online safety</span>
+          <span>Device security</span><span>Insider threats</span>
+        </div>
+      </section>
+    </main>
+
+    <footer class="l-footer">
+      <span>CYBER BATTLESHIPS</span>
+      <span>Runs on your laptop or a hosted server. No third-party assets.</span>
+      <span class="mono" id="footerBuild">v1.0</span>
+    </footer>
+  </div>
+
+  <div class="toast-layer" id="toasts" aria-live="polite"></div>
+  <script type="module" src="/js/landing.js"></script>
+</body>
+</html>

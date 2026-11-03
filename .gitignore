@@ -1,0 +1,8 @@
+node_modules/
+.DS_Store
+npm-debug.log*
+.env
+.env.local
+
+# Runtime data lives on a mounted volume in production; seed comes from server/questions.seed.json
+data/
