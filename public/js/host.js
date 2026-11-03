@@ -1196,8 +1196,9 @@ function handleControlAction(action) {
 }
 
 function renderQuestionPanel() {
-  const question = state.question;
-  if (!question) {
+  const round = state.round;
+  const questions = round?.questions || [];
+  if (!questions.length) {
     const copy = state.phase === 'lobby'
       ? 'No briefing yet. Start the operation from the lobby.'
       : (state.phase === 'ended' ? 'The debrief is complete.' : 'No active briefing.');
@@ -1205,40 +1206,51 @@ function renderQuestionPanel() {
     return;
   }
 
-  const firstTeam = question.firstCorrectTeamId ? teamById(question.firstCorrectTeamId) : null;
-  const awardCopy = state.settings.awardMode === 'first' ? 'First correct earns 1 missile' : 'Every correct answer earns 1 missile';
-  const awards = question.awards || [];
-  const signature = JSON.stringify({
-    id: question.id,
-    number: question.number,
-    phase: state.phase,
-    awards: awards.length,
-    first: question.firstCorrectTeamId,
-    settings: [state.settings.awardMode, state.settings.questionMode],
-  });
+  const awardCopy = state.settings.awardMode === 'first' ? 'First correct earns 3 missiles' : 'Correct earns 3 missiles';
+  const revealed = [PHASES.REVEAL, PHASES.BATTLE, PHASES.ENDED].includes(state.phase) || Boolean(round.revealedAt);
 
-  const options = question.options.map((option, index) => {
-    const correct = index === question.correctIndex;
+  const cards = questions.map((question) => {
+    const firstTeam = question.firstCorrectTeamId ? teamById(question.firstCorrectTeamId) : null;
+    const awards = question.awards || [];
+    const options = question.options.map((option, index) => {
+      const correct = revealed && index === question.correctIndex;
+      return `
+        <div class="q-option ${correct ? 'correct' : ''}">
+          <span class="letter">${COLUMN_LABELS[index]}</span>
+          <span>${esc(option)}</span>
+          ${correct ? '<span class="correct-tag">Correct</span>' : ''}
+        </div>`;
+    }).join('');
+
     return `
-      <div class="q-option ${correct ? 'correct' : ''}">
-        <span class="letter">${COLUMN_LABELS[index]}</span>
-        <span>${esc(option)}</span>
-        ${correct ? '<span class="correct-tag">Correct</span>' : ''}
+      <div class="q-card">
+        <div class="q-meta-row">
+          <span class="chip live">BRIEFING ${padQuestion(question.number)}</span>
+          <span class="chip">${esc(question.topic || 'Cyber security')}</span>
+          <span class="chip warn">LEVEL ${question.difficulty ?? 1}</span>
+          ${firstTeam ? `<span class="chip good">FIRST IN: ${esc(firstTeam.name)}</span>` : ''}
+        </div>
+        <div class="q-text">${esc(question.question)}</div>
+        <div class="q-options">${options}</div>
+        ${revealed && question.explanation ? `<div class="q-explanation"><b>Presenter note</b>${esc(question.explanation)}</div>` : ''}
+        ${awards.length ? `<div class="award-strip">${awards.map((award) => `<span class="award-pill">+3 ${esc(award.teamName)} · ${esc(award.playerName)}</span>`).join('')}</div>` : ''}
       </div>`;
   }).join('');
 
+  const signature = JSON.stringify({
+    round: round.number,
+    phase: state.phase,
+    ids: questions.map((q) => q.id),
+    awards: questions.map((q) => q.awards?.length || 0),
+  });
+
   const html = `
-    <div class="q-meta-row">
-      <span class="chip live">BRIEFING ${padQuestion(question.number)}</span>
-      <span class="chip">${esc(question.topic || 'Cyber security')}</span>
-      <span class="chip warn">LEVEL ${question.difficulty ?? 1}</span>
-      ${firstTeam ? `<span class="chip good">FIRST IN: ${esc(firstTeam.name)}</span>` : ''}
+    <div class="round-head">
+      <span class="chip live">ROUND ${round.number}</span>
+      <span class="chip">${questions.length} briefings</span>
       <span class="chip">${esc(awardCopy)}</span>
     </div>
-    <div class="q-text">${esc(question.question)}</div>
-    <div class="q-options">${options}</div>
-    ${question.explanation ? `<div class="q-explanation"><b>Presenter note</b>${esc(question.explanation)}</div>` : ''}
-    ${awards.length ? `<div class="award-strip">${awards.map((award) => `<span class="award-pill">+1 ${esc(award.teamName)} · ${esc(award.playerName)}</span>`).join('')}</div>` : ''}`;
+    <div class="question-stack">${cards}</div>`;
 
   paint('question-panel', signature, ui.questionPanel, html);
 }
@@ -1246,7 +1258,7 @@ function renderQuestionPanel() {
 function renderAnswerMonitor() {
   const stats = state.answerStats;
   const details = stats?.details || [];
-  if (!state.question || !details.length) {
+  if (!state.round?.questions?.length || !details.length) {
     paint('answer-monitor', 'empty', ui.answerMonitor, emptyHint('Answer monitor', 'Operator answers appear here during a briefing.'));
     return;
   }
@@ -1254,7 +1266,7 @@ function renderAnswerMonitor() {
   const total = stats.total || details.length;
   const percent = total ? Math.round((stats.answered / total) * 100) : 0;
   const signature = JSON.stringify({
-    id: state.question.id,
+    id: state.round?.questions?.map((q) => q.id).join(':'),
     answered: stats.answered,
     total,
     rows: details.map((row) => [row.playerId, row.attempts, row.answerIndex, row.correct, row.locked, row.awarded]),

@@ -439,33 +439,44 @@ function renderLobby() {
 /* ---------------------------------------------------------------- question */
 
 function renderQuestion() {
-  if (!state?.question) return;
-  const nextSignature = `${state.question.id}:${state.question.number}`;
+  if (!state?.round?.questions?.length) return;
+  const questions = state.round.questions;
+  const nextSignature = questions.map((q) => q.id).join(':');
   if (questionSignature === nextSignature) return;
   questionSignature = nextSignature;
-  const question = state.question;
   const letters = ['A', 'B', 'C', 'D'];
-  const awardCopy = state.settings.awardMode === 'first' ? 'First correct earns a missile' : 'Every correct answer earns a missile';
-  const difficulty = Math.max(1, Math.min(3, Number(question.difficulty) || 1));
+  const awardCopy = state.settings.awardMode === 'first' ? 'First correct earns missiles' : 'Correct earns missiles';
+
+  const cards = questions.map((question) => {
+    const difficulty = Math.max(1, Math.min(3, Number(question.difficulty) || 1));
+    return `
+      <div class="question-card">
+        <div class="q-meta">
+          <span class="chip live">Briefing ${String(question.number).padStart(2, '0')}</span>
+          <span class="chip">${esc(question.topic || 'Cyber security')}</span>
+          <span class="difficulty" title="Difficulty ${difficulty} of 3">${[1, 2, 3].map((level) => `<i class="${level <= difficulty ? 'on' : ''}"></i>`).join('')}</span>
+        </div>
+        <div class="q-body">
+          <h1 class="q-text">${esc(question.question)}</h1>
+          <div class="q-options">
+            ${question.options.map((option, index) => `
+              <div class="q-option">
+                <span class="q-letter">${letters[index]}</span>
+                <span class="q-copy">${esc(option)}</span>
+              </div>`).join('')}
+          </div>
+        </div>
+      </div>`;
+  }).join('');
 
   views.question.innerHTML = `
     <div class="question-stage">
-      <div class="q-meta">
-        <span class="chip live">Briefing ${String(question.number).padStart(2, '0')}</span>
-        <span class="chip">${esc(question.topic || 'Cyber security')}</span>
-        <span class="difficulty" title="Difficulty ${difficulty} of 3">${[1, 2, 3].map((level) => `<i class="${level <= difficulty ? 'on' : ''}"></i>`).join('')}</span>
+      <div class="round-head">
+        <span class="chip live">Round ${state.round.number}</span>
+        <span class="chip">${questions.length} briefings</span>
         <span class="chip warn">${esc(awardCopy)}</span>
       </div>
-      <div class="q-body">
-        <h1 class="q-text">${esc(question.question)}</h1>
-        <div class="q-options">
-          ${question.options.map((option, index) => `
-            <div class="q-option">
-              <span class="q-letter">${letters[index]}</span>
-              <span class="q-copy">${esc(option)}</span>
-            </div>`).join('')}
-        </div>
-      </div>
+      <div class="question-stack">${cards}</div>
       <div class="q-foot">
         <div class="q-live">
           <span class="count" id="qCount">0/${state.answerStats.total}</span>
@@ -481,7 +492,7 @@ function renderQuestion() {
 }
 
 function updateQuestionLive() {
-  if (!state?.question || state.phase !== 'question') return;
+  if (!state?.round?.questions?.length || state.phase !== 'question') return;
   const count = $('#qCount');
   if (count) count.textContent = `${state.answerStats.answered}/${state.answerStats.total}`;
   const names = $('#qNames');
@@ -491,21 +502,21 @@ function updateQuestionLive() {
 /* ------------------------------------------------------------------ reveal */
 
 function renderReveal() {
-  if (!state?.question) return;
-  const nextSignature = `${state.question.id}:${state.question.number}`;
+  if (!state?.round?.questions?.length) return;
+  const questions = state.round.questions;
+  const nextSignature = questions.map((q) => q.id).join(':');
   if (revealSignature === nextSignature) return;
   revealSignature = nextSignature;
-  const question = state.question;
   const letters = ['A', 'B', 'C', 'D'];
-  const correct = question.correctIndex ?? 0;
-  const awards = question.awards || [];
   const hint = state.settings.questionMode === 'auto'
     ? 'Auto-mode will open the battle phase shortly'
     : 'Presenter will open the battle phase';
 
-  views.reveal.innerHTML = `
-    <div class="reveal-stage">
-      <div class="reveal-main">
+  const cards = questions.map((question) => {
+    const correct = question.correctIndex ?? 0;
+    const awards = question.awards || [];
+    return `
+      <div class="reveal-card">
         <div class="reveal-banner"><span>Correct solution</span><span class="line"></span><span class="chip good">Briefing ${String(question.number).padStart(2, '0')}</span></div>
         <div class="correct-answer">
           <span class="q-letter">${letters[correct]}</span>
@@ -518,19 +529,19 @@ function renderReveal() {
           <h3>Why this is the answer</h3>
           <p>${esc(question.explanation || '')}</p>
         </div>
+        ${awards.length ? `<div class="award-list inline">${awards.map((award) => `
+          <div class="award-item"><span class="missile">▲</span><span>${esc(award.playerName)}</span><span class="team">${esc(award.teamName)}</span></div>`).join('')}</div>` : ''}
+      </div>`;
+  }).join('');
+
+  views.reveal.innerHTML = `
+    <div class="reveal-stage">
+      <div class="round-head">
+        <span class="chip live">Round ${state.round.number}</span>
+        <span class="chip">${questions.length} briefings revealed</span>
       </div>
+      <div class="reveal-grid">${cards}</div>
       <aside class="reveal-side">
-        <div class="award-panel">
-          <h3>Missiles awarded</h3>
-          <div class="award-list">
-            ${awards.length ? awards.map((award) => `
-              <div class="award-item">
-                <span class="missile">▲</span>
-                <span>${esc(award.playerName)}</span>
-                <span class="team">${esc(award.teamName)}</span>
-              </div>`).join('') : '<div class="award-empty">No missiles this round — answer fast to arm your fleet.</div>'}
-          </div>
-        </div>
         <div class="mini-scores">
           <h3>Fleet standings</h3>
           ${state.teams.map((team) => `
@@ -801,9 +812,9 @@ function updateTicker(previous) {
   if (state.phase === 'lobby') {
     text = `Scan to join — code ${state.code} — ${state.playerCount} operator${state.playerCount === 1 ? '' : 's'} connected`;
   } else if (state.phase === 'question') {
-    text = `Briefing ${String(state.question?.number || 0).padStart(2, '0')} live — ${state.answerStats.answered} of ${state.answerStats.total} operators locked in`;
+    text = `Briefing ${String(state.round?.questions?.[0]?.number || 0).padStart(2, '0')} live — ${state.answerStats.answered} of ${state.answerStats.total} operators locked in`;
   } else if (state.phase === 'reveal') {
-    text = `Solution revealed — correct answer ${'ABCD'[state.question?.correctIndex ?? 0]} — ${state.question?.awards?.length || 0} missile${(state.question?.awards?.length || 0) === 1 ? '' : 's'} awarded`;
+    text = `Solution revealed — ${state.round?.questions?.length || 0} briefings — ${state.answerStats.answered} of ${state.answerStats.total} operators locked in`;
   } else if (state.phase === 'battle') {
     const shot = state.shots[0];
     text = shot

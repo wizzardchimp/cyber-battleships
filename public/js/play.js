@@ -491,7 +491,9 @@ function renderQuiz() {
   }
 
   if (state.phase === 'question' || state.phase === 'reveal') {
-    if (!question) {
+    const round = state.round;
+    const questions = round?.questions || [];
+    if (!questions.length) {
       ui.quizPanel.innerHTML = `<div class="wait-card"><div class="pulse-dot"></div><h3>Awaiting briefing</h3><p>The presenter is preparing the next question.</p></div>`;
       return;
     }
@@ -508,50 +510,62 @@ function renderQuiz() {
 
     const revealed = state.phase === 'reveal';
     const letters = optionLetters();
-    const canAnswer = me.canAnswer && !pendingAnswer && !revealed;
-    const showCorrect = revealed;
 
-    const options = question.options.map((option, index) => {
-      const classes = ['answer-btn'];
-      let disabled = !canAnswer;
-      if (showCorrect && index === question.correctIndex) classes.push('correct');
-      if (answer && answer.answerIndex === index) {
-        if (answer.correct) classes.push('correct');
-        else classes.push(revealed || answer.locked ? 'wrong' : 'wrong');
+    const cards = questions.map((question) => {
+      const answer = me.roundAnswers?.[question.id] || null;
+      const canAnswer = me.canAnswer && !pendingAnswer && !revealed && !answer?.locked;
+      const showCorrect = revealed;
+
+      const options = question.options.map((option, index) => {
+        const classes = ['answer-btn'];
+        let disabled = !canAnswer;
+        if (showCorrect && index === question.correctIndex) classes.push('correct');
+        if (answer && answer.answerIndex === index) {
+          if (answer.correct) classes.push('correct');
+          else classes.push('wrong');
+        }
+        if (showCorrect && index !== question.correctIndex && answer?.answerIndex !== index) classes.push('dim');
+        if (answer?.locked || revealed) disabled = true;
+
+        return `
+          <button type="button" class="${classes.join(' ')}" data-option="${index}" data-qid="${esc(question.id)}" ${disabled ? 'disabled' : ''}>
+            <span class="a-letter">${letters[index]}</span>
+            <span class="a-copy">${esc(option)}</span>
+          </button>`;
+      }).join('');
+
+      let feedback = '';
+      if (answer) {
+        if (answer.correct) {
+          feedback = `<div class="feedback good"><strong>Correct</strong>${answer.awarded
+            ? 'Missile secured.'
+            : 'Points banked.'}</div>`;
+        } else if (answer.locked) {
+          feedback = `<div class="feedback bad"><strong>Incorrect — locked</strong>No attempts left.</div>`;
+        } else {
+          const left = Math.max(0, (state.settings.maxAttempts || 1) - answer.attempts);
+          feedback = `<div class="feedback warn"><strong>Not quite</strong>${left} attempt${left === 1 ? '' : 's'} remaining.</div>`;
+        }
+      } else if (revealed) {
+        feedback = `<div class="feedback"><strong>No answer</strong>The briefing closed.</div>`;
       }
-      if (showCorrect && index !== question.correctIndex && answer?.answerIndex !== index) classes.push('dim');
-      if (answer?.locked || revealed) disabled = true;
+
+      const explanation = revealed ? `
+        <div class="explanation-card"><b>Debrief</b>${esc(question.explanation || '')}</div>` : '';
 
       return `
-        <button type="button" class="${classes.join(' ')}" data-option="${index}" ${disabled ? 'disabled' : ''}>
-          <span class="a-letter">${letters[index]}</span>
-          <span class="a-copy">${esc(option)}</span>
-        </button>`;
+        <div class="p-card" style="margin-bottom:12px">
+          <div class="card-kicker">
+            <span class="chip live">Briefing ${String(question.number).padStart(2, '0')}</span>
+            <span class="chip">${esc(question.topic || 'Cyber security')}</span>
+            <span class="chip ${revealed ? 'good' : 'warn'}">${revealed ? 'Solution' : (state.settings.awardMode === 'first' ? 'First correct earns missiles' : 'Correct earns missiles')}</span>
+          </div>
+          <h2 class="big-question">${esc(question.question)}</h2>
+          <div class="answers">${options}</div>
+          ${feedback}
+          ${revealed ? `<div class="p-card flat" style="margin-top:8px"><div class="section-title"><span>Correct answer</span><b>${letters[question.correctIndex]}</b></div><p style="margin-top:6px;font-size:.9rem">${esc(question.options[question.correctIndex] || '')}</p></div>${explanation}` : ''}
+        </div>`;
     }).join('');
-
-    let feedback = '';
-    if (answer) {
-      if (answer.correct) {
-        feedback = `<div class="feedback good"><strong>Correct</strong>${answer.awarded
-          ? 'Missile secured — open the Fire tab when the combat phase begins.'
-          : 'Points banked. This round’s missile went to the first correct answer.'}</div>`;
-      } else if (answer.locked) {
-        feedback = `<div class="feedback bad"><strong>Incorrect — locked</strong>No attempts left for this briefing. Watch for the correct answer.</div>`;
-      } else {
-        const left = Math.max(0, (state.settings.maxAttempts || 1) - answer.attempts);
-        feedback = `<div class="feedback warn"><strong>Not quite</strong>${left} attempt${left === 1 ? '' : 's'} remaining. Try again.</div>`;
-      }
-    } else if (revealed) {
-      feedback = `<div class="feedback"><strong>No answer submitted</strong>The briefing closed before you locked in an answer.</div>`;
-    } else {
-      feedback = `<div class="feedback"><strong>Your call</strong>Select the answer you believe is correct. ${state.settings.maxAttempts > 1 ? `You have ${state.settings.maxAttempts} attempts.` : 'One attempt only.'}</div>`;
-    }
-
-    const explanation = revealed ? `
-      <div class="explanation-card">
-        <b>Debrief</b>
-        ${esc(question.explanation || '')}
-      </div>` : '';
 
     const timer = state.phase === 'question' ? `
       <div class="p-timer">
@@ -560,23 +574,11 @@ function renderQuiz() {
       </div>` : '';
 
     ui.quizPanel.innerHTML = `
-      <div class="p-card">
-        <div class="card-kicker">
-          <span class="chip live">Briefing ${String(question.number).padStart(2, '0')}</span>
-          <span class="chip">${esc(question.topic || 'Cyber security')}</span>
-          <span class="chip ${revealed ? 'good' : 'warn'}">${revealed ? 'Solution' : (state.settings.awardMode === 'first' ? 'First correct earns a missile' : 'Correct earns a missile')}</span>
-        </div>
-        <h2 class="big-question">${esc(question.question)}</h2>
-        <div class="answers">${options}</div>
-        ${feedback}
+      <div class="p-card flat" style="margin-bottom:10px">
+        <div class="section-title"><span>Round ${round?.number || 1}</span><b>${questions.length} briefings</b></div>
         ${timer}
       </div>
-      ${revealed ? `
-        <div class="p-card flat">
-          <div class="section-title"><span>Correct answer</span><b>${letters[question.correctIndex]}</b></div>
-          <p style="margin-top:8px;font-size:.95rem;line-height:1.4">${esc(question.options[question.correctIndex] || '')}</p>
-        </div>
-        ${explanation}` : ''}
+      ${cards}
       <p class="p-footer-hint">${revealed ? 'Combat phase opens when the presenter advances' : 'Answers lock immediately'}</p>`;
     return;
   }
@@ -645,10 +647,12 @@ function renderQuizEnded() {
 }
 
 function handleAnswerFeedback(previous) {
-  if (!state?.me || !state.question) return;
-  const answer = state.me.answer;
+  if (!state?.me || !state.round?.questions?.length) return;
+  const answers = state.me.roundAnswers || {};
+  const qid = state.round.questions[0].id;
+  const answer = answers[qid];
   if (!answer) return;
-  const key = `${state.question.id}:${answer.attempts}:${answer.correct}:${answer.locked}`;
+  const key = `${qid}:${answer.attempts}:${answer.correct}:${answer.locked}`;
   if (key === lastFeedbackKey) return;
   lastFeedbackKey = key;
   if (state.phase !== 'question') return;
@@ -667,7 +671,7 @@ function handleAnswerFeedback(previous) {
 ui.quizPanel.addEventListener('click', (event) => {
   const option = event.target.closest('[data-option]');
   if (option && !option.disabled) {
-    submitAnswer(Number(option.dataset.option));
+    submitAnswer(Number(option.dataset.option), option.dataset.qid);
     return;
   }
   const goto = event.target.closest('[data-goto-tab]');
@@ -677,13 +681,17 @@ ui.quizPanel.addEventListener('click', (event) => {
   }
 });
 
-function submitAnswer(index) {
-  if (pendingAnswer || !state?.question || !state.me?.canAnswer) return;
+function submitAnswer(index, qid) {
+  if (pendingAnswer || !state?.round) return;
+  const questionId = qid || state.round.questions?.[0]?.id;
+  if (!questionId) return;
+  const answer = state.me?.roundAnswers?.[questionId];
+  if (answer?.locked) return;
   pendingAnswer = true;
   audio.init();
   audio.play('ui');
   for (const button of $$('[data-option]', ui.quizPanel)) button.disabled = true;
-  socket.emit('player:answer', { questionId: state.question.id, optionIndex: index });
+  socket.emit('player:answer', { questionId, optionIndex: index });
 }
 
 /* -------------------------------------------------------------------- fire */
