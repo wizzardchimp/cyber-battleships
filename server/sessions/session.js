@@ -444,9 +444,17 @@ export class GameSession extends EventEmitter {
     for (const player of this.state.players) player.teamId = null;
   }
 
-  async start() {
-    const check = this.canStart();
-    assert(check.ok, 'CANNOT_START', check.reason || 'The operation cannot start yet.');
+  async start({ force = false } = {}) {
+    if (force) {
+      assert(
+        this.state.phase === PHASES.LOBBY,
+        'CANNOT_START',
+        'The operation has already started.',
+      );
+    } else {
+      const check = this.canStart();
+      assert(check.ok, 'CANNOT_START', check.reason || 'The operation cannot start yet.');
+    }
     this.state.phase = PHASES.MISSION_READY;
     this.state.startedAt = new Date().toISOString();
     this.state.config.lobbyLocked = true;

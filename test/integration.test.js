@@ -301,3 +301,61 @@ test('a lobby and its players survive a full server restart', async (t) => {
   assert.equal(state.counts.players, 2);
   assert.equal(state.counts.connected, 1);
 });
+
+test('facilitator can force-start a round with no players', async (t) => {
+  const h = await bootTestServer();
+  const cookie = await loginHost(h.baseUrl);
+  const host = await connect(h.baseUrl, cookie);
+  t.after(async () => {
+    host.close();
+    await h.close();
+  });
+
+  const summary = await createSession(h.baseUrl, cookie);
+  const states = collectStates(host);
+  const subscribed = await emitAck(host, EVENTS.HOST_SUBSCRIBE, { sessionId: summary.id });
+  assert.equal(subscribed.ok, true);
+
+  const started = await emitAck(host, EVENTS.HOST_START, { sessionId: summary.id });
+  assert.equal(started.ok, true);
+
+  const state = await waitFor(
+    () => {
+      const latest = states.latest();
+      return latest?.session?.phase === PHASES.MISSION_READY ? latest : null;
+    },
+    { label: 'facilitator forced start' },
+  );
+  assert.equal(state.counts.players, 0);
+  assert.equal(state.session.config.lobbyLocked, true);
+});
+
+test('battle command display can start a round with no players', async (t) => {
+  const h = await bootTestServer();
+  const display = await connect(h.baseUrl);
+  t.after(async () => {
+    display.close();
+    await h.close();
+  });
+
+  const cookie = await loginHost(h.baseUrl);
+  const summary = await createSession(h.baseUrl, cookie);
+  const states = collectStates(display);
+  const subscribed = await emitAck(display, EVENTS.DISPLAY_SUBSCRIBE, {
+    code: summary.joinCode,
+  });
+  assert.equal(subscribed.ok, true);
+
+  const started = await emitAck(display, EVENTS.DISPLAY_START, { code: summary.joinCode });
+  assert.equal(started.ok, true);
+
+  const state = await waitFor(
+    () => {
+      const latest = states.latest();
+      return latest?.session?.phase === PHASES.MISSION_READY ? latest : null;
+    },
+    { label: 'display forced start' },
+  );
+  assert.equal(state.counts.players, 0);
+  assert.equal(state.session.config.lobbyLocked, true);
+});

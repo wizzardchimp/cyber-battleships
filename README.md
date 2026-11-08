@@ -65,9 +65,9 @@ generated facilitator PIN on startup.
    choose a team.
 5. Use the live roster to **MOVE** or **REMOVE** players and **LOCK LOBBY** to
    close enlistment. Existing players can still reconnect while locked.
-6. **START OPERATION** validates the lobby (at least one player on every team)
-   and moves every screen to the mission-ready view. **RETURN TO LOBBY** reopens
-   the room.
+6. **START ROUND** from the facilitator console or the projected Battle Command
+   lobby launches immediately, even with no players or empty teams. It moves
+   every screen to the mission-ready view. **RETURN TO LOBBY** reopens the room.
 
 ## Player flow
 

@@ -513,3 +513,117 @@
     text-align: left;
   }
 }
+
+/* ------------------------------------------------- readability boost */
+
+.play-brand__name {
+  font-size: 0.66rem;
+}
+
+.play-brand__sub {
+  font-size: 0.64rem;
+}
+
+.play-status {
+  font-size: 0.66rem;
+}
+
+.play-card__eyebrow {
+  font-size: 0.72rem;
+}
+
+.play-title {
+  font-size: clamp(1rem, 5.6vw, 1.45rem);
+}
+
+.play-copy {
+  font-size: 0.98rem;
+}
+
+.play-code span {
+  font-size: 0.7rem;
+}
+
+.play-code strong {
+  font-size: 1rem;
+}
+
+.play-join-code {
+  font-size: 1.35rem;
+}
+
+.pick-card__name {
+  font-size: 0.72rem;
+}
+
+.pick-card__meta {
+  font-size: 0.72rem;
+}
+
+.play-toggle__text strong {
+  font-size: 0.92rem;
+}
+
+.play-toggle__text span {
+  font-size: 0.74rem;
+}
+
+.play-team-banner__label {
+  font-size: 0.68rem;
+}
+
+.play-team-banner__name {
+  font-size: clamp(1rem, 5.4vw, 1.3rem);
+}
+
+.play-team-banner__count strong {
+  font-size: 1.15rem;
+}
+
+.play-team-banner__count span {
+  font-size: 0.66rem;
+}
+
+.play-me__text strong {
+  font-size: 1.08rem;
+}
+
+.play-me__text span {
+  font-size: 0.72rem;
+}
+
+.play-roster__row {
+  font-size: 0.92rem;
+}
+
+.play-roster__row span:last-child {
+  font-size: 0.68rem;
+}
+
+.play-waiting p {
+  font-size: 0.88rem;
+}
+
+.play-mission__eyebrow {
+  font-size: 0.7rem;
+}
+
+.play-mission h1 {
+  font-size: clamp(1.25rem, 7.6vw, 2rem);
+}
+
+.play-mission p {
+  font-size: 0.98rem;
+}
+
+.play-footer {
+  font-size: 0.64rem;
+}
+
+.play-connection {
+  font-size: 0.72rem;
+}
+
+.play-error {
+  font-size: 0.92rem;
+}

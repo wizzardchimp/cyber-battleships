@@ -158,6 +158,15 @@ test('free-for-all mode starts without teams', async () => {
   assert.equal(session.phase, PHASES.MISSION_READY);
 });
 
+test('a forced start launches an empty lobby', async () => {
+  const { session } = makeSession();
+  assert.equal(session.canStart().ok, false);
+  await session.start({ force: true });
+  assert.equal(session.phase, PHASES.MISSION_READY);
+  assert.equal(session.config.lobbyLocked, true);
+  assert.ok(session.state.startedAt);
+});
+
 test('removing a player emits an event and persists the new roster', async () => {
   const { session, repository } = makeSession();
   const { player } = session.join({ name: 'Removable' });

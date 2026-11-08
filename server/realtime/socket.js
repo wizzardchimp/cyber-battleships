@@ -3,6 +3,7 @@ import { ZodError } from 'zod';
 import { EVENTS } from '../../shared/events.js';
 import {
   chooseTeamSchema,
+  displayStartSchema,
   displaySubscribeSchema,
   hostLockSchema,
   hostMovePlayerSchema,
@@ -361,7 +362,7 @@ export function attachSocketServer(io, { manager, config, auth, logger }) {
         if (!guard(socket, 'host')) return;
         const data = hostStartSchema.parse(payload);
         const session = manager.require(data.sessionId);
-        await session.start();
+        await session.start({ force: true });
         reply(ack, { ok: true });
       });
     });
@@ -455,6 +456,22 @@ export function attachSocketServer(io, { manager, config, auth, logger }) {
         socket.join(roomFor(session.id));
         sendState(socket, session);
         reply(ack, { ok: true, session: session.summary() });
+      });
+    });
+
+    socket.on(EVENTS.DISPLAY_START, (payload, ack) => {
+      run(socket, ack, async () => {
+        if (!guard(socket, 'display-start', 6, 10_000)) return;
+        if (socket.data.role !== 'display') {
+          throw new AppError('UNAUTHORIZED', 'Connect this display to the operation first.', 401);
+        }
+        const data = displayStartSchema.parse(payload);
+        const session = manager.requireByCode(data.code);
+        if (socket.data.sessionId !== session.id) {
+          throw new AppError('UNAUTHORIZED', 'Connect this display to the operation first.', 401);
+        }
+        await session.start({ force: true });
+        reply(ack, { ok: true });
       });
     });
 

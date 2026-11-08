@@ -96,13 +96,16 @@ Browser clients                    Node.js server                    PostgreSQL
 | `host:movePlayer` | host | reassign a player between teams |
 | `host:removePlayer` | host | delete participant and disconnect them |
 | `host:renameTeam` | host | rename a team while in lobby |
-| `host:start` | host | validate `canStart()`, enter `mission_ready`, lock lobby |
+| `host:start` | host | force-start a round, enter `mission_ready`, lock lobby |
+| `display:start` | display | force-start a round from the Battle Command lobby |
 | `host:returnToLobby` | host | return `mission_ready` → `lobby` |
 | `player:chooseTeam` | player | switch teams while lobby is open |
 | `player:resume` | token holder | reattach an existing identity |
 
-`canStart()` requires at least one player, and in team/co-op modes at least one
-player on every configured team.
+`canStart()` still reports the normal readiness rules (at least one player, and
+in team/co-op modes at least one player on every configured team), but the
+facilitator and display start commands use a forced start so an event can begin
+with an empty or partially populated lobby. Only the phase check is enforced.
 
 All socket handlers validate payloads with Zod, apply a per-socket rate limit and
 return an acknowledgement `{ ok: true }` or

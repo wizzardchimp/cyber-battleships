@@ -107,6 +107,8 @@ function renderLobby() {
               <span>Operatives enlisted</span>
             </div>
             ${current.counts.spectators > 0 ? `<div class="display-top__status" style="color:var(--muted)"><span class="status-dot status-dot--amber"></span>${current.counts.spectators} SPECTATOR${current.counts.spectators === 1 ? '' : 'S'}</div>` : ''}
+            <button class="btn btn--green btn--wide display-start" type="button" data-action="start-round">START ROUND</button>
+            <p class="display-start__hint">Launches with any number of operatives</p>
           </aside>
 
           <div class="display-teams">
@@ -325,7 +327,7 @@ function ensureSocket() {
   socket.connect();
 }
 
-on(app, 'click', (event) => {
+on(app, 'click', async (event) => {
   const button = event.target.closest('[data-action]');
   if (!button) return;
   unlockAudio();
@@ -337,6 +339,23 @@ on(app, 'click', (event) => {
   if (button.dataset.action === 'fullscreen') {
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     else document.documentElement.requestFullscreen?.().catch(() => {});
+  }
+  if (button.dataset.action === 'start-round') {
+    if (!socket?.connected || !code) {
+      toast('Display is not connected.', 'error', '#toast-root');
+      return;
+    }
+    button.disabled = true;
+    button.textContent = 'STARTING…';
+    try {
+      await request(socket, EVENTS.DISPLAY_START, { code });
+      sfx.success();
+    } catch (error) {
+      toast(error.message, 'error', '#toast-root');
+      sfx.error();
+      button.disabled = false;
+      button.textContent = 'START ROUND';
+    }
   }
 });
 

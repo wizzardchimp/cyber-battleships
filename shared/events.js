@@ -17,6 +17,7 @@ export const EVENTS = Object.freeze({
 
   // Display -> server
   DISPLAY_SUBSCRIBE: 'display:subscribe',
+  DISPLAY_START: 'display:start',
 
   // Shared
   TIME_SYNC: 'time:sync',

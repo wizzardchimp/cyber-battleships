@@ -449,7 +449,6 @@ function renderLobby() {
     ? renderIndividualRoster(state)
     : `<div class="team-grid">${state.teams.map((team) => teamCard(team, state)).join('')}</div>`;
   const spectators = (state.players || []).filter((player) => player.role === 'spectator');
-  const canStart = state.admin?.canStart;
   const reason = state.admin?.startReason;
   const join = joinUrl();
   const qrUrl = state.join?.qrUrl || `/api/sessions/${encodeURIComponent(session.joinCode)}/qr.svg`;
@@ -524,10 +523,10 @@ function renderLobby() {
           <div class="control-stat"><span>Lobby</span><strong class="${session.config.lobbyLocked ? 'warn' : 'ok'}">${session.config.lobbyLocked ? 'LOCKED' : 'OPEN'}</strong></div>
           ${
             reason
-              ? `<div class="tiny" style="color:var(--amber);line-height:1.5">${escapeHtml(reason)}</div>`
+              ? `<div class="tiny" style="color:var(--amber);line-height:1.5">${escapeHtml(reason)} Starting will still proceed.</div>`
               : ''
           }
-          <button class="btn btn--green" type="button" data-action="start-game" ${canStart ? '' : 'disabled'}>START OPERATION</button>
+          <button class="btn btn--green" type="button" data-action="start-game">START ROUND</button>
           <button class="btn btn--ghost" type="button" data-action="open-display">PROJECT DISPLAY</button>
         </div>
       </aside>

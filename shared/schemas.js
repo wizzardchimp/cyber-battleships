@@ -202,6 +202,10 @@ export const displaySubscribeSchema = z.object({
   code: joinCodeSchema,
 });
 
+export const displayStartSchema = z.object({
+  code: joinCodeSchema,
+});
+
 /** Shared helper so clients and server derive the same empty team names. */
 export function defaultTeamName(index) {
   return DEFAULT_TEAM_NAMES[index] || `TEAM ${index + 1}`;
