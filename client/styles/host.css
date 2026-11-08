@@ -765,10 +765,16 @@
 }
 
 .join-url {
-  color: var(--muted);
-  font-size: 0.72rem;
+  max-width: 100%;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid var(--line);
+  background: rgba(37, 230, 255, 0.06);
+  color: var(--cyan-bright);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
   word-break: break-all;
-  line-height: 1.5;
+  line-height: 1.4;
 }
 
 .control-panel {

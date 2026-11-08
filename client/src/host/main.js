@@ -65,9 +65,9 @@ function joinUrl() {
   if (!code) return '';
   const base = hostState?.join?.url || activeSummary?.joinUrl || location.origin;
   try {
-    return new URL(`/play?code=${encodeURIComponent(code)}`, base).href;
+    return new URL(`/${encodeURIComponent(code)}`, base).href;
   } catch {
-    return `${location.origin}/play?code=${encodeURIComponent(code)}`;
+    return `${location.origin}/${encodeURIComponent(code)}`;
   }
 }
 
@@ -508,11 +508,11 @@ function renderLobby() {
         <div class="qr-panel panel">
           <p class="qr-panel__label">Scan to enlist</p>
           <div class="qr-box"><img src="${qrUrl}" alt="QR code to join operation ${escapeHtml(session.joinCode)}" /></div>
+          <div class="join-url">${escapeHtml(join)}</div>
           <div>
             <p class="qr-panel__label">Join code</p>
             <div class="join-code">${escapeHtml(session.joinCode)}</div>
           </div>
-          <div class="join-url">${escapeHtml(join)}</div>
           <button class="btn btn--ghost btn--sm btn--wide" type="button" data-action="copy-join">COPY JOIN LINK</button>
         </div>
 

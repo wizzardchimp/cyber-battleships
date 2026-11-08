@@ -45,7 +45,12 @@ Then open:
 | Landing | <http://localhost:3000/> | Describe the drill and link the consoles |
 | Facilitator | <http://localhost:3000/host> | Create, lock and start operations |
 | Projector | <http://localhost:3000/display?code=CODE> | Full-screen joining QR and rosters |
-| Players | <http://localhost:3000/play?code=CODE> | Mobile enlistment and lobby |
+| Players (short link) | <http://localhost:3000/CODE> | Redirects to `/play?code=CODE` for phones |
+| Players (full link) | <http://localhost:3000/play?code=CODE> | Mobile enlistment and lobby |
+
+Each operation gets a short entry link — `/<CODE>` — which redirects to the player
+app. QR codes encode this short URL, and the host and projector show it directly
+below the code so players can scan or type a few characters.
 
 The server prints the LAN address, join URL and — if you did not supply one — a
 generated facilitator PIN on startup.
@@ -55,8 +60,9 @@ generated facilitator PIN on startup.
 1. Open `/host` and enter the `ADMIN_PIN`.
 2. **NEW OPERATION** → choose mode, team count, capacity and other settings.
 3. Project the display via **OPEN DISPLAY** and show the six-character join code
-   and QR.
-4. Players scan or open `/play`, enter a display name and choose a team.
+   and short URL beneath the QR.
+4. Players scan the QR or open the short `/<CODE>` link, enter a display name and
+   choose a team.
 5. Use the live roster to **MOVE** or **REMOVE** players and **LOCK LOBBY** to
    close enlistment. Existing players can still reconnect while locked.
 6. **START OPERATION** validates the lobby (at least one player on every team)

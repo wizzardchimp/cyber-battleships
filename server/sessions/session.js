@@ -12,7 +12,7 @@ import {
 import { sessionConfigSchema } from '../../shared/schemas.js';
 import { cleanText, nameKey } from '../../shared/util.js';
 import { GameError, assert } from '../errors.js';
-import { hashToken, makePlayerToken } from '../util/security.js';
+import { hashToken, makePlayerToken, shortJoinUrlFor } from '../util/security.js';
 
 function emptyStats() {
   return {
@@ -484,7 +484,7 @@ export class GameSession extends EventEmitter {
       createdAt: this.state.createdAt,
       startedAt: this.state.startedAt || null,
       expiresAt: this.state.expiresAt,
-      joinUrl: this.state.joinBaseUrl,
+      joinUrl: shortJoinUrlFor(this.state.joinBaseUrl, this.state.joinCode),
       displayUrl: this.state.displayBaseUrl,
     };
   }

@@ -1,4 +1,5 @@
 import { ROLES } from '../../shared/constants.js';
+import { shortJoinUrlFor } from '../util/security.js';
 
 function rosterFor(state, teamId) {
   return state.players
@@ -93,7 +94,7 @@ export function publicProjection(session) {
     },
     join: {
       code: state.joinCode,
-      url: state.joinBaseUrl,
+      url: shortJoinUrlFor(state.joinBaseUrl, state.joinCode),
       qrUrl: `/api/sessions/${encodeURIComponent(state.joinCode)}/qr.svg`,
       displayUrl: state.displayBaseUrl,
     },

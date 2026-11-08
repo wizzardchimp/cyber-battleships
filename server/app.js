@@ -12,7 +12,7 @@ import { DEFAULT_CONFIG } from '../shared/constants.js';
 import { sessionConfigSchema } from '../shared/schemas.js';
 import { AppError } from './errors.js';
 import { requireHost } from './auth.js';
-import { baseUrlFor, displayUrlFor, joinUrlFor } from './util/security.js';
+import { baseUrlFor, displayUrlFor, normaliseJoinCode, shortJoinUrlFor } from './util/security.js';
 
 function asyncHandler(fn) {
   return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -159,7 +159,7 @@ export function createApp({ config, manager, db, auth, logger }) {
       const baseUrl = baseUrlFor(req, config);
       summary.join = {
         ...summary.join,
-        url: joinUrlFor(baseUrl, session.joinCode),
+        url: shortJoinUrlFor(baseUrl, session.joinCode),
         displayUrl: displayUrlFor(baseUrl, session.joinCode),
         qrUrl: `/api/sessions/${encodeURIComponent(session.joinCode)}/qr.svg`,
       };
@@ -176,7 +176,7 @@ export function createApp({ config, manager, db, auth, logger }) {
         res.status(404).type('text/plain').send('Session not found');
         return;
       }
-      const url = joinUrlFor(baseUrlFor(req, config), session.joinCode);
+      const url = shortJoinUrlFor(baseUrlFor(req, config), session.joinCode);
       const svg = await QRCode.toString(url, {
         type: 'svg',
         margin: 1,
@@ -223,6 +223,19 @@ export function createApp({ config, manager, db, auth, logger }) {
       res.sendFile(path.join(dist, file));
     });
   }
+
+  // Short player entry point: /ABC123 -> /play?code=ABC123, so QR codes and
+  // printed links stay compact. Only exact six-character join codes qualify;
+  // anything else falls through to the regular handlers.
+  app.get('/:code([A-Za-z0-9]{6})', (req, res, next) => {
+    const code = normaliseJoinCode(req.params.code);
+    const session = manager.getByCode(code);
+    if (!session) {
+      next();
+      return;
+    }
+    res.redirect(302, `/play?code=${encodeURIComponent(session.joinCode)}`);
+  });
 
   app.use((req, res) => {
     if (isApi(req)) {

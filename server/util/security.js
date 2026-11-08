@@ -68,6 +68,18 @@ export function joinUrlFor(baseUrl, code) {
   return `${String(baseUrl).replace(/\/+$/, '')}/play?code=${encodeURIComponent(code)}`;
 }
 
+/**
+ * Short player entry point: https://host/ABC123 instead of
+ * https://host/play?code=ABC123. The app redirects it to the full player URL.
+ */
+export function shortJoinUrlFor(baseUrl, code) {
+  try {
+    return new URL(`/${encodeURIComponent(code)}`, baseUrl).href;
+  } catch {
+    return `${String(baseUrl).replace(/\/+$/, '')}/${encodeURIComponent(code)}`;
+  }
+}
+
 export function displayUrlFor(baseUrl, code) {
   return `${String(baseUrl).replace(/\/+$/, '')}/display?code=${encodeURIComponent(code)}`;
 }

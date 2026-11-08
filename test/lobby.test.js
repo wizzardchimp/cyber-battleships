@@ -191,6 +191,10 @@ test('projections never expose player token hashes or internal keys', () => {
   assert.equal(publicState.counts.players, 1);
   assert.equal(publicState.counts.spectators, 1);
   assert.equal(publicState.teams[0].playerCount, 1);
+  assert.equal(publicState.join.url, 'http://localhost/ABC234');
+  assert.equal(hostState.join.url, 'http://localhost/ABC234');
+  assert.equal(playerState.join.url, 'http://localhost/ABC234');
+  assert.equal(session.summary().joinUrl, 'http://localhost/ABC234');
   assert.equal(playerState.me.id, player.id);
   assert.equal(playerState.me.name, 'Secret Keeper');
   assert.equal(hostState.admin.canStart, false);

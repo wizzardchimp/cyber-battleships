@@ -22,9 +22,9 @@ function playerJoinUrl(current) {
   if (!current) return '';
   const base = current.join?.url || location.origin;
   try {
-    return new URL(`/play?code=${encodeURIComponent(current.session.joinCode)}`, base).href;
+    return new URL(`/${encodeURIComponent(current.session.joinCode)}`, base).href;
   } catch {
-    return `${location.origin}/play?code=${encodeURIComponent(current.session.joinCode)}`;
+    return `${location.origin}/${encodeURIComponent(current.session.joinCode)}`;
   }
 }
 
@@ -97,11 +97,11 @@ function renderLobby() {
           <aside class="display-join panel">
             <p class="display-join__eyebrow">SCAN TO ENLIST</p>
             <div class="display-qr"><img src="${current.join.qrUrl}" alt="QR code to join" /></div>
+            <div class="display-join-url">${escapeHtml(join)}</div>
             <div>
               <p class="display-join__eyebrow">JOIN CODE</p>
               <div class="display-code-big">${escapeHtml(session.joinCode)}</div>
             </div>
-            <div class="display-join-url">${escapeHtml(join)}</div>
             <div class="display-count">
               <strong>${current.counts.players}</strong>
               <span>Operatives enlisted</span>

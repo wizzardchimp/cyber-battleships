@@ -19,7 +19,7 @@ Browser clients                    Node.js server                    PostgreSQL
 ```
 
 - **Express** serves the built Vite client, facilitator auth, public session
-  summary, QR SVG and health check.
+  summary, QR SVG, the short `/<CODE>` player redirect and health check.
 - **Socket.IO** carries all live operations. Each socket has a role
   (`host`, `display`, `player`) and joins a `session:<id>` room.
 - **`SessionManager`** owns the in-memory session registry, join-code allocation,

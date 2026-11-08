@@ -114,6 +114,21 @@ test('20 devices join, sync, switch teams, reconnect, lock and reach mission rea
   const publicJson = JSON.stringify(publicSummary);
   assert.ok(!publicJson.includes('tokenHash'));
   assert.ok(!publicJson.includes('nameKey'));
+  assert.equal(publicSummary.join.url, `${h.config.publicUrl}/${summary.joinCode}`);
+
+  // The QR payload is the short URL, and /<CODE> redirects to the player app.
+  const qrResponse = await fetch(
+    `${h.baseUrl}/api/sessions/${encodeURIComponent(summary.joinCode)}/qr.svg`,
+  );
+  assert.equal(qrResponse.status, 200);
+  assert.match(qrResponse.headers.get('content-type'), /image\/svg\+xml/);
+  const shortResponse = await fetch(`${h.baseUrl}/${summary.joinCode}`, {
+    redirect: 'manual',
+  });
+  assert.equal(shortResponse.status, 302);
+  assert.equal(shortResponse.headers.get('location'), `/play?code=${summary.joinCode}`);
+  const unknownShortResponse = await fetch(`${h.baseUrl}/ZZZZZZ`, { redirect: 'manual' });
+  assert.notEqual(unknownShortResponse.status, 302);
 
   // Player-initiated team switch is reflected on the host console.
   const currentTeamId = firstPlayerState.me.teamId;
