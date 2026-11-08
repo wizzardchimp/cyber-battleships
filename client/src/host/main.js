@@ -310,6 +310,7 @@ function renderSetup() {
               <select class="select" name="ageGroup">
                 ${AGE_GROUPS.map((entry) => `<option value="${entry.value}" ${setupDraft.ageGroup === entry.value ? 'selected' : ''}>${entry.label}</option>`).join('')}
               </select>
+              <span class="form-hint">Caps how advanced the question pool can get.</span>
             </label>
             <label class="field">
               <span class="field__label">Difficulty</span>
@@ -334,9 +335,9 @@ function renderSetup() {
             <div class="toggle-row__text"><strong>Carry ammunition between rounds</strong><span>Unused missiles remain in the team arsenal.</span></div>
             <label class="switch"><input type="checkbox" name="ammoCarryOver" ${setupDraft.ammoCarryOver ? 'checked' : ''} /></label>
           </div>
-          <div class="toggle-row">
-            <div class="toggle-row__text"><strong>Special weapons</strong><span>Enable advanced weapons when the battle engine arrives.</span></div>
-            <label class="switch"><input type="checkbox" name="specialWeapons" ${setupDraft.specialWeapons ? 'checked' : ''} /></label>
+          <div class="toggle-row toggle-row--disabled">
+            <div class="toggle-row__text"><strong>Special weapons <span class="badge">COMING SOON</span></strong><span>Advanced weapons are not available yet.</span></div>
+            <label class="switch"><input type="checkbox" disabled /></label>
           </div>
           <div class="toggle-row">
             <div class="toggle-row__text"><strong>Audio cues</strong><span>Allow the console and display to play arcade sound effects.</span></div>

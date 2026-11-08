@@ -74,6 +74,12 @@ generated facilitator PIN on startup.
    the attack phase, then closes the round; **END ROUND** closes it immediately
    and **NEXT ROUND** launches the next one. **RETURN TO LOBBY** reopens the room
    and clears scores, fleets and ammunition.
+8. **Allow late joining** lets new devices enlist during an active round. Team
+   modes drop them into a team that already has a fleet and missile pool; free-
+   for-all adds them to the ring with a fresh fleet. Turn it off to close
+   enlistment at the start.
+9. The **age category** caps how advanced questions can get: cadets see easy and
+   medium questions, juniors can reach hard, and adults can reach expert.
 
 ## Player flow
 
@@ -86,6 +92,9 @@ generated facilitator PIN on startup.
   within 5 seconds, 2 within 10, or 1 within 20. Answering correctly also scores
   10 points. The correct answer and explanation appear after everyone answers or
   the timer expires.
+- **Joining late:** when the facilitator allows it, you can enlist mid-round. Team
+  modes share their existing fleet and missile pool; free-for-all starts you with
+  a fresh fleet and a place in the targeting ring.
 - **Attack phase:** tap a cell on your target grid to fire one missile. Hits
   score 25 points, sinking a ship adds 50, and the scoreboard updates live.
 - **Round over:** the winner and your points, hits, correct answers and remaining
@@ -100,11 +109,12 @@ START ROUND → QUESTION (repeat for roundMinutes)
 ```
 
 - Questions are drawn at random from a server-side bank filtered by the configured
-  difficulty. Each question runs for `questionTimer` seconds, followed by a
-  4-second answer reveal, until the round's quiz clock expires.
+  difficulty and capped by the age band. Each question runs for `questionTimer`
+  seconds, followed by a 4-second answer reveal, until the round's quiz clock
+  expires.
 - Teams and co-op crews share one missile pool and one fleet; free-for-all
-  players each own a fleet. Targets form a ring, and a CPU firewall is added when
-  there is only one human combatant (or in co-op).
+  players each own a fleet and target each other in a ring. A CPU firewall is
+  added whenever a lone player has no human opponent (and in co-op).
 - `maxAttacksPerTeam` caps shots per combatant in the attack phase, and
   `ammoCarryOver` decides whether unused missiles survive into the next round.
 - Scores accumulate across rounds until the facilitator returns to the lobby;
@@ -149,6 +159,8 @@ The suite covers:
 - Round engine rules: answer rewards, incorrect answers, public answer secrecy,
   missile consumption, hits and sinking, per-round limits, phase timers, results,
   cumulative scores, ammo carry-over and lobby reset.
+- Audience and join rules: age bands cap question difficulty; late joining can be
+  enabled for live team and free-for-all rounds, or disabled outright.
 - Facilitator auth: signed tokens, expiry, tampering, PIN checks and login
   throttling.
 - Projection safety: no `tokenHash`, `nameKey` or private fields in public,

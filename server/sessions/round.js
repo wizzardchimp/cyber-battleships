@@ -114,7 +114,7 @@ export function buildCombatants(state) {
       playerId: player.id,
       targetId: null,
     }));
-    return linkTargets(combatants, true);
+    return linkTargets(combatants, false);
   }
 
   const combatants = teams.map((team, index) => ({
@@ -175,6 +175,8 @@ function linkTargets(combatants, alwaysCpu) {
 
   if (humans.length === 1) {
     humans[0].targetId = CPU_ID;
+    const cpu = all.find((entry) => entry.id === CPU_ID);
+    if (cpu) cpu.targetId = humans[0].id;
     return all;
   }
 
@@ -188,6 +190,78 @@ export function ownerForPlayer(state, player) {
   if (!player || player.role !== ROLES.PLAYER) return null;
   if (state.config.mode === MODES.INDIVIDUAL) return player.id;
   return player.teamId || null;
+}
+
+/**
+ * Insert a late joiner into the existing targeting ring without disturbing any
+ * other player's target. Used for individual-mode rounds that are already live.
+ */
+export function linkLateCombatant(combatants, combatant) {
+  const others = combatants.filter(
+    (entry) => entry.kind !== 'cpu' && entry.id !== combatant.id,
+  );
+  const cpu = combatants.find((entry) => entry.kind === 'cpu');
+
+  if (others.length === 0) {
+    if (cpu) {
+      combatant.targetId = cpu.id;
+      cpu.targetId = combatant.id;
+      return combatant;
+    }
+    const newCpu = {
+      id: CPU_ID,
+      kind: 'cpu',
+      name: CPU_NAME,
+      color: TEAM_COLORS[4],
+      teamId: null,
+      playerId: null,
+      targetId: combatant.id,
+    };
+    combatants.push(newCpu);
+    combatant.targetId = newCpu.id;
+    return combatant;
+  }
+
+  const anchor = others.find((entry) => entry.targetId) || others[0];
+  const previousTarget = anchor.targetId;
+  combatant.targetId =
+    previousTarget && previousTarget !== combatant.id ? previousTarget : anchor.id;
+  anchor.targetId = combatant.id;
+  return combatant;
+}
+
+/**
+ * Make sure a player who joins a live round owns a fleet, score and arsenal.
+ * Team modes already have a team combatant; free-for-all adds one on the fly.
+ */
+export function ensureLateCombatant(state, player) {
+  const round = state.round;
+  if (!round) return null;
+  const ownerId = ownerForPlayer(state, player);
+  if (!ownerId) return null;
+
+  let combatant = round.combatants.find((entry) => entry.id === ownerId) || null;
+  if (combatant) {
+    ensureScore(state, ownerId);
+    if (state.arsenal[ownerId] === undefined) state.arsenal[ownerId] = 0;
+    return combatant;
+  }
+
+  combatant = {
+    id: ownerId,
+    kind: 'player',
+    name: player.displayName,
+    color: TEAM_COLORS[round.combatants.filter((entry) => entry.kind === 'player').length % TEAM_COLORS.length],
+    teamId: null,
+    playerId: player.id,
+    targetId: null,
+  };
+  round.combatants.push(combatant);
+  state.fleets[ownerId] = makeFleet(state.config.gridSize);
+  ensureScore(state, ownerId);
+  state.arsenal[ownerId] = 0;
+  linkLateCombatant(round.combatants, combatant);
+  return combatant;
 }
 
 export function ownerName(state, ownerId) {

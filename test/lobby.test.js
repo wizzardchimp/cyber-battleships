@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { DEFAULT_CONFIG, MODES, PHASES, ROLES } from '../shared/constants.js';
+import { pickQuestion } from '../shared/questions.js';
 import { hostProjection, playerProjection, publicProjection } from '../server/sessions/projections.js';
 import { GameSession, createSessionState } from '../server/sessions/session.js';
 
@@ -124,7 +125,7 @@ test('locking the lobby blocks new joins but allows updates to existing players'
 });
 
 test('the operation can only start with players on every team', async () => {
-  const { session } = makeSession();
+  const { session } = makeSession({ allowLateJoin: false });
   await expectReject(() => session.start(), 'CANNOT_START');
 
   session.join({ name: 'Alpha One', teamId: session.state.teams[0].id });
@@ -152,13 +153,16 @@ test('the operation can only start with players on every team', async () => {
 test('free-for-all mode starts without teams', async () => {
   const { session } = makeSession({ mode: MODES.INDIVIDUAL });
   assert.equal(session.state.teams.length, 0);
-  session.join({ name: 'Solo One' });
-  session.join({ name: 'Solo Two' });
+  const first = session.join({ name: 'Solo One' });
+  const second = session.join({ name: 'Solo Two' });
   assert.equal(session.canStart().ok, true);
   await session.start();
   assert.equal(session.phase, PHASES.QUESTION);
-  assert.equal(session.state.round.combatants.length, 3);
-  assert.ok(session.state.round.combatants.some((combatant) => combatant.kind === 'cpu'));
+  const combatants = session.state.round.combatants;
+  assert.equal(combatants.length, 2);
+  assert.ok(combatants.every((combatant) => combatant.kind === 'player'));
+  assert.equal(combatants.find((entry) => entry.id === first.player.id).targetId, second.player.id);
+  assert.equal(combatants.find((entry) => entry.id === second.player.id).targetId, first.player.id);
 });
 
 test('a forced start launches an empty lobby', async () => {
@@ -170,6 +174,75 @@ test('a forced start launches an empty lobby', async () => {
   assert.ok(session.state.startedAt);
   assert.equal(session.state.round.number, 1);
   assert.ok(session.state.round.question);
+});
+
+test('the age band caps how advanced questions can get', () => {
+  for (let index = 0; index < 40; index += 1) {
+    const cadet = pickQuestion({ difficulty: 'expert', ageGroup: '10-15', used: [] });
+    assert.ok(['easy', 'medium'].includes(cadet.difficulty), cadet.difficulty);
+
+    const junior = pickQuestion({ difficulty: 'hard', ageGroup: '15-20', used: [] });
+    assert.equal(junior.difficulty, 'hard');
+
+    const adult = pickQuestion({ difficulty: 'expert', ageGroup: 'adult', used: [] });
+    assert.equal(adult.difficulty, 'expert');
+  }
+});
+
+test('late joining is allowed during a live round when enabled', async () => {
+  const { session } = makeSession({ allowLateJoin: true });
+  const alpha = session.state.teams[0];
+  const bravo = session.state.teams[1];
+  session.join({ name: 'Alpha One', teamId: alpha.id });
+  session.join({ name: 'Bravo One', teamId: bravo.id });
+  await session.start();
+
+  const question = session.state.round.question;
+  const late = session.join({ name: 'Latecomer', teamId: bravo.id });
+  assert.equal(late.player.teamId, bravo.id);
+  assert.equal(session.phase, PHASES.QUESTION);
+  assert.equal(session.state.round.combatants.length, 2);
+
+  const answer = await session.answer(late.player.id, question.number, question.answerIndex);
+  assert.equal(answer.correct, true);
+  assert.equal(answer.ownerId, bravo.id);
+  assert.equal(session.state.scores[bravo.id].correct, 1);
+
+  const projection = playerProjection(session, late.player.id);
+  assert.equal(projection.me.name, 'Latecomer');
+  assert.equal(projection.round.me.ownerId, bravo.id);
+  assert.ok(projection.round.me.targetBoard);
+});
+
+test('late joining is refused when disabled', async () => {
+  const { session } = makeSession({ allowLateJoin: false });
+  session.join({ name: 'Alpha One', teamId: session.state.teams[0].id });
+  session.join({ name: 'Bravo One', teamId: session.state.teams[1].id });
+  await session.start();
+  expectCode(() => session.join({ name: 'Too Late' }), 'JOIN_CLOSED');
+});
+
+test('free-for-all late joiners get a fleet and join the targeting ring', async () => {
+  const { session } = makeSession({ mode: MODES.INDIVIDUAL, allowLateJoin: true });
+  session.join({ name: 'Alpha' });
+  session.join({ name: 'Beta' });
+  await session.start();
+
+  const question = session.state.round.question;
+  const late = session.join({ name: 'Gamma' });
+  const combatants = session.state.round.combatants;
+  assert.equal(combatants.length, 3);
+  const ids = new Set(combatants.map((combatant) => combatant.id));
+  for (const combatant of combatants) {
+    assert.ok(ids.has(combatant.targetId), 'every combatant has a live target');
+    assert.notEqual(combatant.targetId, combatant.id);
+  }
+  assert.ok(session.state.fleets[late.player.id], 'late joiner received a fleet');
+  assert.equal(session.arsenalFor(late.player.id), 0);
+
+  const answer = await session.answer(late.player.id, question.number, question.answerIndex);
+  assert.equal(answer.correct, true);
+  assert.equal(session.state.scores[late.player.id].correct, 1);
 });
 
 test('correct answers award missiles while hiding the answer from public projections', async () => {

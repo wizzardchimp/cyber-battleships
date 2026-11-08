@@ -35,7 +35,7 @@ test('20 devices join, sync, switch teams, reconnect, lock and reach the first q
   });
 
   const cookie = await loginHost(h.baseUrl);
-  const summary = await createSession(h.baseUrl, cookie, { maxPlayersPerTeam: 15 });
+  const summary = await createSession(h.baseUrl, cookie, { maxPlayersPerTeam: 15, allowLateJoin: false });
 
   const host = await connect(h.baseUrl, cookie);
   sockets.push(host);
@@ -565,4 +565,82 @@ test('a full round runs questions, rewards missiles, resolves attacks and starts
   );
   assert.equal(lobby.round, null);
   assert.equal(lobby.session.config.lobbyLocked, false);
+});
+
+test('a late joiner can enlist and answer during a live round', async (t) => {
+  const h = await bootTestServer();
+  const sockets = [];
+  t.after(async () => {
+    closeAll(sockets);
+    await h.close();
+  });
+
+  const cookie = await loginHost(h.baseUrl);
+  const summary = await createSession(h.baseUrl, cookie, {
+    maxPlayersPerTeam: 2,
+    allowLateJoin: true,
+  });
+
+  const host = await connect(h.baseUrl, cookie);
+  sockets.push(host);
+  const hostStates = collectStates(host);
+  assert.equal(
+    (await emitAck(host, EVENTS.HOST_SUBSCRIBE, { sessionId: summary.id })).ok,
+    true,
+  );
+
+  const early = await connect(h.baseUrl);
+  sockets.push(early);
+  const earlyStates = collectStates(early);
+  assert.equal(
+    (
+      await emitAck(early, EVENTS.PLAYER_JOIN, {
+        code: summary.joinCode,
+        name: 'Early Bird',
+        teamId: null,
+        asSpectator: false,
+      })
+    ).ok,
+    true,
+  );
+
+  assert.equal((await emitAck(host, EVENTS.HOST_START, { sessionId: summary.id })).ok, true);
+  await waitFor(
+    () => {
+      const state = earlyStates.latest();
+      return state?.session?.phase === PHASES.QUESTION && state.round?.question ? state : null;
+    },
+    { label: 'early player question state' },
+  );
+
+  const late = await connect(h.baseUrl);
+  sockets.push(late);
+  const lateStates = collectStates(late);
+  const joined = await emitAck(late, EVENTS.PLAYER_JOIN, {
+    code: summary.joinCode,
+    name: 'Latecomer',
+    teamId: null,
+    asSpectator: false,
+  });
+  assert.equal(joined.ok, true, JSON.stringify(joined));
+
+  const lateState = await waitFor(
+    () => {
+      const state = lateStates.latest();
+      return state?.session?.phase === PHASES.QUESTION && state.round?.me ? state : null;
+    },
+    { label: 'late joiner question state' },
+  );
+  assert.equal(lateState.me.name, 'Latecomer');
+  assert.ok(lateState.round.me.ownerId);
+  assert.ok(lateState.round.me.targetBoard);
+
+  const hostQuestion = hostStates.latest().round.question;
+  const answer = await emitAck(late, EVENTS.PLAYER_ANSWER, {
+    questionNumber: hostQuestion.number,
+    optionIndex: hostQuestion.answerIndex,
+  });
+  assert.equal(answer.ok, true, JSON.stringify(answer));
+  assert.equal(answer.correct, true);
+  assert.ok(answer.reward >= 1);
 });

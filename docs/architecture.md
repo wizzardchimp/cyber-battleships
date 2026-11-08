@@ -116,6 +116,7 @@ Browser clients                    Node.js server                    PostgreSQL
 | `player:chooseTeam` | player | switch teams while lobby is open |
 | `player:answer` | player | submit one option for the open question |
 | `player:attack` | player | fire one missile at the assigned target |
+| `player:join` | anyone | enlist in the lobby, or mid-round when late join is enabled |
 | `player:resume` | token holder | reattach an existing identity |
 
 `canStart()` still reports the normal readiness rules (at least one player, and
@@ -134,11 +135,18 @@ carries them into the next round.
   clock expires.
 - Each question runs for `questionTimer` seconds. Correct answers award 3 missiles
   within 5 seconds, 2 within 10, 1 within 20, and 10 points. Answers include the
-  response time for future analytics.
+  response time for future analytics. The configured age band caps the question
+  pool: cadets get easy/medium, juniors up to hard, adults up to expert.
 - Combatants are teams in team/co-op modes and individual players in free-for-all.
-  Targets form a ring; a CPU firewall is appended whenever a human has no
-  opponent, and co-op crews all target the CPU. Fleets are randomised,
-  non-overlapping and regenerated each round.
+  Free-for-all players target each other in a ring; a CPU firewall is appended
+  whenever a human has no human opponent, and co-op crews all target the CPU.
+  Fleets are randomised, non-overlapping and regenerated each round.
+- When `allowLateJoin` is on, players can enlist during `mission_ready`,
+  `question`, `attack` or `round_over`. Team modes attach the player to an
+  existing team combatant, so they immediately share its fleet and missile pool.
+  Free-for-all creates a combatant and fleet on the fly and inserts it into the
+  targeting ring without changing any other player's target. Joining during
+  `round_over` waits until the next round for combatant state.
 - Attacks consume one missile, reject duplicate cells for the same owner/target,
   and are capped by `maxAttacksPerTeam`. Hits score 25, sinking a ship adds 50.
   Results carry points, hits, misses, sunk ships, correct answers and remaining

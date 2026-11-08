@@ -1334,3 +1334,18 @@
     display: none;
   }
 }
+
+/* --------------------------------------------------------- setup controls */
+
+.toggle-row--disabled {
+  opacity: 0.55;
+}
+
+.toggle-row--disabled .badge {
+  margin-left: 0.4rem;
+  vertical-align: middle;
+}
+
+.switch input:disabled {
+  cursor: not-allowed;
+}

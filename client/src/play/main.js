@@ -167,11 +167,17 @@ function renderJoin() {
     renderCodeGate();
     return;
   }
-  if (session.phase !== PHASES.LOBBY) {
+  const livePhases = [PHASES.MISSION_READY, PHASES.QUESTION, PHASES.ATTACK, PHASES.ROUND_OVER];
+  const live = livePhases.includes(session.phase);
+  if (session.phase !== PHASES.LOBBY && !live) {
+    renderUnavailable('This operation has already finished. Ask the facilitator for a new session.', 'OPERATION COMPLETE');
+    return;
+  }
+  if (live && !session.config.allowLateJoin) {
     renderUnavailable('This operation has already started. Ask the facilitator for a new session.', 'OPERATION IN PROGRESS');
     return;
   }
-  if (session.config.lobbyLocked) {
+  if (!live && session.config.lobbyLocked) {
     renderUnavailable('The facilitator has locked this lobby. New enlistment is closed.', 'LOBBY LOCKED');
     return;
   }
@@ -201,6 +207,7 @@ function renderJoin() {
       <p class="play-card__eyebrow">// ${escapeHtml(session.name)} //</p>
       <h1 class="play-title">ENLIST IN<br />OPERATION</h1>
       <p class="play-copy">${escapeHtml(modeLabel(session.mode))} // ${session.config.ageGroup.toUpperCase()} // ${session.config.difficulty.toUpperCase()}</p>
+      ${live ? '<p class="form-hint">Operation in progress. Enlist now to join the live round; teams keep their existing fleet and ammunition.</p>' : ''}
       <form id="join-form" class="stack" novalidate>
         <label class="field">
           <span class="field__label">Display name</span>
@@ -228,7 +235,7 @@ function renderJoin() {
     </section>
     <section class="play-card panel">
       <p class="play-card__eyebrow">// OPERATION BRIEF //</p>
-      <p class="play-copy">One device per player. Questions will arrive on this screen once the facilitator starts the question phase. Keep this page open.</p>
+      <p class="play-copy">${live ? 'You will join the current round as soon as you enlist. The next question appears automatically.' : 'One device per player. Questions will arrive on this screen once the facilitator starts the question phase. Keep this page open.'}</p>
       <div class="play-code"><span>Join code</span><strong>${escapeHtml(session.joinCode)}</strong></div>
     </section>
   `);

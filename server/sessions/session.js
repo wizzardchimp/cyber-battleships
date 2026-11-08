@@ -24,6 +24,7 @@ import {
   buildCombatants,
   cellKey,
   ensureScore,
+  ensureLateCombatant,
   makeFleet,
   makeQuestionState,
   makeRound,
@@ -194,8 +195,15 @@ export class GameSession extends EventEmitter {
   }
 
   join({ name, teamId = null, asSpectator = false }) {
-    assert(this.state.phase === PHASES.LOBBY, 'JOIN_CLOSED', 'Joining is closed.');
-    assert(!this.config.lobbyLocked, 'LOBBY_LOCKED', 'The facilitator has locked this lobby.');
+    const phase = this.state.phase;
+    const inLobby = phase === PHASES.LOBBY;
+    const lateOpen =
+      this.config.allowLateJoin &&
+      [PHASES.MISSION_READY, PHASES.QUESTION, PHASES.ATTACK, PHASES.ROUND_OVER].includes(phase);
+    assert(inLobby || lateOpen, 'JOIN_CLOSED', 'Joining is closed.');
+    if (inLobby) {
+      assert(!this.config.lobbyLocked, 'LOBBY_LOCKED', 'The facilitator has locked this lobby.');
+    }
     const clean = cleanText(name, LIMITS.maxNameLength);
     assert(clean.length >= LIMITS.minNameLength, 'INVALID_NAME', 'That display name is too short.');
     const key = nameKey(clean);
@@ -244,7 +252,12 @@ export class GameSession extends EventEmitter {
       resolvedTeamId = team.id;
     }
 
-    return this.createPlayer({ name: clean, teamId: resolvedTeamId, role: ROLES.PLAYER });
+    const result = this.createPlayer({ name: clean, teamId: resolvedTeamId, role: ROLES.PLAYER });
+    if (!inLobby && this.state.round && [PHASES.QUESTION, PHASES.ATTACK].includes(phase)) {
+      ensureLateCombatant(this.state, result.player);
+      this.bump();
+    }
+    return result;
   }
 
   createPlayer({ name, teamId, role }) {
@@ -547,6 +560,7 @@ export class GameSession extends EventEmitter {
     assert(round, 'NOT_IN_ROUND', 'No round is active.');
     const question = pickQuestion({
       difficulty: this.config.difficulty,
+      ageGroup: this.config.ageGroup,
       used: this.state.usedQuestions,
     });
     if (!question) return;

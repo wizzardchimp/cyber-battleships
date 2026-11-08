@@ -443,19 +443,32 @@ export const QUESTION_BANK = Object.freeze([
 
 const difficultyOrder = ['easy', 'medium', 'hard', 'expert'];
 
+/**
+ * The age band caps how advanced the question pool may get. Facilitators can
+ * still choose an easier difficulty inside the band, but never a harder one.
+ */
+export const AGE_DIFFICULTY_LIMITS = Object.freeze({
+  '10-15': ['easy', 'medium'],
+  '15-20': ['easy', 'medium', 'hard'],
+  adult: ['easy', 'medium', 'hard', 'expert'],
+});
+
 /** Pick an unused question for the requested difficulty, then widen the pool. */
-export function pickQuestion({ difficulty = 'medium', used = [] } = {}) {
+export function pickQuestion({ difficulty = 'medium', ageGroup = '15-20', used = [] } = {}) {
+  const allowed = AGE_DIFFICULTY_LIMITS[ageGroup] || difficultyOrder;
+  const pool = QUESTION_BANK.filter((question) => allowed.includes(question.difficulty));
+  const target = allowed.includes(difficulty) ? difficulty : allowed[allowed.length - 1];
   const usedSet = new Set(used);
-  const exact = QUESTION_BANK.filter((question) => question.difficulty === difficulty);
+  const exact = pool.filter((question) => question.difficulty === target);
   const exactUnused = exact.filter((question) => !usedSet.has(question.id));
   if (exactUnused.length) {
     return randomEntry(exactUnused);
   }
 
-  const allUnused = QUESTION_BANK.filter((question) => !usedSet.has(question.id));
+  const allUnused = pool.filter((question) => !usedSet.has(question.id));
   if (allUnused.length) {
-    // Prefer a neighbouring difficulty before jumping across the whole bank.
-    const rank = difficultyOrder.indexOf(difficulty);
+    // Prefer a neighbouring difficulty before jumping across the whole band.
+    const rank = difficultyOrder.indexOf(target);
     allUnused.sort((a, b) => {
       const distanceA = Math.abs(difficultyOrder.indexOf(a.difficulty) - rank);
       const distanceB = Math.abs(difficultyOrder.indexOf(b.difficulty) - rank);
@@ -468,7 +481,7 @@ export function pickQuestion({ difficulty = 'medium', used = [] } = {}) {
     return randomEntry(nearest);
   }
 
-  return randomEntry(exact.length ? exact : QUESTION_BANK);
+  return randomEntry(exact.length ? exact : pool);
 }
 
 function randomEntry(list) {
