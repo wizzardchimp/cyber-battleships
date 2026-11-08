@@ -2,8 +2,8 @@
 
 Stage 1 implements a real-time lobby: facilitator console, projector display and
 mobile player terminals stay synchronised through a server-authoritative game
-session. Questions, ships, attacks, captains and scoring are deliberately out of
-scope until Stage 2.
+session. Stage 2 adds the playable round: timed questions, missile rewards,
+attack grids, scoring, winners and repeated rounds.
 
 ## Runtime components
 
@@ -36,10 +36,22 @@ Browser clients                    Node.js server                    PostgreSQL
 
 ```js
 {
-  id, joinCode, name, phase,          // lobby | mission_ready | ended
+  id, joinCode, name, phase,          // lobby | mission_ready | question | attack | round_over | ended
   config,                             // validated session config
-  teams: [{ id, name, color, maxPlayers, ... }],
+  teams: [{ id, name, color, maxPlayers, missiles, ... }],
   players: [{ id, displayName, nameKey, teamId, role, tokenHash, connected, stats }],
+  round: {                            // active round, null in the lobby
+    number, phase, startedAt, quizEndsAt,
+    question: { id, number, prompt, options, answerIndex, endsAt, revealedAt, ... },
+    answers: { [playerId]: { questionNumber, optionIndex, correct, reward, ownerId, ... } },
+    combatants: [{ id, name, kind, color, teamId, playerId, targetId }],
+    attacks: [{ id, ownerId, targetId, x, y, hit, sunkShip, round }],
+    attackStartedAt, attackEndsAt, endedAt, outcome, results
+  },
+  fleets: { [combatantId]: { gridSize, ships: [{ key, name, cells, hits, sunk }], shots: [] } },
+  arsenal: { [combatantId]: missileCount },
+  scores: { [combatantId]: { points, hits, misses, sunk, correct, answered, missilesEarned } },
+  usedQuestions: [...],
   recentEvents: [...], eventSeq, version,
   createdAt, updatedAt, startedAt, endedAt, expiresAt,
   joinBaseUrl, displayBaseUrl
@@ -96,22 +108,53 @@ Browser clients                    Node.js server                    PostgreSQL
 | `host:movePlayer` | host | reassign a player between teams |
 | `host:removePlayer` | host | delete participant and disconnect them |
 | `host:renameTeam` | host | rename a team while in lobby |
-| `host:start` | host | force-start a round, enter `mission_ready`, lock lobby |
+| `host:start` | host | force-start round 1, enter `question`, lock lobby |
+| `host:advance` | host | questions → attack → round over → next round |
+| `host:endRound` | host | close the current question/attack round immediately |
+| `host:returnToLobby` | host | clear round state and return to `lobby` |
 | `display:start` | display | force-start a round from the Battle Command lobby |
-| `host:returnToLobby` | host | return `mission_ready` → `lobby` |
 | `player:chooseTeam` | player | switch teams while lobby is open |
+| `player:answer` | player | submit one option for the open question |
+| `player:attack` | player | fire one missile at the assigned target |
 | `player:resume` | token holder | reattach an existing identity |
 
 `canStart()` still reports the normal readiness rules (at least one player, and
 in team/co-op modes at least one player on every configured team), but the
 facilitator and display start commands use a forced start so an event can begin
 with an empty or partially populated lobby. Only the phase check is enforced.
+Starting from `lobby` resets scores and ammunition; starting from `round_over`
+carries them into the next round.
+
+## Round engine
+
+- `SessionManager` runs `tickSessions()` every 750 ms and calls `tick()` on live
+  rounds. Ticks reveal questions when the timer expires or everyone has answered,
+  start the next question after the 4-second reveal, enter the attack phase when
+  the quiz clock (`roundMinutes`) expires, and close the round when the attack
+  clock expires.
+- Each question runs for `questionTimer` seconds. Correct answers award 3 missiles
+  within 5 seconds, 2 within 10, 1 within 20, and 10 points. Answers include the
+  response time for future analytics.
+- Combatants are teams in team/co-op modes and individual players in free-for-all.
+  Targets form a ring; a CPU firewall is appended whenever a human has no
+  opponent, and co-op crews all target the CPU. Fleets are randomised,
+  non-overlapping and regenerated each round.
+- Attacks consume one missile, reject duplicate cells for the same owner/target,
+  and are capped by `maxAttacksPerTeam`. Hits score 25, sinking a ship adds 50.
+  Results carry points, hits, misses, sunk ships, correct answers and remaining
+  ammunition; the highest score wins (co-op compares the human score with the
+  CPU firewall's survival).
+- `ammoCarryOver` decides whether unspent missiles survive into the next round;
+  returning to the lobby clears scores, fleets, ammunition and used questions.
+- Projections never include `answerIndex` or `explanation` before the question is
+  revealed. The host projection adds the answer key, answer tallies and full
+  fleets; player projections expose only their own and target boards.
 
 All socket handlers validate payloads with Zod, apply a per-socket rate limit and
 return an acknowledgement `{ ok: true }` or
 `{ ok: false, error: { code, message } }`.
 
-## Database schema (Stage 1)
+## Database schema (Stage 2)
 
 - `sessions` — one row per operation: code, status/phase, mode, config JSONB,
   full state JSONB, version, timestamps, expiry.
@@ -158,11 +201,12 @@ Both drivers expose the same `query`/`transaction` interface.
 - Helmet sets a strict CSP; Socket.IO origins are restricted to the same host
   plus `ALLOWED_ORIGINS`.
 
-## Stage 2 extension points
+## Future extension points
 
-- New phases extend `PHASES` and `GameSession` transition methods.
-- Question/fleet/attack state can be persisted in the session JSONB and exposed
-  through new scoped projections.
+- New phases extend `PHASES` and `GameSession` transition methods; quest and
+  movement timers already run through the same manager tick.
+- Question, fleet, attack and score state persist in the session JSONB and flow
+  through scoped projections, so new modes can extend the same shapes.
 - `session_events` already provides the audit trail for answers, hits and scoring.
-- The `teams` table reserves missile, weapon, target and stats columns for fleet
-  combat without another schema rewrite.
+- The `teams` table reserves missile, weapon, target and stats columns for
+  captains, special weapons and reporting without another schema rewrite.

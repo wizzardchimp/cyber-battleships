@@ -8,12 +8,16 @@ export const EVENTS = Object.freeze({
   HOST_REMOVE_PLAYER: 'host:removePlayer',
   HOST_LOCK_LOBBY: 'host:lockLobby',
   HOST_START: 'host:start',
+  HOST_ADVANCE: 'host:advance',
+  HOST_END_ROUND: 'host:endRound',
   HOST_RETURN_TO_LOBBY: 'host:returnToLobby',
 
   // Player -> server
   PLAYER_JOIN: 'player:join',
   PLAYER_RESUME: 'player:resume',
   PLAYER_CHOOSE_TEAM: 'player:chooseTeam',
+  PLAYER_ANSWER: 'player:answer',
+  PLAYER_ATTACK: 'player:attack',
 
   // Display -> server
   DISPLAY_SUBSCRIBE: 'display:subscribe',

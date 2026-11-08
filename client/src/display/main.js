@@ -1,11 +1,13 @@
 import '../../styles/tokens.css';
 import '../../styles/display.css';
+import '../../styles/battle.css';
 
 import { MODES, PHASES, modeLabel, phaseLabel } from '@shared/constants.js';
 import { EVENTS } from '@shared/events.js';
 import { isMuted, muteLabel, sfx, toggleMute, unlockAudio } from '../shared/audio.js';
-import { formatClock, syncClock } from '../shared/clock.js';
+import { formatClock, formatCountdown, syncClock } from '../shared/clock.js';
 import { $, escapeHtml, initials, on, toast } from '../shared/dom.js';
+import { renderGrid } from '../shared/grid.js';
 import { createSocket, request } from '../shared/socket.js';
 import { normaliseCode } from '@shared/util.js';
 
@@ -235,9 +237,198 @@ function renderMission() {
                   .join('')
               }
             </div>
-            <p class="tiny muted">AWAITING PHASE CONTROL // ${phaseLabel(current.session.phase)}</p>
+            <p class="tiny muted">LAUNCH THE FIRST QUESTION ROUND WHEN EVERY OPERATIVE IS READY</p>
+            <button class="btn btn--green display-start" type="button" data-action="start-round">START ROUND</button>
           </div>
         </section>
+      </main>
+      ${footer()}
+    </div>
+  `;
+}
+
+const OPTION_KEYS = 'ABCDEF';
+
+function optionKey(index) {
+  return OPTION_KEYS[index] || String(index + 1);
+}
+
+function displayScores(round) {
+  return [...(round?.scores || [])].sort(
+    (a, b) => b.points - a.points || b.hits - a.hits || a.name.localeCompare(b.name),
+  );
+}
+
+function displayScoreboard(round) {
+  const rows = displayScores(round);
+  return `
+    <section class="display-round-score panel">
+      <div class="display-round-score__head">
+        <strong>BATTLE SCORE</strong>
+        <span>ROUND ${round?.number || 1}</span>
+      </div>
+      <div class="display-round-score__rows">
+        ${rows
+          .map(
+            (row, index) => `
+            <div class="display-score-row" style="--row:${row.color}">
+              <span class="display-score-row__rank">${index + 1}</span>
+              <span class="display-score-row__name">${escapeHtml(row.name)}</span>
+              <span class="display-score-row__points">${row.points}</span>
+              <span class="display-score-row__meta">${row.hits} HIT // ${row.missiles} MSL</span>
+            </div>`,
+          )
+          .join('') || '<p class="tiny muted">Awaiting combatants</p>'}
+      </div>
+    </section>
+  `;
+}
+
+function displayRoundHead(round, { title, label, endsAt }) {
+  const current = state;
+  return `
+    <header class="display-round-head">
+      <div>
+        <p class="display-round-head__eyebrow">// ROUND ${round.number} // ${escapeHtml(label)} //</p>
+        <h1 class="display-round-head__title">${escapeHtml(title)}</h1>
+      </div>
+      <div class="display-round-head__meta">
+        <span>${escapeHtml(current.session.name)}</span>
+        <strong data-countdown="${escapeHtml(endsAt || '')}">${formatCountdown(endsAt)}</strong>
+      </div>
+    </header>
+  `;
+}
+
+function renderDisplayBoard(board, round) {
+  const combatant = round.combatants.find((entry) => entry.id === board.id);
+  return `
+    <article class="board-panel" style="--board-color:${board.color}">
+      <div class="board-panel__head">
+        <div>
+          <div class="board-panel__name">${escapeHtml(board.name)}</div>
+          <div class="board-panel__meta">
+            ${combatant?.targetId ? 'ON THE ATTACK' : 'HOLDING POSITION'}
+          </div>
+        </div>
+        <div class="board-panel__meta">${board.shipsSunk}/${board.shipsTotal} SUNK</div>
+      </div>
+      ${renderGrid({
+        size: board.gridSize,
+        shots: board.shots,
+        ships: board.ships || [],
+        revealShips: Boolean(board.ships?.length),
+        label: `${board.name} grid`,
+      })}
+    </article>
+  `;
+}
+
+function renderQuestion() {
+  const round = state.round;
+  const question = round?.question;
+  if (!round) return renderMission();
+  if (!question) {
+    app.innerHTML = `
+      <div class="display-shell">
+        ${topbar(state)}
+        ${displayRoundHead(round, { title: 'NEXT QUESTION', label: 'QUESTION PHASE', endsAt: round.quizEndsAt })}
+        <main class="display-round display-round--waiting">
+          <p>Next question incoming…</p>
+        </main>
+        ${footer()}
+      </div>
+    `;
+    return;
+  }
+
+  app.innerHTML = `
+    <div class="display-shell">
+      ${topbar(state)}
+      ${displayRoundHead(round, {
+        title: 'LIVE QUESTION',
+        label: `${round.answered}/${round.totalPlayers} ANSWERED`,
+        endsAt: question.revealed ? question.revealUntil : question.endsAt,
+      })}
+      <main class="display-round display-round--question">
+        <section class="display-question panel">
+          <div class="display-question__meta">
+            <span>Q${question.number}</span>
+            <span>${escapeHtml(question.category)}</span>
+            <span>${escapeHtml(question.difficulty)}</span>
+          </div>
+          <h2 class="display-question__prompt">${escapeHtml(question.prompt)}</h2>
+          <div class="display-options">
+            ${question.options
+              .map(
+                (option, index) => `
+                <div class="display-option ${question.revealed && index === question.answerIndex ? 'is-correct' : ''} ${question.revealed && index !== question.answerIndex ? 'is-dim' : ''}">
+                  <span class="display-option__key">${optionKey(index)}</span>
+                  <span class="display-option__text">${escapeHtml(option)}</span>
+                  ${round.answerTally ? `<span class="display-option__count">${round.answerTally[index] || 0}</span>` : ''}
+                </div>`,
+              )
+              .join('')}
+          </div>
+          ${
+            question.revealed
+              ? `<div class="display-answer">
+                   <strong>ANSWER ${optionKey(question.answerIndex)}</strong>
+                   <span>${escapeHtml(question.explanation || '')}</span>
+                 </div>`
+              : '<div class="display-answer display-answer--hidden">CORRECT ANSWER HIDDEN UNTIL REVEAL</div>'
+          }
+        </section>
+        ${displayScoreboard(round)}
+      </main>
+      ${footer()}
+    </div>
+  `;
+}
+
+function renderAttack() {
+  const round = state.round;
+  if (!round) return renderMission();
+  app.innerHTML = `
+    <div class="display-shell">
+      ${topbar(state)}
+      ${displayRoundHead(round, {
+        title: 'ATTACK PHASE',
+        label: `${round.attacks.length} MISSILES FIRED`,
+        endsAt: round.attackEndsAt,
+      })}
+      <main class="display-round display-round--attack">
+        <div class="display-board-grid">
+          ${round.boards.map((board) => renderDisplayBoard(board, round)).join('')}
+        </div>
+        ${displayScoreboard(round)}
+      </main>
+      ${footer()}
+    </div>
+  `;
+}
+
+function renderRoundOver() {
+  const round = state.round;
+  if (!round) return renderMission();
+  const outcome = round.outcome || {};
+  app.innerHTML = `
+    <div class="display-shell">
+      ${topbar(state)}
+      ${displayRoundHead(round, {
+        title: 'ROUND COMPLETE',
+        label: `${round.attacks.length} MISSILES // ${round.answered} ANSWERS`,
+      })}
+      <main class="display-round display-round--over">
+        <section class="display-outcome" style="--winner:${outcome.winnerColor || 'var(--cyan)'}">
+          <p class="display-outcome__eyebrow">// WINNING SIGNAL //</p>
+          <h2 class="display-outcome__name">${escapeHtml(outcome.winnerName || 'ROUND COMPLETE')}</h2>
+          <p class="display-outcome__reason">${escapeHtml(outcome.reason || '')}</p>
+        </section>
+        <div class="display-board-grid display-board-grid--compact">
+          ${round.boards.map((board) => renderDisplayBoard(board, round)).join('')}
+        </div>
+        ${displayScoreboard(round)}
       </main>
       ${footer()}
     </div>
@@ -250,8 +441,22 @@ function render() {
     else renderCodeEntry(lastError);
     return;
   }
-  if (state.session.phase === PHASES.MISSION_READY) renderMission();
-  else renderLobby();
+  switch (state.session.phase) {
+    case PHASES.MISSION_READY:
+      renderMission();
+      break;
+    case PHASES.QUESTION:
+      renderQuestion();
+      break;
+    case PHASES.ATTACK:
+      renderAttack();
+      break;
+    case PHASES.ROUND_OVER:
+      renderRoundOver();
+      break;
+    default:
+      renderLobby();
+  }
 }
 
 function renderBoot() {
@@ -374,6 +579,16 @@ app.addEventListener('submit', (event) => {
   window.history.replaceState({}, '', `/display?code=${encodeURIComponent(code)}`);
   subscribe();
 });
+
+function updateCountdowns() {
+  for (const node of document.querySelectorAll('[data-countdown]')) {
+    const value = formatCountdown(node.dataset.countdown);
+    if (node.textContent !== value) node.textContent = value;
+    node.classList.toggle('is-low', value !== '0:00' && /^0:0?[0-9]$/.test(value));
+  }
+}
+
+setInterval(updateCountdowns, 250);
 
 setInterval(() => {
   const clock = document.querySelector('#display-clock');

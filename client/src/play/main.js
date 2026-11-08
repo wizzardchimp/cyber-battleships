@@ -1,13 +1,15 @@
 import '../../styles/tokens.css';
 import '../../styles/play.css';
+import '../../styles/battle.css';
 
-import { MODES, PHASES, modeLabel } from '@shared/constants.js';
+import { MODES, PHASES, modeLabel, phaseLabel } from '@shared/constants.js';
 import { EVENTS } from '@shared/events.js';
 import { normaliseCode } from '@shared/util.js';
 import { api } from '../shared/api.js';
 import { isMuted, muteLabel, sfx, toggleMute, unlockAudio } from '../shared/audio.js';
-import { syncClock } from '../shared/clock.js';
+import { formatCountdown, syncClock } from '../shared/clock.js';
 import { $, escapeHtml, initials, on, toast } from '../shared/dom.js';
+import { coordLabel, renderGrid } from '../shared/grid.js';
 import { createSocket, request } from '../shared/socket.js';
 
 const app = $('#app');
@@ -364,9 +366,290 @@ function renderMission() {
           </div>
           <div class="play-team-banner__count"><strong>${team?.playerCount || 0}</strong><span>Operatives</span></div>
         </div>
-        <p class="tiny muted">Stand by for the next phase. Keep this page open.</p>
+        <p class="tiny muted">The first question arrives when the facilitator starts the round. Keep this page open.</p>
       </div>
     </section>
+  `);
+}
+
+const OPTION_KEYS = 'ABCDEF';
+
+function optionKey(index) {
+  return OPTION_KEYS[index] || String(index + 1);
+}
+
+function roundScores(round) {
+  return [...(round?.scores || [])].sort(
+    (a, b) => b.points - a.points || b.hits - a.hits || a.name.localeCompare(b.name),
+  );
+}
+
+function myScore(round) {
+  const ownerId = round?.me?.ownerId;
+  return round?.scores?.find((entry) => entry.id === ownerId) || null;
+}
+
+function renderPlayRoundTop(round, { label, endsAt }) {
+  const me = round?.me;
+  return `
+    <div class="play-round-top">
+      <span class="badge badge--live">${escapeHtml(label)}</span>
+      <span class="play-round-top__timer"><span>Time</span><strong data-countdown="${escapeHtml(endsAt || '')}">${formatCountdown(endsAt)}</strong></span>
+      <span class="play-round-top__missiles"><strong>${me?.missiles || 0}</strong><span>missiles</span></span>
+    </div>
+  `;
+}
+
+function renderPlayScoreboard(round) {
+  const rows = roundScores(round);
+  return `
+    <section class="play-card panel">
+      <div class="row row--between">
+        <p class="play-card__eyebrow">// BATTLE SCORE //</p>
+        <span class="badge">ROUND ${round?.number || 1}</span>
+      </div>
+      <div class="play-score-rows">
+        ${rows
+          .map(
+            (row, index) => `
+            <div class="play-score-row" style="--row:${row.color}">
+              <span class="play-score-row__rank">${index + 1}</span>
+              <span class="play-score-row__name">${escapeHtml(row.name)}</span>
+              <span class="play-score-row__value"><strong>${row.points}</strong> pts</span>
+              <span class="play-score-row__value">${row.missiles} msl</span>
+            </div>`,
+          )
+          .join('') || '<p class="tiny muted">No combatants yet.</p>'}
+      </div>
+    </section>
+  `;
+}
+
+function renderQuestion() {
+  view = 'question';
+  const session = currentSession();
+  const round = playerState?.round;
+  const me = round?.me;
+  const question = round?.question;
+  const spectator = me?.spectator || playerState?.me?.role === 'spectator';
+
+  if (!round) {
+    renderLobby();
+    return;
+  }
+
+  if (!question) {
+    shell(`
+      <section class="play-card panel play-round-card">
+        <p class="play-card__eyebrow">// QUESTION PHASE //</p>
+        <h1 class="play-title">NEXT QUESTION<br />INCOMING</h1>
+        <p class="play-copy">Stand by. The next question appears on this screen automatically.</p>
+      </section>
+      ${renderPlayScoreboard(round)}
+    `);
+    return;
+  }
+
+  const answered = Boolean(me?.answered && me.answer?.questionNumber === question.number);
+  const reveal = Boolean(question.revealed);
+
+  shell(`
+    <section class="play-card panel play-round-card">
+      ${renderPlayRoundTop(round, {
+        label: reveal ? 'ANSWER REVEAL' : 'QUESTION PHASE',
+        endsAt: reveal ? question.revealUntil : question.endsAt,
+      })}
+      <div class="play-question-meta">
+        <span>Q${question.number}</span>
+        <span>${escapeHtml(question.category)}</span>
+        <span>${escapeHtml(question.difficulty)}</span>
+      </div>
+      <h1 class="play-question">${escapeHtml(question.prompt)}</h1>
+
+      <div class="play-answers">
+        ${question.options
+          .map((option, index) => {
+            const isCorrect = reveal && index === question.answerIndex;
+            const isChosen = answered && me.answer.optionIndex === index;
+            const classes = ['play-answer'];
+            if (isCorrect) classes.push('is-correct');
+            else if (reveal && isChosen) classes.push('is-wrong');
+            else if (reveal) classes.push('is-dim');
+
+            if (spectator || answered || reveal) {
+              return `<div class="${classes.join(' ')}">
+                <span class="play-answer__key">${optionKey(index)}</span>
+                <span class="play-answer__text">${escapeHtml(option)}</span>
+                ${isChosen ? '<span class="play-answer__tag">YOUR PICK</span>' : ''}
+              </div>`;
+            }
+            return `<button class="${classes.join(' ')}" type="button" data-answer="${index}">
+              <span class="play-answer__key">${optionKey(index)}</span>
+              <span class="play-answer__text">${escapeHtml(option)}</span>
+            </button>`;
+          })
+          .join('')}
+      </div>
+
+      ${
+        answered
+          ? `<div class="play-result ${me.answer.correct ? 'play-result--correct' : 'play-result--wrong'}">
+               <strong>${me.answer.correct ? `CORRECT // +${me.answer.reward} MISSILE${me.answer.reward === 1 ? '' : 'S'}` : 'INCORRECT'}</strong>
+               <span>${me.answer.correct ? 'Ammunition added to your arsenal.' : 'No missiles earned this time.'}</span>
+             </div>`
+          : reveal
+            ? `<div class="play-result play-result--reveal">
+                 <strong>ANSWER ${optionKey(question.answerIndex)}</strong>
+                 <span>${escapeHtml(question.explanation || '')}</span>
+               </div>`
+            : spectator
+              ? '<p class="play-copy">Spectator mode: answers are read-only.</p>'
+              : '<p class="play-hint">Tap an answer. Faster correct answers earn more missiles.</p>'
+      }
+    </section>
+
+    <section class="play-card panel play-arsenal-card">
+      <div>
+        <p class="play-card__eyebrow">// YOUR ARSENAL //</p>
+        <div class="play-arsenal"><strong>${me?.missiles || 0}</strong><span>missiles ready</span></div>
+      </div>
+      <div class="play-arsenal-meta">
+        <span>${myScore(round)?.points || 0} POINTS</span>
+        <span>${myScore(round)?.correct || 0}/${myScore(round)?.answered || 0} CORRECT</span>
+      </div>
+    </section>
+
+    ${renderPlayScoreboard(round)}
+  `);
+}
+
+function renderAttack() {
+  view = 'attack';
+  const round = playerState?.round;
+  const me = round?.me;
+  const spectator = me?.spectator || playerState?.me?.role === 'spectator';
+
+  if (!round) {
+    renderLobby();
+    return;
+  }
+
+  if (spectator || !me?.targetBoard) {
+    shell(`
+      <section class="play-card panel play-round-card">
+        ${renderPlayRoundTop(round, { label: 'ATTACK PHASE', endsAt: round.attackEndsAt })}
+        <p class="play-card__eyebrow">// LIVE FIRE FEED //</p>
+        <h1 class="play-title">ATTACK PHASE</h1>
+        <p class="play-copy">${spectator ? 'Spectator mode: watch the scoreboard while operatives fire.' : 'No target grid is assigned to you this round.'}</p>
+      </section>
+      ${renderPlayScoreboard(round)}
+    `);
+    return;
+  }
+
+  const target = me.targetBoard;
+  const shotsUsed = me.attacksUsed || 0;
+  const limit = me.attacksLimit || 0;
+  const canFire = !spectator && me.missiles > 0 && shotsUsed < limit;
+
+  shell(`
+    <section class="play-card panel play-round-card">
+      ${renderPlayRoundTop(round, { label: 'ATTACK PHASE', endsAt: round.attackEndsAt })}
+      <div class="play-attack-head">
+        <div>
+          <p class="play-card__eyebrow">// TARGET GRID //</p>
+          <h1 class="play-title play-title--target">${escapeHtml(me.targetName || target.name)}</h1>
+        </div>
+        <div class="play-attack-count">
+          <strong>${shotsUsed}/${limit}</strong>
+          <span>shots used</span>
+        </div>
+      </div>
+
+      <div class="play-target-grid">
+        ${renderGrid({
+          size: target.gridSize,
+          shots: target.shots,
+          interactive: canFire,
+          disabled: !canFire,
+          label: `${me.targetName || target.name} target grid`,
+        })}
+      </div>
+
+      <div class="play-attack-footer">
+        <span>MISSILES <strong>${me.missiles}</strong></span>
+        <span>SUNK <strong>${target.shipsSunk}/${target.shipsTotal}</strong></span>
+        <span>HITS <strong>${myScore(round)?.hits || 0}</strong></span>
+      </div>
+
+      ${
+        canFire
+          ? '<p class="play-hint">Tap a cell to fire. Each missile is consumed.</p>'
+          : me.missiles <= 0
+            ? '<p class="play-hint play-hint--warn">No missiles left. Answer questions correctly to earn more.</p>'
+            : '<p class="play-hint play-hint--warn">Attack limit reached for this round.</p>'
+      }
+    </section>
+
+    ${
+      me.ownBoard
+        ? `<section class="play-card panel">
+             <div class="row row--between">
+               <p class="play-card__eyebrow">// YOUR FLEET //</p>
+               <span class="badge">${me.ownBoard.shipsSunk}/${me.ownBoard.shipsTotal} LOST</span>
+             </div>
+             <div class="play-own-grid">
+               ${renderGrid({
+                 size: me.ownBoard.gridSize,
+                 shots: me.ownBoard.shots,
+                 ships: me.ownBoard.ships || [],
+                 revealShips: true,
+                 label: 'Your fleet',
+               })}
+             </div>
+           </section>`
+        : ''
+    }
+
+    ${renderPlayScoreboard(round)}
+  `);
+}
+
+function renderRoundOver() {
+  view = 'round_over';
+  const round = playerState?.round;
+  const me = round?.me;
+  const outcome = round?.outcome;
+  const score = myScore(round);
+
+  if (!round) {
+    renderLobby();
+    return;
+  }
+
+  shell(`
+    <section class="play-card panel play-outcome" style="--winner:${outcome?.winnerColor || 'var(--cyan)'}">
+      <p class="play-card__eyebrow">// ROUND ${round.number} COMPLETE //</p>
+      <h1 class="play-outcome__name">${escapeHtml(outcome?.winnerName || 'ROUND COMPLETE')}</h1>
+      <p class="play-outcome__reason">${escapeHtml(outcome?.reason || '')}</p>
+    </section>
+
+    <section class="play-card panel">
+      <p class="play-card__eyebrow">// YOUR RESULT //</p>
+      <div class="play-result-grid">
+        <div><strong>${score?.points || 0}</strong><span>Points</span></div>
+        <div><strong>${score?.hits || 0}</strong><span>Hits</span></div>
+        <div><strong>${score?.correct || 0}</strong><span>Correct</span></div>
+        <div><strong>${me?.missiles || 0}</strong><span>Missiles left</span></div>
+      </div>
+    </section>
+
+    ${renderPlayScoreboard(round)}
+
+    <div class="play-waiting">
+      <div class="play-waiting__pulse">CB</div>
+      <p>ROUND COMPLETE<br />AWAITING FACILITATOR FOR THE NEXT ROUND</p>
+    </div>
   `);
 }
 
@@ -384,8 +667,22 @@ function render() {
     return;
   }
   if (joined && playerState) {
-    if (playerState.session.phase === PHASES.MISSION_READY) renderMission();
-    else renderLobby();
+    switch (playerState.session.phase) {
+      case PHASES.MISSION_READY:
+        renderMission();
+        break;
+      case PHASES.QUESTION:
+        renderQuestion();
+        break;
+      case PHASES.ATTACK:
+        renderAttack();
+        break;
+      case PHASES.ROUND_OVER:
+        renderRoundOver();
+        break;
+      default:
+        renderLobby();
+    }
     return;
   }
   if (joined && !playerState) {
@@ -545,6 +842,64 @@ function updateSound(button) {
 }
 
 on(app, 'click', (event) => {
+  const answerButton = event.target.closest('[data-answer]');
+  if (answerButton) {
+    unlockAudio();
+    const round = playerState?.round;
+    const question = round?.question;
+    if (!question || answerButton.disabled) return;
+    const optionIndex = Number(answerButton.dataset.answer);
+    for (const node of app.querySelectorAll('[data-answer]')) node.disabled = true;
+    sfx.click();
+    request(socket, EVENTS.PLAYER_ANSWER, {
+      questionNumber: question.number,
+      optionIndex,
+    })
+      .then((result) => {
+        if (result.correct) {
+          toast(`Correct // +${result.reward} missile${result.reward === 1 ? '' : 's'}`, 'join', '#toast-root');
+          sfx.success();
+        } else {
+          toast('Incorrect // no missiles earned', 'error', '#toast-root');
+          sfx.error();
+        }
+      })
+      .catch((error) => {
+        toast(error.message, 'error', '#toast-root');
+        sfx.error();
+      });
+    return;
+  }
+
+  const fireButton = event.target.closest('[data-fire-x]');
+  if (fireButton) {
+    unlockAudio();
+    if (fireButton.disabled) return;
+    const x = Number(fireButton.dataset.fireX);
+    const y = Number(fireButton.dataset.fireY);
+    fireButton.disabled = true;
+    sfx.click();
+    request(socket, EVENTS.PLAYER_ATTACK, { x, y })
+      .then((result) => {
+        const where = coordLabel(x, y);
+        if (result.sunk) {
+          toast(`Direct hit at ${where} // ${result.shipName} destroyed`, 'alert', '#toast-root');
+          sfx.alert();
+        } else if (result.hit) {
+          toast(`Hit confirmed at ${where}`, 'join', '#toast-root');
+          sfx.success();
+        } else {
+          toast(`Miss at ${where}`, 'info', '#toast-root');
+        }
+      })
+      .catch((error) => {
+        toast(error.message, 'error', '#toast-root');
+        sfx.error();
+        fireButton.disabled = false;
+      });
+    return;
+  }
+
   const button = event.target.closest('[data-action]');
   if (!button) return;
   unlockAudio();
@@ -635,6 +990,16 @@ async function boot() {
     renderCodeGate(error.message || 'That join code is not valid.');
   }
 }
+
+function updateCountdowns() {
+  for (const node of document.querySelectorAll('[data-countdown]')) {
+    const value = formatCountdown(node.dataset.countdown);
+    if (node.textContent !== value) node.textContent = value;
+    node.classList.toggle('is-low', value !== '0:00' && /^0:0?[0-9]$/.test(value));
+  }
+}
+
+setInterval(updateCountdowns, 250);
 
 renderLoading();
 boot();

@@ -198,6 +198,24 @@ export const hostStartSchema = z.object({
   sessionId: z.string().trim().min(8).max(80),
 });
 
+export const hostAdvanceSchema = z.object({
+  sessionId: z.string().trim().min(8).max(80),
+});
+
+export const hostEndRoundSchema = z.object({
+  sessionId: z.string().trim().min(8).max(80),
+});
+
+export const playerAnswerSchema = z.object({
+  questionNumber: z.coerce.number().int().min(1).max(10_000),
+  optionIndex: z.coerce.number().int().min(0).max(5),
+});
+
+export const playerAttackSchema = z.object({
+  x: z.coerce.number().int().min(0).max(31),
+  y: z.coerce.number().int().min(0).max(31),
+});
+
 export const displaySubscribeSchema = z.object({
   code: joinCodeSchema,
 });

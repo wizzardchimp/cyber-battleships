@@ -18,6 +18,7 @@ export class SessionManager extends EventEmitter {
     this.sessions = new Map();
     this.byCode = new Map();
     this.cleanupTimer = null;
+    this.tickTimer = null;
   }
 
   async init() {
@@ -44,6 +45,20 @@ export class SessionManager extends EventEmitter {
       );
     }, 10 * 60 * 1000);
     this.cleanupTimer.unref?.();
+
+    // Phase timers only need coarse resolution: clients render countdowns
+    // locally and transitions are broadcast when they happen.
+    this.tickTimer = setInterval(() => {
+      this.tickSessions().catch((error) =>
+        this.logger?.warn({ err: error }, 'Round tick failed'),
+      );
+    }, 750);
+    this.tickTimer.unref?.();
+  }
+
+  async tickSessions() {
+    const active = [...this.sessions.values()];
+    await Promise.allSettled(active.map((session) => session.tick()));
   }
 
   async cleanupExpired() {
@@ -151,6 +166,7 @@ export class SessionManager extends EventEmitter {
 
   async closeAll() {
     if (this.cleanupTimer) clearInterval(this.cleanupTimer);
+    if (this.tickTimer) clearInterval(this.tickTimer);
     for (const session of this.sessions.values()) {
       await session.flush();
       session.destroy();

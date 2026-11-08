@@ -137,9 +137,10 @@ test('the operation can only start with players on every team', async () => {
   assert.equal(session.canStart().ok, true);
 
   await session.start();
-  assert.equal(session.phase, PHASES.MISSION_READY);
+  assert.equal(session.phase, PHASES.QUESTION);
   assert.equal(session.config.lobbyLocked, true);
   assert.ok(session.state.startedAt);
+  assert.equal(session.state.round.number, 1);
   expectCode(() => session.join({ name: 'After Start' }), 'JOIN_CLOSED');
 
   await session.returnToLobby();
@@ -155,16 +156,178 @@ test('free-for-all mode starts without teams', async () => {
   session.join({ name: 'Solo Two' });
   assert.equal(session.canStart().ok, true);
   await session.start();
-  assert.equal(session.phase, PHASES.MISSION_READY);
+  assert.equal(session.phase, PHASES.QUESTION);
+  assert.equal(session.state.round.combatants.length, 3);
+  assert.ok(session.state.round.combatants.some((combatant) => combatant.kind === 'cpu'));
 });
 
 test('a forced start launches an empty lobby', async () => {
   const { session } = makeSession();
   assert.equal(session.canStart().ok, false);
   await session.start({ force: true });
-  assert.equal(session.phase, PHASES.MISSION_READY);
+  assert.equal(session.phase, PHASES.QUESTION);
   assert.equal(session.config.lobbyLocked, true);
   assert.ok(session.state.startedAt);
+  assert.equal(session.state.round.number, 1);
+  assert.ok(session.state.round.question);
+});
+
+test('correct answers award missiles while hiding the answer from public projections', async () => {
+  const { session } = makeSession();
+  const alpha = session.state.teams[0];
+  const bravo = session.state.teams[1];
+  const { player: fast } = session.join({ name: 'Fast', teamId: alpha.id });
+  const { player: slow } = session.join({ name: 'Slow', teamId: bravo.id });
+  await session.start();
+
+  const question = session.state.round.question;
+  const publicState = publicProjection(session);
+  assert.equal(publicState.round.question.answerIndex, undefined);
+  assert.equal(publicState.round.question.explanation, undefined);
+  assert.equal(publicState.round.answerTally, null);
+  assert.equal(hostProjection(session).round.question.answerIndex, question.answerIndex);
+
+  const correct = await session.answer(fast.id, question.number, question.answerIndex);
+  assert.equal(correct.correct, true);
+  assert.ok([1, 2, 3].includes(correct.reward), `unexpected reward ${correct.reward}`);
+  assert.equal(correct.missiles, correct.reward);
+  assert.equal(correct.ownerId, alpha.id);
+  assert.equal(session.state.scores[alpha.id].correct, 1);
+  assert.equal(session.state.scores[alpha.id].points, 10);
+
+  await expectReject(
+    () => session.answer(fast.id, question.number, question.answerIndex),
+    'ALREADY_ANSWERED',
+  );
+
+  const wrong = await session.answer(
+    slow.id,
+    question.number,
+    (question.answerIndex + 1) % question.options.length,
+  );
+  assert.equal(wrong.correct, false);
+  assert.equal(wrong.reward, 0);
+  assert.equal(session.state.scores[bravo.id].missilesEarned, 0);
+  assert.equal(session.arsenalFor(bravo.id), 0);
+
+  const revealed = publicProjection(session).round;
+  assert.equal(revealed.question.revealed, true);
+  assert.equal(revealed.question.answerIndex, question.answerIndex);
+  assert.equal(revealed.answered, 2);
+  assert.equal(revealed.allAnswered, true);
+
+  await expectReject(
+    () => session.answer(fast.id, question.number, question.answerIndex),
+    'QUESTION_CLOSED',
+  );
+});
+
+test('the attack phase consumes missiles, scores hits and closes the round', async () => {
+  const { session } = makeSession();
+  const alpha = session.state.teams[0];
+  const bravo = session.state.teams[1];
+  const { player: attacker } = session.join({ name: 'Gunner', teamId: alpha.id });
+  session.join({ name: 'Target', teamId: bravo.id });
+  await session.start();
+
+  const question = session.state.round.question;
+  await session.answer(attacker.id, question.number, question.answerIndex);
+  const missilesBefore = session.arsenalFor(alpha.id);
+  assert.ok(missilesBefore > 0);
+
+  await session.advance();
+  assert.equal(session.phase, PHASES.ATTACK);
+  assert.ok(session.state.round.attackEndsAt);
+
+  const combatant = session.state.round.combatants.find((entry) => entry.id === alpha.id);
+  assert.notEqual(combatant.targetId, alpha.id);
+  const targetFleet = session.state.fleets[combatant.targetId];
+  const shipCell = targetFleet.ships[0].cells[0];
+
+  const result = await session.attack(attacker.id, shipCell.x, shipCell.y);
+  assert.equal(result.hit, true);
+  assert.equal(result.missiles, missilesBefore - 1);
+  assert.equal(result.attacksUsed, 1);
+  assert.equal(result.attacksLimit, session.config.maxAttacksPerTeam);
+
+  const score = session.state.scores[alpha.id];
+  assert.equal(score.hits, 1);
+  assert.equal(score.points, 35);
+
+  await expectReject(
+    () => session.attack(attacker.id, shipCell.x, shipCell.y),
+    'CELL_ALREADY_TARGETED',
+  );
+
+  await session.advance();
+  assert.equal(session.phase, PHASES.ROUND_OVER);
+  const round = session.state.round;
+  assert.ok(round.endedAt);
+  assert.ok(round.outcome.winnerName);
+  assert.equal(round.results.length, round.combatants.length);
+  assert.equal(round.results.find((entry) => entry.id === alpha.id).points, 35);
+
+  // Fleets are fully revealed once the round is over.
+  const finished = publicProjection(session);
+  assert.ok(finished.round.boards.every((board) => Array.isArray(board.ships)));
+  assert.ok(finished.round.boards.every((board) => board.ships.length > 0));
+});
+
+test('the next round keeps cumulative scores and ammunition, then lobby reset clears them', async () => {
+  const { session } = makeSession();
+  const alpha = session.state.teams[0];
+  const { player } = session.join({ name: 'Carry', teamId: alpha.id });
+  session.join({ name: 'Opponent', teamId: session.state.teams[1].id });
+  await session.start();
+
+  const firstQuestion = session.state.round.question;
+  const answered = await session.answer(player.id, firstQuestion.number, firstQuestion.answerIndex);
+  const firstFleetCells = JSON.stringify(session.state.fleets[alpha.id].ships);
+  await session.endRound();
+  assert.equal(session.phase, PHASES.ROUND_OVER);
+
+  await session.advance();
+  assert.equal(session.phase, PHASES.QUESTION);
+  assert.equal(session.state.round.number, 2);
+  assert.equal(session.state.scores[alpha.id].points, 10);
+  assert.equal(session.arsenalFor(alpha.id), answered.reward);
+  assert.notEqual(JSON.stringify(session.state.fleets[alpha.id].ships), firstFleetCells);
+
+  await session.returnToLobby();
+  assert.equal(session.phase, PHASES.LOBBY);
+  assert.equal(session.state.round, null);
+  assert.deepEqual(session.state.scores, {});
+  assert.deepEqual(session.state.fleets, {});
+  assert.deepEqual(session.state.arsenal, {});
+  assert.equal(session.config.lobbyLocked, false);
+});
+
+test('round timers reveal questions and move into the attack phase', async () => {
+  const { session } = makeSession({ roundMinutes: 1, questionTimer: 5, tacticalSeconds: 10 });
+  session.join({ name: 'Timed', teamId: session.state.teams[0].id });
+  session.join({ name: 'Timer Two', teamId: session.state.teams[1].id });
+  await session.start();
+
+  const round = session.state.round;
+  await session.tick(Date.parse(round.question.endsAt) + 1);
+  assert.ok(session.state.round.question.revealedAt);
+  assert.equal(session.phase, PHASES.QUESTION);
+
+  // The quiz clock is still open, so the next question starts after the reveal.
+  await session.tick(Date.parse(session.state.round.question.revealUntil) + 1);
+  assert.equal(session.phase, PHASES.QUESTION);
+  assert.equal(session.state.round.questionNumber, 2);
+  assert.equal(session.state.round.question.revealedAt, null);
+
+  // Let the quiz clock run out, then the reveal, and the attack phase begins.
+  await session.tick(Date.parse(session.state.round.quizEndsAt));
+  assert.equal(session.phase, PHASES.QUESTION);
+  await session.tick(Date.parse(session.state.round.question.revealUntil) + 1);
+  assert.equal(session.phase, PHASES.ATTACK);
+  assert.ok(session.state.round.attackEndsAt);
+
+  await session.tick(Date.parse(session.state.round.attackEndsAt) + 1);
+  assert.equal(session.phase, PHASES.ROUND_OVER);
 });
 
 test('removing a player emits an event and persists the new roster', async () => {

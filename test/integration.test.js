@@ -26,7 +26,7 @@ function closeAll(sockets) {
   }
 }
 
-test('20 devices join, sync, switch teams, reconnect, lock and reach mission ready', async (t) => {
+test('20 devices join, sync, switch teams, reconnect, lock and reach the first question', async (t) => {
   const h = await bootTestServer();
   const sockets = [];
   t.after(async () => {
@@ -188,38 +188,44 @@ test('20 devices join, sync, switch teams, reconnect, lock and reach mission rea
   const started = await emitAck(host, EVENTS.HOST_START, { sessionId: summary.id });
   assert.equal(started.ok, true, JSON.stringify(started));
 
-  const hostMission = await waitFor(
+  const hostRound = await waitFor(
     () => {
       const state = hostStates.latest();
-      return state?.session?.phase === PHASES.MISSION_READY ? state : null;
+      return state?.session?.phase === PHASES.QUESTION ? state : null;
     },
-    { label: 'host mission-ready state' },
+    { label: 'host question state' },
   );
-  assert.equal(hostMission.counts.players, 20);
-  assert.equal(hostMission.session.config.lobbyLocked, true);
+  assert.equal(hostRound.counts.players, 20);
+  assert.equal(hostRound.session.config.lobbyLocked, true);
+  assert.equal(hostRound.round.number, 1);
+  assert.ok(hostRound.round.question);
+  assert.equal(typeof hostRound.round.question.answerIndex, 'number');
 
-  const displayMission = await waitFor(
+  const displayRound = await waitFor(
     () => {
       const state = displayStates.latest();
-      return state?.session?.phase === PHASES.MISSION_READY ? state : null;
+      return state?.session?.phase === PHASES.QUESTION ? state : null;
     },
-    { label: 'display mission-ready state' },
+    { label: 'display question state' },
   );
-  assert.equal(displayMission.counts.players, 20);
+  assert.equal(displayRound.counts.players, 20);
+  assert.equal(displayRound.round.question.answerIndex, undefined);
+  assert.equal(displayRound.round.question.explanation, undefined);
 
-  const playerMission = await waitFor(
+  const playerRoundState = await waitFor(
     () => {
       const state = resumedStates.latest();
-      return state?.session?.phase === PHASES.MISSION_READY ? state : null;
+      return state?.session?.phase === PHASES.QUESTION ? state : null;
     },
-    { label: 'player mission-ready state' },
+    { label: 'player question state' },
   );
-  assert.equal(playerMission.me.name, 'Operative 01');
+  assert.equal(playerRoundState.me.name, 'Operative 01');
+  assert.equal(playerRoundState.round.question.answerIndex, undefined);
 
-  for (const state of [hostMission, displayMission, playerMission]) {
+  for (const state of [hostRound, displayRound, playerRoundState]) {
     const serialised = JSON.stringify(state);
-    assert.ok(!serialised.includes('tokenHash'), 'mission state leaked tokenHash');
-    assert.ok(!serialised.includes('nameKey'), 'mission state leaked nameKey');
+    assert.ok(!serialised.includes('tokenHash'), 'round state leaked tokenHash');
+    assert.ok(!serialised.includes('nameKey'), 'round state leaked nameKey');
   }
 
   // Joining after the mission starts is rejected by phase, not just the lock.
@@ -322,12 +328,14 @@ test('facilitator can force-start a round with no players', async (t) => {
   const state = await waitFor(
     () => {
       const latest = states.latest();
-      return latest?.session?.phase === PHASES.MISSION_READY ? latest : null;
+      return latest?.session?.phase === PHASES.QUESTION ? latest : null;
     },
     { label: 'facilitator forced start' },
   );
   assert.equal(state.counts.players, 0);
   assert.equal(state.session.config.lobbyLocked, true);
+  assert.equal(state.round.number, 1);
+  assert.ok(state.round.question);
 });
 
 test('battle command display can start a round with no players', async (t) => {
@@ -352,10 +360,209 @@ test('battle command display can start a round with no players', async (t) => {
   const state = await waitFor(
     () => {
       const latest = states.latest();
-      return latest?.session?.phase === PHASES.MISSION_READY ? latest : null;
+      return latest?.session?.phase === PHASES.QUESTION ? latest : null;
     },
     { label: 'display forced start' },
   );
   assert.equal(state.counts.players, 0);
   assert.equal(state.session.config.lobbyLocked, true);
+  assert.equal(state.round.number, 1);
+  assert.ok(state.round.question);
+});
+
+test('a full round runs questions, rewards missiles, resolves attacks and starts the next round', async (t) => {
+  const h = await bootTestServer();
+  const sockets = [];
+  t.after(async () => {
+    closeAll(sockets);
+    await h.close();
+  });
+
+  const cookie = await loginHost(h.baseUrl);
+  const summary = await createSession(h.baseUrl, cookie, { maxPlayersPerTeam: 2, roundMinutes: 2 });
+
+  const host = await connect(h.baseUrl, cookie);
+  sockets.push(host);
+  const hostStates = collectStates(host);
+  assert.equal(
+    (await emitAck(host, EVENTS.HOST_SUBSCRIBE, { sessionId: summary.id })).ok,
+    true,
+  );
+
+  const display = await connect(h.baseUrl);
+  sockets.push(display);
+  const displayStates = collectStates(display);
+  assert.equal(
+    (await emitAck(display, EVENTS.DISPLAY_SUBSCRIBE, { code: summary.joinCode })).ok,
+    true,
+  );
+
+  const players = [];
+  for (const name of ['Nova', 'Vector']) {
+    const socket = await connect(h.baseUrl);
+    sockets.push(socket);
+    const states = collectStates(socket);
+    const joined = await emitAck(socket, EVENTS.PLAYER_JOIN, {
+      code: summary.joinCode,
+      name,
+      teamId: null,
+      asSpectator: false,
+    });
+    assert.equal(joined.ok, true, JSON.stringify(joined));
+    players.push({ socket, states, playerId: joined.playerId, token: joined.token });
+  }
+
+  await waitFor(
+    () => {
+      const state = hostStates.latest();
+      return state?.counts?.players === 2 && state.counts.connected === 2 ? state : null;
+    },
+    { label: 'host roster with two players' },
+  );
+
+  assert.equal((await emitAck(host, EVENTS.HOST_START, { sessionId: summary.id })).ok, true);
+
+  const questionStates = [];
+  for (const player of players) {
+    questionStates.push(
+      await waitFor(
+        () => {
+          const state = player.states.latest();
+          return state?.session?.phase === PHASES.QUESTION && state.round?.question ? state : null;
+        },
+        { label: 'player question state' },
+      ),
+    );
+  }
+  assert.equal(questionStates[0].round.question.answerIndex, undefined);
+
+  const hostQuestion = await waitFor(
+    () => {
+      const state = hostStates.latest();
+      return state?.round?.question ? state : null;
+    },
+    { label: 'host question with answer key' },
+  );
+  const question = hostQuestion.round.question;
+  const answerIndex = question.answerIndex;
+  assert.equal(typeof answerIndex, 'number');
+
+  const correctAnswer = await emitAck(players[0].socket, EVENTS.PLAYER_ANSWER, {
+    questionNumber: question.number,
+    optionIndex: answerIndex,
+  });
+  assert.equal(correctAnswer.ok, true, JSON.stringify(correctAnswer));
+  assert.equal(correctAnswer.correct, true);
+  assert.ok([1, 2, 3].includes(correctAnswer.reward));
+  assert.equal(correctAnswer.missiles, correctAnswer.reward);
+
+  const wrongAnswer = await emitAck(players[1].socket, EVENTS.PLAYER_ANSWER, {
+    questionNumber: question.number,
+    optionIndex: (answerIndex + 1) % question.options.length,
+  });
+  assert.equal(wrongAnswer.ok, true, JSON.stringify(wrongAnswer));
+  assert.equal(wrongAnswer.correct, false);
+  assert.equal(wrongAnswer.reward, 0);
+
+  const revealed = await waitFor(
+    () => {
+      const state = displayStates.latest();
+      return state?.round?.question?.revealed ? state : null;
+    },
+    { label: 'display answer reveal' },
+  );
+  assert.equal(revealed.round.question.answerIndex, answerIndex);
+  assert.equal(revealed.round.answered, 2);
+
+  assert.equal((await emitAck(host, EVENTS.HOST_ADVANCE, { sessionId: summary.id })).ok, true);
+
+  const attacker = await waitFor(
+    () => {
+      const state = players[0].states.latest();
+      return state?.session?.phase === PHASES.ATTACK && state.round?.me?.targetBoard
+        ? state
+        : null;
+    },
+    { label: 'player attack phase' },
+  );
+  assert.equal(attacker.round.me.missiles, correctAnswer.reward);
+  assert.ok(attacker.round.me.attacksLimit >= 1);
+
+  const hostAttack = await waitFor(
+    () => {
+      const state = hostStates.latest();
+      return state?.session?.phase === PHASES.ATTACK ? state : null;
+    },
+    { label: 'host attack phase' },
+  );
+  assert.ok(hostAttack.round.attackEndsAt);
+
+  const ownerId = attacker.round.me.ownerId;
+  const targetBoard = hostAttack.round.boards.find(
+    (board) => board.id === attacker.round.me.targetId,
+  );
+  assert.ok(targetBoard, 'target board is present on the host projection');
+  const shipCell = targetBoard.ships[0].cells[0];
+
+  const shot = await emitAck(players[0].socket, EVENTS.PLAYER_ATTACK, {
+    x: shipCell.x,
+    y: shipCell.y,
+  });
+  assert.equal(shot.ok, true, JSON.stringify(shot));
+  assert.equal(shot.hit, true);
+  assert.equal(shot.missiles, correctAnswer.reward - 1);
+
+  const hitState = await waitFor(
+    () => {
+      const state = hostStates.latest();
+      const score = state?.round?.scores?.find((entry) => entry.id === ownerId);
+      return score?.hits === 1 ? state : null;
+    },
+    { label: 'host state with a registered hit' },
+  );
+  const score = hitState.round.scores.find((entry) => entry.id === ownerId);
+  assert.ok(score.points >= 35);
+  assert.equal(hitState.round.attacks.length, 1);
+
+  assert.equal((await emitAck(host, EVENTS.HOST_ADVANCE, { sessionId: summary.id })).ok, true);
+
+  const over = await waitFor(
+    () => {
+      const state = displayStates.latest();
+      return state?.session?.phase === PHASES.ROUND_OVER && state.round?.outcome ? state : null;
+    },
+    { label: 'round over display state' },
+  );
+  assert.ok(over.round.outcome.winnerName);
+  assert.ok(over.round.boards.every((board) => Array.isArray(board.ships)));
+
+  // The next round starts immediately from the round-over screen.
+  assert.equal((await emitAck(host, EVENTS.HOST_ADVANCE, { sessionId: summary.id })).ok, true);
+  const nextRound = await waitFor(
+    () => {
+      const state = players[1].states.latest();
+      return state?.session?.phase === PHASES.QUESTION && state.round?.number === 2
+        ? state
+        : null;
+    },
+    { label: 'second round question state' },
+  );
+  assert.equal(nextRound.round.number, 2);
+  assert.ok(nextRound.round.question);
+
+  // Facilitator can close the round and return everyone to the lobby.
+  assert.equal((await emitAck(host, EVENTS.HOST_END_ROUND, { sessionId: summary.id })).ok, true);
+  assert.equal(
+    (await emitAck(host, EVENTS.HOST_RETURN_TO_LOBBY, { sessionId: summary.id })).ok,
+    true,
+  );
+  const lobby = await waitFor(
+    () => {
+      const state = players[0].states.latest();
+      return state?.session?.phase === PHASES.LOBBY ? state : null;
+    },
+    { label: 'player returned to lobby' },
+  );
+  assert.equal(lobby.round, null);
+  assert.equal(lobby.session.config.lobbyLocked, false);
 });

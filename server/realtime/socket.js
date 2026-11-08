@@ -5,6 +5,8 @@ import {
   chooseTeamSchema,
   displayStartSchema,
   displaySubscribeSchema,
+  hostAdvanceSchema,
+  hostEndRoundSchema,
   hostLockSchema,
   hostMovePlayerSchema,
   hostRemovePlayerSchema,
@@ -12,6 +14,8 @@ import {
   hostStartSchema,
   hostSubscribeSchema,
   hostUpdateConfigSchema,
+  playerAnswerSchema,
+  playerAttackSchema,
   playerJoinSchema,
   playerResumeSchema,
 } from '../../shared/schemas.js';
@@ -46,6 +50,20 @@ function toastFor(event) {
       return { level: 'info', message: event.locked ? 'Lobby locked' : 'Lobby unlocked' };
     case 'mission_ready':
       return { level: 'alert', message: 'All hands: mission ready' };
+    case 'round_started':
+      return { level: 'alert', message: `Round ${event.round} started` };
+    case 'attack_phase_started':
+      return { level: 'alert', message: `Round ${event.round}: attack phase` };
+    case 'ship_sunk':
+      return {
+        level: 'alert',
+        message: `${event.ownerName} destroyed ${event.targetName}'s ${event.shipName}`,
+      };
+    case 'round_over':
+      return {
+        level: 'alert',
+        message: `Round ${event.round} complete // ${event.winnerName} leads`,
+      };
     case 'returned_to_lobby':
       return { level: 'info', message: 'Returned to lobby' };
     default:
@@ -367,6 +385,28 @@ export function attachSocketServer(io, { manager, config, auth, logger }) {
       });
     });
 
+    socket.on(EVENTS.HOST_ADVANCE, (payload, ack) => {
+      run(socket, ack, async () => {
+        hostOnly(socket);
+        if (!guard(socket, 'host')) return;
+        const data = hostAdvanceSchema.parse(payload);
+        const session = manager.require(data.sessionId);
+        await session.advance();
+        reply(ack, { ok: true });
+      });
+    });
+
+    socket.on(EVENTS.HOST_END_ROUND, (payload, ack) => {
+      run(socket, ack, async () => {
+        hostOnly(socket);
+        if (!guard(socket, 'host')) return;
+        const data = hostEndRoundSchema.parse(payload);
+        const session = manager.require(data.sessionId);
+        await session.endRound();
+        reply(ack, { ok: true });
+      });
+    });
+
     socket.on(EVENTS.HOST_RETURN_TO_LOBBY, (payload, ack) => {
       run(socket, ack, async () => {
         hostOnly(socket);
@@ -438,6 +478,36 @@ export function attachSocketServer(io, { manager, config, auth, logger }) {
         }
         await session.chooseTeam(socket.data.playerId, data.teamId);
         reply(ack, { ok: true });
+      });
+    });
+
+    socket.on(EVENTS.PLAYER_ANSWER, (payload, ack) => {
+      run(socket, ack, async () => {
+        if (!guard(socket, 'answer', 40, 10_000)) return;
+        if (socket.data.role !== 'player' || !socket.data.playerId) {
+          throw new AppError('UNAUTHORIZED', 'Enlist as a player to answer.', 401);
+        }
+        const data = playerAnswerSchema.parse(payload);
+        const session = sessionFromSocket(socket);
+        const result = await session.answer(
+          socket.data.playerId,
+          data.questionNumber,
+          data.optionIndex,
+        );
+        reply(ack, { ok: true, ...result });
+      });
+    });
+
+    socket.on(EVENTS.PLAYER_ATTACK, (payload, ack) => {
+      run(socket, ack, async () => {
+        if (!guard(socket, 'attack', 60, 10_000)) return;
+        if (socket.data.role !== 'player' || !socket.data.playerId) {
+          throw new AppError('UNAUTHORIZED', 'Enlist as a player to fire.', 401);
+        }
+        const data = playerAttackSchema.parse(payload);
+        const session = sessionFromSocket(socket);
+        const result = await session.attack(socket.data.playerId, data.x, data.y);
+        reply(ack, { ok: true, ...result });
       });
     });
 

@@ -1,5 +1,6 @@
 import '../../styles/tokens.css';
 import '../../styles/host.css';
+import '../../styles/battle.css';
 
 import {
   AGE_GROUPS,
@@ -16,8 +17,9 @@ import {
 import { EVENTS } from '@shared/events.js';
 import { api, ApiError } from '../shared/api.js';
 import { isMuted, muteLabel, sfx, toggleMute, unlockAudio } from '../shared/audio.js';
-import { syncClock } from '../shared/clock.js';
+import { formatCountdown, syncClock } from '../shared/clock.js';
 import { $, escapeHtml, initials, on, toast } from '../shared/dom.js';
+import { coordLabel, renderGrid } from '../shared/grid.js';
 import { createSocket, request } from '../shared/socket.js';
 
 const app = $('#app');
@@ -177,7 +179,7 @@ function renderDashboard() {
       <div class="dashboard-intro panel">
         <p class="eyebrow"><span class="status-dot"></span> Command console online</p>
         <h1>RUN A LIVE<br /><em>CYBER DEFENCE</em> DRILL</h1>
-        <p>Configure teams, project the joining code and watch every participant synchronise in real time. Stage 1 covers the live lobby and mission-ready transition.</p>
+        <p>Configure teams, project the joining code and run live question and attack rounds. Every answer earns missiles; every hit scores points.</p>
         <div class="view-actions">
           <button class="btn btn--primary" type="button" data-action="new-session">NEW OPERATION</button>
           <button class="btn btn--ghost" type="button" data-action="refresh-sessions">REFRESH</button>
@@ -362,14 +364,14 @@ function renderSetup() {
           </div>
         </div>
         <div class="panel">
-          <div class="panel__head"><h2 class="panel__title">Stage 1 scope</h2></div>
+          <div class="panel__head"><h2 class="panel__title">Live capabilities</h2></div>
           <div class="briefing-list">
             <div><span>Lobby &amp; teams</span><span>ONLINE</span></div>
             <div><span>QR + join code</span><span>ONLINE</span></div>
             <div><span>Reconnection</span><span>ONLINE</span></div>
-            <div><span>Questions</span><span>STAGE 2</span></div>
-            <div><span>Battle grid</span><span>STAGE 3</span></div>
-            <div><span>Missiles</span><span>STAGE 4</span></div>
+            <div><span>Questions</span><span>ONLINE</span></div>
+            <div><span>Battle grid</span><span>ONLINE</span></div>
+            <div><span>Missiles &amp; scoring</span><span>ONLINE</span></div>
           </div>
         </div>
       </aside>
@@ -560,6 +562,256 @@ function renderIndividualRoster(state) {
   `;
 }
 
+const OPTION_KEYS = 'ABCDEF';
+
+function optionKey(index) {
+  return OPTION_KEYS[index] || String(index + 1);
+}
+
+function sortedScores(round) {
+  return [...(round?.scores || [])].sort(
+    (a, b) => b.points - a.points || b.hits - a.hits || a.name.localeCompare(b.name),
+  );
+}
+
+function renderScoreRows(round, { detailed = false } = {}) {
+  const rows = sortedScores(round);
+  if (!rows.length) return '<p class="tiny muted" style="padding:0.9rem 1rem">No combatants in this round.</p>';
+  return `<div class="score-rows">
+    ${rows
+      .map(
+        (row, index) => `
+        <div class="score-row" style="--row:${row.color}">
+          <span class="score-row__rank">${String(index + 1).padStart(2, '0')}</span>
+          <span class="score-row__name">${escapeHtml(row.name)}<small>${row.kind === 'cpu' ? 'CPU' : `${row.shipsSunk}/${row.shipsTotal} SHIPS SUNK`}</small></span>
+          <span class="score-row__stat"><strong>${row.points}</strong><small>points</small></span>
+          <span class="score-row__stat"><strong>${row.hits}</strong><small>hits</small></span>
+          <span class="score-row__stat"><strong>${row.missiles}</strong><small>missiles</small></span>
+          ${detailed ? `<span class="score-row__stat"><strong>${row.correct}/${row.answered}</strong><small>correct</small></span>` : ''}
+        </div>`,
+      )
+      .join('')}
+  </div>`;
+}
+
+function renderScorePanel(round, { detailed = false } = {}) {
+  return `
+    <section class="panel round-scoreboard">
+      <div class="panel__head">
+        <h2 class="panel__title">Battle score</h2>
+        <span class="badge">ROUND ${round?.number || 1}</span>
+      </div>
+      ${renderScoreRows(round, { detailed })}
+    </section>
+  `;
+}
+
+function renderRoundHead({ eyebrow, title, endsAt, note }) {
+  return `
+    <div class="view-head round-view-head">
+      <div class="view-head__title">
+        <p class="eyebrow"><span class="status-dot"></span> ${escapeHtml(eyebrow)}</p>
+        <h1 class="view-title">${escapeHtml(title)}</h1>
+        ${note ? `<p class="view-sub">${escapeHtml(note)}</p>` : ''}
+      </div>
+      ${
+        endsAt
+          ? `<div class="round-clock">
+               <span>Time remaining</span>
+               <strong data-countdown="${escapeHtml(endsAt)}">${formatCountdown(endsAt)}</strong>
+             </div>`
+          : ''
+      }
+    </div>
+  `;
+}
+
+function renderHostBoard(board, round) {
+  const combatant = round.combatants.find((entry) => entry.id === board.id);
+  const targeting = round.combatants.filter((entry) => entry.targetId === board.id);
+  const score = round.scores.find((entry) => entry.id === board.id);
+  return `
+    <article class="board-panel ${targeting.length ? 'is-target' : ''}" style="--board-color:${board.color}">
+      <div class="board-panel__head">
+        <div>
+          <div class="board-panel__name">${escapeHtml(board.name)}</div>
+          <div class="board-panel__meta">
+            ${
+              combatant?.targetId
+                ? `TARGETING ${escapeHtml(round.combatants.find((entry) => entry.id === combatant.targetId)?.name || '—')}`
+                : 'NO TARGET'
+            }
+          </div>
+        </div>
+        <div class="board-panel__meta">${board.shipsSunk}/${board.shipsTotal} SUNK</div>
+      </div>
+      ${renderGrid({
+        size: board.gridSize,
+        shots: board.shots,
+        ships: board.ships || [],
+        revealShips: true,
+        label: `${board.name} fleet`,
+      })}
+      <div class="board-panel__stats">
+        <span><strong>${score?.missiles || 0}</strong> missiles</span>
+        <span><strong>${score?.hits || 0}</strong> hits</span>
+        <span><strong>${score?.points || 0}</strong> pts</span>
+      </div>
+    </article>
+  `;
+}
+
+function renderHostBoards(round) {
+  if (!round?.boards?.length) return '';
+  return `<div class="board-grid board-grid--host">${round.boards
+    .map((board) => renderHostBoard(board, round))
+    .join('')}</div>`;
+}
+
+function renderHostControls(round) {
+  const phase = hostState.session.phase;
+  const label =
+    phase === PHASES.QUESTION
+      ? 'SKIP TO ATTACK PHASE'
+      : phase === PHASES.ATTACK
+        ? 'END ATTACK PHASE'
+        : 'START NEXT ROUND';
+  return `
+    <section class="panel round-controls">
+      <div class="panel__head">
+        <h2 class="panel__title">Phase control</h2>
+        <span class="badge">${escapeHtml(phaseLabel(phase))}</span>
+      </div>
+      <div class="round-controls__body">
+        <button class="btn btn--green btn--wide" type="button" data-action="advance-phase">${label}</button>
+        ${
+          phase === PHASES.QUESTION || phase === PHASES.ATTACK
+            ? '<button class="btn btn--danger btn--wide" type="button" data-action="end-round">END ROUND NOW</button>'
+            : ''
+        }
+        <button class="btn btn--ghost btn--wide" type="button" data-action="return-lobby">RETURN TO LOBBY</button>
+        <p class="tiny muted">Timers advance phases automatically. Use these controls to move faster.</p>
+      </div>
+    </section>
+  `;
+}
+
+function renderQuestion() {
+  view = 'question';
+  const state = hostState;
+  const round = state.round;
+  const question = round?.question;
+  if (!round || !question) return renderMission();
+
+  shell(`
+    ${renderRoundHead({
+      eyebrow: `Round ${round.number} // Question phase // ${escapeHtml(state.session.name)}`,
+      title: 'LIVE QUESTION',
+      endsAt: question.revealed ? question.revealUntil : question.endsAt,
+      note: `${round.answered} of ${round.totalPlayers} operatives answered // ${escapeHtml(question.category)} // ${escapeHtml(question.difficulty)}`,
+    })}
+
+    <div class="round-layout">
+      <section class="panel round-question">
+        <div class="round-question__meta">
+          <span>QUESTION ${question.number}</span>
+          <span>${escapeHtml(question.category)}</span>
+          <span>${escapeHtml(question.difficulty)}</span>
+          <span>${round.answered}/${round.totalPlayers} ANSWERED</span>
+        </div>
+        <h2 class="round-question__prompt">${escapeHtml(question.prompt)}</h2>
+        <div class="round-options">
+          ${question.options
+            .map(
+              (option, index) => `
+              <div class="round-option ${question.revealed && index === question.answerIndex ? 'is-correct' : ''} ${question.revealed && index !== question.answerIndex ? 'is-dim' : ''}">
+                <span class="round-option__key">${optionKey(index)}</span>
+                <span class="round-option__text">${escapeHtml(option)}</span>
+                ${
+                  round.answerTally
+                    ? `<span class="round-option__count">${round.answerTally[index] || 0}</span>`
+                    : ''
+                }
+              </div>`,
+            )
+            .join('')}
+        </div>
+        ${
+          question.revealed
+            ? `<div class="round-reveal">
+                 <strong>ANSWER ${optionKey(question.answerIndex)}</strong>
+                 <span>${escapeHtml(question.explanation || '')}</span>
+               </div>`
+            : '<div class="round-reveal round-reveal--hidden"><strong>ANSWER HIDDEN</strong><span>Correct answer is revealed when the question closes.</span></div>'
+        }
+      </section>
+
+      <aside class="round-aside">
+        ${renderScorePanel(round)}
+        ${renderHostControls(round)}
+      </aside>
+    </div>
+  `);
+}
+
+function renderAttack() {
+  view = 'attack';
+  const state = hostState;
+  const round = state.round;
+  if (!round) return renderMission();
+
+  shell(`
+    ${renderRoundHead({
+      eyebrow: `Round ${round.number} // Attack phase // ${escapeHtml(state.session.name)}`,
+      title: 'FIRE CONTROL',
+      endsAt: round.attackEndsAt,
+      note: `${round.attacks.length} missiles fired // ${round.combatants.length} grids in play`,
+    })}
+
+    <div class="round-layout round-layout--attack">
+      <div class="round-main">
+        ${renderHostBoards(round)}
+      </div>
+      <aside class="round-aside">
+        ${renderScorePanel(round)}
+        ${renderHostControls(round)}
+      </aside>
+    </div>
+  `);
+}
+
+function renderRoundOver() {
+  view = 'round_over';
+  const state = hostState;
+  const round = state.round;
+  if (!round) return renderMission();
+  const outcome = round.outcome || { winnerName: 'Round complete', winnerColor: 'var(--cyan)', reason: '' };
+
+  shell(`
+    ${renderRoundHead({
+      eyebrow: `Round ${round.number} complete // ${escapeHtml(state.session.name)}`,
+      title: 'ROUND COMPLETE',
+      note: `${round.attacks.length} missiles fired // ${round.answered} answers submitted`,
+    })}
+
+    <section class="round-outcome panel" style="--winner:${outcome.winnerColor || 'var(--cyan)'}">
+      <p class="round-outcome__eyebrow">// WINNING SIGNAL //</p>
+      <h2 class="round-outcome__name">${escapeHtml(outcome.winnerName)}</h2>
+      <p class="round-outcome__reason">${escapeHtml(outcome.reason || '')}</p>
+    </section>
+
+    <div class="round-layout round-layout--attack">
+      <div class="round-main">
+        ${renderHostBoards(round)}
+      </div>
+      <aside class="round-aside">
+        ${renderScorePanel(round, { detailed: true })}
+        ${renderHostControls(round)}
+      </aside>
+    </div>
+  `);
+}
+
 function renderMission() {
   view = 'mission';
   const state = hostState;
@@ -581,8 +833,9 @@ function renderMission() {
             )
             .join('')}
         </div>
-        <p class="tiny muted">The question and battle phases arrive in Stage 2. Use the controls below to return to the lobby for roster changes.</p>
+        <p class="tiny muted">The lobby is sealed. Launch the first question round when every operative is ready.</p>
         <div class="mission-actions">
+          <button class="btn btn--green" type="button" data-action="start-game">START ROUND</button>
           <button class="btn btn--ghost" type="button" data-action="open-display">OPEN DISPLAY</button>
           <button class="btn btn--ghost" type="button" data-action="return-lobby">RETURN TO LOBBY</button>
           <button class="btn btn--ghost" type="button" data-action="back-dashboard">OPERATIONS</button>
@@ -597,8 +850,18 @@ function render() {
   if (view === 'setup') return renderSetup();
   if (view === 'loading') return renderLoading();
   if (!hostState) return renderDashboard();
-  if (hostState.session.phase === PHASES.MISSION_READY) return renderMission();
-  return renderLobby();
+  switch (hostState.session.phase) {
+    case PHASES.MISSION_READY:
+      return renderMission();
+    case PHASES.QUESTION:
+      return renderQuestion();
+    case PHASES.ATTACK:
+      return renderAttack();
+    case PHASES.ROUND_OVER:
+      return renderRoundOver();
+    default:
+      return renderLobby();
+  }
 }
 
 function updateConnection() {
@@ -633,8 +896,8 @@ function ensureSocket() {
     hostState = state;
     activeSummary = null;
     syncClock(state.meta?.serverNow);
-    if (view === 'loading') view = 'lobby';
-    if (['lobby', 'mission'].includes(view)) render();
+    if (view === 'loading') view = 'live';
+    if (!['login', 'setup', 'dashboard'].includes(view)) render();
   });
   socket.on(EVENTS.TOAST, (payload) => {
     toast(payload.message, payload.level || 'info');
@@ -981,6 +1244,17 @@ on(app, 'click', async (event) => {
     return;
   }
 
+  if (action === 'advance-phase') {
+    const ok = await command(EVENTS.HOST_ADVANCE, { sessionId: currentSessionId });
+    if (ok) sfx.success();
+    return;
+  }
+
+  if (action === 'end-round') {
+    await command(EVENTS.HOST_END_ROUND, { sessionId: currentSessionId }, 'Round ended.');
+    return;
+  }
+
   if (action === 'return-lobby') {
     await command(EVENTS.HOST_RETURN_TO_LOBBY, { sessionId: currentSessionId }, 'Returned to lobby.');
   }
@@ -1096,5 +1370,15 @@ async function boot() {
   }
   renderDashboard();
 }
+
+function updateCountdowns() {
+  for (const node of document.querySelectorAll('[data-countdown]')) {
+    const value = formatCountdown(node.dataset.countdown);
+    if (node.textContent !== value) node.textContent = value;
+    node.classList.toggle('is-low', value !== '0:00' && /^0:0?[0-9]$/.test(value));
+  }
+}
+
+setInterval(updateCountdowns, 250);
 
 boot();

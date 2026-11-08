@@ -1,13 +1,14 @@
 # Cyber Battleships
 
-A real-time, multi-device cyber-security awareness game. Stage 1 delivers a
-complete live lobby: players enlist from phones, pick teams, reconnect after a
-drop, and the facilitator drives the room from a console while a projector
-display stays in sync.
+A real-time, multi-device cyber-security awareness game. Players enlist from
+phones, answer timed security questions to earn missiles, then fire those
+missiles at opposing battle grids while a facilitator console and projector
+display keep the room in sync.
 
-> Stage 1 scope: lobby, teams, join/resume, lock, move/kick, live sync and the
-> mission-ready transition. Questions, ships, attacks, captains and reporting
-> arrive in Stage 2.
+> Stage 2 scope: the live lobby plus complete playable rounds — timed questions,
+> missile rewards, attack grids, scoring, winners and repeated rounds with
+> cumulative scores. Accounts, persistent leaderboards and after-action
+> reporting remain out of scope.
 
 ## Stack
 
@@ -44,9 +45,9 @@ Then open:
 | --- | --- | --- |
 | Landing | <http://localhost:3000/> | Describe the drill and link the consoles |
 | Facilitator | <http://localhost:3000/host> | Create, lock and start operations |
-| Projector | <http://localhost:3000/display?code=CODE> | Full-screen joining QR and rosters |
+| Projector | <http://localhost:3000/display?code=CODE> | Full-screen joining QR, live questions and battle boards |
 | Players (short link) | <http://localhost:3000/CODE> | Redirects to `/play?code=CODE` for phones |
-| Players (full link) | <http://localhost:3000/play?code=CODE> | Mobile enlistment and lobby |
+| Players (full link) | <http://localhost:3000/play?code=CODE> | Mobile questions, attack grid and scoreboard |
 
 Each operation gets a short entry link — `/<CODE>` — which redirects to the player
 app. QR codes encode this short URL, and the host and projector show it directly
@@ -66,8 +67,13 @@ generated facilitator PIN on startup.
 5. Use the live roster to **MOVE** or **REMOVE** players and **LOCK LOBBY** to
    close enlistment. Existing players can still reconnect while locked.
 6. **START ROUND** from the facilitator console or the projected Battle Command
-   lobby launches immediately, even with no players or empty teams. It moves
-   every screen to the mission-ready view. **RETURN TO LOBBY** reopens the room.
+   lobby launches immediately, even with no players or empty teams. The room
+   enters the question phase and fleets are generated for every combatant.
+7. The facilitator console shows the live question, the answer key, per-option
+   tallies, every fleet and the scoreboard. **ADVANCE** jumps from questions to
+   the attack phase, then closes the round; **END ROUND** closes it immediately
+   and **NEXT ROUND** launches the next one. **RETURN TO LOBBY** reopens the room
+   and clears scores, fleets and ammunition.
 
 ## Player flow
 
@@ -76,6 +82,35 @@ generated facilitator PIN on startup.
   restores the same player and team automatically.
 - If the same identity resumes from another device, the older socket is
   superseded and told why.
+- **Question phase:** tap one of four answers. Correct answers earn 3 missiles
+  within 5 seconds, 2 within 10, or 1 within 20. Answering correctly also scores
+  10 points. The correct answer and explanation appear after everyone answers or
+  the timer expires.
+- **Attack phase:** tap a cell on your target grid to fire one missile. Hits
+  score 25 points, sinking a ship adds 50, and the scoreboard updates live.
+- **Round over:** the winner and your points, hits, correct answers and remaining
+  missiles are shown until the facilitator starts the next round.
+
+## Game loop
+
+```
+START ROUND → QUESTION (repeat for roundMinutes)
+            → ATTACK (max(10, tacticalSeconds))
+            → ROUND OVER → NEXT ROUND or RETURN TO LOBBY
+```
+
+- Questions are drawn at random from a server-side bank filtered by the configured
+  difficulty. Each question runs for `questionTimer` seconds, followed by a
+  4-second answer reveal, until the round's quiz clock expires.
+- Teams and co-op crews share one missile pool and one fleet; free-for-all
+  players each own a fleet. Targets form a ring, and a CPU firewall is added when
+  there is only one human combatant (or in co-op).
+- `maxAttacksPerTeam` caps shots per combatant in the attack phase, and
+  `ammoCarryOver` decides whether unused missiles survive into the next round.
+- Scores accumulate across rounds until the facilitator returns to the lobby;
+  fleets are regenerated every round.
+- Correct answers, fleet positions and answer keys are withheld from public and
+  player projections until the reveal; only the host console sees them early.
 
 ## Configuration
 
@@ -111,13 +146,18 @@ The suite covers:
 
 - Lobby engine rules: joining, unique names, capacity, team switching, moving,
   kick, lock, start/return transitions and free-for-all mode.
+- Round engine rules: answer rewards, incorrect answers, public answer secrecy,
+  missile consumption, hits and sinking, per-round limits, phase timers, results,
+  cumulative scores, ammo carry-over and lobby reset.
 - Facilitator auth: signed tokens, expiry, tampering, PIN checks and login
   throttling.
 - Projection safety: no `tokenHash`, `nameKey` or private fields in public,
-  display, host-event or player payloads.
+  display, host-event or player payloads, and no answer key before reveal.
 - Integration: 20 real Socket.IO clients join a lobby, balance across teams,
   stay synchronised on the host console and projector, switch teams, get locked
-  out, resume after a reconnect and reach mission ready.
+  out, resume after a reconnect and reach the first question.
+- End to end: two players answer a live question, earn missiles, advance to the
+  attack phase, register a hit, see the round winner and start round two.
 - Recovery: a lobby and its players survive a full server restart on the same
   PGlite directory and can resume with the original tokens.
 
@@ -154,17 +194,18 @@ defaults.
 client/
   index.html, host.html, display.html, play.html
   src/{landing,host,display,play}/main.js
-  src/shared/            # api, socket, audio, clock, dom helpers
+  src/shared/            # api, socket, audio, clock, dom, battle grid helpers
   styles/                # tokens + per-surface CSS
 server/
   app.js                 # Express routes, auth, QR, static serving
   auth.js                # PIN login, signed host cookie, throttle
   realtime/socket.js     # socket roles, commands, broadcasts, reconnect
   sessions/session.js    # authoritative GameSession state machine
-  sessions/manager.js    # lifecycle, join codes, restore, cleanup
+  sessions/round.js      # fleets, combatants, targeting and scoring helpers
+  sessions/manager.js    # lifecycle, join codes, restore, cleanup, round tick
   sessions/projections.js# role-safe views
   db/                    # PGlite/Postgres adapter, migrations, repository
-shared/                  # constants, events, schemas, utilities
+shared/                  # constants, questions, events, schemas, utilities
 test/                    # node:test unit + integration suites
 docs/architecture.md     # deeper design notes
 ```
@@ -181,9 +222,8 @@ docs/architecture.md     # deeper design notes
 - **Postgres TLS errors locally** — set `PGSSL=false` for a local database
   without TLS.
 
-## Stage 2 roadmap
+## Next stages
 
-Questions, ship placement, captains, missile attacks, scoring, achievements and
-after-action reporting. The session JSONB snapshot, event log and reserved team
-columns are designed to absorb those features without replacing the lobby
-foundation.
+Captains, special weapons, achievements, persistent leaderboards and after-action
+reporting. The session JSONB snapshot, event log and reserved team columns are
+designed to absorb those features without replacing the lobby or round engine.

@@ -10,6 +10,9 @@ export const APP_TAGLINE = 'CYBER COMMAND // LIVE OPERATIONS';
 export const PHASES = Object.freeze({
   LOBBY: 'lobby',
   MISSION_READY: 'mission_ready',
+  QUESTION: 'question',
+  ATTACK: 'attack',
+  ROUND_OVER: 'round_over',
   ENDED: 'ended',
 });
 
@@ -114,6 +117,9 @@ export const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 export const PHASE_LABELS = Object.freeze({
   lobby: 'LOBBY',
   mission_ready: 'MISSION READY',
+  question: 'QUESTION',
+  attack: 'ATTACK',
+  round_over: 'ROUND OVER',
   ended: 'OPERATION COMPLETE',
 });
 
@@ -137,6 +143,27 @@ export const MISSILE_REWARDS = Object.freeze([
   { maxSeconds: 10, missiles: 2 },
   { maxSeconds: 20, missiles: 1 },
 ]);
+
+/** Seconds the correct answer stays on screen before the next question. */
+export const ROUND_REVEAL_SECONDS = 4;
+
+/** Minimum attack window even when the facilitator configures zero seconds. */
+export const MIN_ATTACK_SECONDS = 10;
+
+export const ROUND_PHASES = Object.freeze([
+  PHASES.QUESTION,
+  PHASES.ATTACK,
+  PHASES.ROUND_OVER,
+]);
+
+export function isRoundPhase(phase) {
+  return ROUND_PHASES.includes(phase);
+}
+
+export function missileRewardFor(seconds) {
+  const reward = MISSILE_REWARDS.find((entry) => seconds <= entry.maxSeconds);
+  return reward ? reward.missiles : 1;
+}
 
 export function phaseLabel(phase) {
   return PHASE_LABELS[phase] || String(phase || '').toUpperCase();

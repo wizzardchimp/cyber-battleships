@@ -14,6 +14,20 @@ export function formatClock(timestamp) {
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+export function msRemaining(endsAt) {
+  if (!endsAt) return 0;
+  const end = Date.parse(endsAt);
+  if (!Number.isFinite(end)) return 0;
+  return Math.max(0, end - serverNow());
+}
+
+export function formatCountdown(endsAt) {
+  const totalSeconds = Math.ceil(msRemaining(endsAt) / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
 export function timeAgo(timestamp) {
   if (!timestamp) return '';
   const seconds = Math.max(0, Math.round((serverNow() - Date.parse(timestamp)) / 1000));
