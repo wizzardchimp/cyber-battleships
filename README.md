@@ -1,129 +1,183 @@
-# CYBER BATTLESHIPS
+# Cyber Battleships
 
-A real-time, multiplayer cyber-security awareness game. A presenter console drives the
-session, a projector shows the battlespace, and every player answers and fires from
-their phone. No build step, no CDN assets, no audio files — everything runs from a
-single Node process on a laptop (or a container on Railway).
+A real-time, multi-device cyber-security awareness game. Stage 1 delivers a
+complete live lobby: players enlist from phones, pick teams, reconnect after a
+drop, and the facilitator drives the room from a console while a projector
+display stays in sync.
 
-## What's in the box
+> Stage 1 scope: lobby, teams, join/resume, lock, move/kick, live sync and the
+> mission-ready transition. Questions, ships, attacks, captains and reporting
+> arrive in Stage 2.
 
-- `server/` — Node + Express + Socket.IO authoritative game server.
-- `public/` — three browser clients: `host.html` (presenter), `display.html` (projector),
-  `play.html` (phone controller).
-- `server/questions.seed.json` — 30 bundled cyber-security questions.
-- `data/questions.json` — the live question bank (created on first boot, editable by the host).
-- `test/` — grid, game and socket integration tests.
+## Stack
 
-## Quick start (local Wi-Fi)
+- **Node.js 20 + Express + Socket.IO** — server-authoritative state, role-scoped
+  broadcasts.
+- **PostgreSQL (Railway)** in production, **embedded PGlite** for local
+  development and tests.
+- **Vanilla ES modules + Vite** — separate facilitator, display and player pages.
+- **Vanilla CSS** with a shared token system; mobile-first player terminal.
+
+## Quick start (local)
 
 ```bash
 npm install
-HOST_PIN=123456 npm start
+npm run dev
 ```
 
-The server prints the LAN URLs and a 5-character join code, for example:
+Open the Vite URL printed by the command (usually <http://localhost:5173>).
+`npm run dev` starts the API on port 3000 and Vite with `/api` and
+`/socket.io` proxies.
 
+For a single production-style process:
+
+```bash
+npm run build
+ADMIN_PIN=123456 \
+COOKIE_SECRET=0123456789abcdef0123456789abcdef \
+npm start
 ```
-Display   http://192.168.1.69:4321/display
-Presenter http://192.168.1.69:4321/host
-Join      http://192.168.1.69:4321/play   (code DBEY4)
-PIN       123456
-```
 
-1. Open the **Presenter** URL on the facilitator laptop.
-2. Unlock with the PIN printed in the terminal.
-3. Open the **Display** URL on the projector (full screen).
-4. Players scan the QR code or open the **Join** URL and enter the code.
-5. Configure the game in the Setup/Lobby tabs, then press **START OPERATION**.
+Then open:
 
-If no `HOST_PIN` is set, a random 6-digit PIN is generated and printed. Set it
-explicitly for repeatable sessions.
+| Surface | URL | Purpose |
+| --- | --- | --- |
+| Landing | <http://localhost:3000/> | Describe the drill and link the consoles |
+| Facilitator | <http://localhost:3000/host> | Create, lock and start operations |
+| Projector | <http://localhost:3000/display?code=CODE> | Full-screen joining QR and rosters |
+| Players | <http://localhost:3000/play?code=CODE> | Mobile enlistment and lobby |
 
-### Firewall note
+The server prints the LAN address, join URL and — if you did not supply one — a
+generated facilitator PIN on startup.
 
-Phones must reach the laptop on the chosen port. On macOS allow Node through the
-firewall when prompted; on Windows allow it through Windows Defender Firewall.
-If players cannot connect, check that the laptop and phones are on the same Wi-Fi
-and that no guest isolation is enabled on the router.
+## Facilitator flow
 
-## Configuration (environment variables)
+1. Open `/host` and enter the `ADMIN_PIN`.
+2. **NEW OPERATION** → choose mode, team count, capacity and other settings.
+3. Project the display via **OPEN DISPLAY** and show the six-character join code
+   and QR.
+4. Players scan or open `/play`, enter a display name and choose a team.
+5. Use the live roster to **MOVE** or **REMOVE** players and **LOCK LOBBY** to
+   close enlistment. Existing players can still reconnect while locked.
+6. **START OPERATION** validates the lobby (at least one player on every team)
+   and moves every screen to the mission-ready view. **RETURN TO LOBBY** reopens
+   the room.
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `PORT` | `3000` | HTTP port. |
-| `HOST_PIN` | random 6 digits | Presenter PIN. |
-| `PUBLIC_URL` | auto | Public base URL (overrides LAN detection). Use for Railway or a reverse proxy. |
-| `DATA_DIR` | `./data` | Where `questions.json`, backups and `game-state.json` are stored. |
-| `NODE_ENV` | — | Set to `production` on hosts. |
+## Player flow
 
-Railway sets `PORT` and `RAILWAY_PUBLIC_DOMAIN` automatically.
+- One device per player; no account or install required.
+- The resume token is stored in `localStorage`, so a refresh or network drop
+  restores the same player and team automatically.
+- If the same identity resumes from another device, the older socket is
+  superseded and told why.
 
-## Railway deployment
+## Configuration
 
-1. Push the repository to GitHub.
-2. Create a new Railway project from the repo.
-3. Add a **Volume** mounted at `/data` and set `DATA_DIR=/data`.
-4. Set `HOST_PIN` to a strong value.
-5. Optionally set `PUBLIC_URL=https://your-app.up.railway.app`.
-6. Deploy. The start command is `npm start` (see `railway.json`).
+Copy `.env.example` to `.env` and adjust. Important variables:
 
-The volume keeps questions, backups and the game snapshot across restarts. Host
-tokens are restored from the snapshot, so a redeploy does not log the presenter out.
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `PORT` | `3000` | HTTP port |
+| `PUBLIC_URL` | Railway domain / LAN | Base URL used in QR codes and join links |
+| `ADMIN_PIN` | generated per run | Facilitator console PIN (min 4 chars) |
+| `COOKIE_SECRET` | generated per run | Signs the facilitator cookie (min 24 chars) |
+| `DATABASE_URL` | empty | PostgreSQL URL; empty uses embedded PGlite |
+| `PGSSL` | on in production | Set `false` for a local Postgres without TLS |
+| `DATA_DIR` | `./data` | PGlite data directory |
+| `SESSION_RETENTION_HOURS` | `24` | Automatic session expiry |
+| `ALLOWED_ORIGINS` | empty | Extra Socket.IO origins, comma separated |
 
-## Playing a game
+## Scripts
 
-- **Modes**: teams (pooled missiles and score) or individual (one fleet slot per player).
-- **Grids**: 1 (shared hostile target) or 2/3 (one fleet per team/player).
-- **Question flow**: briefing → solution → combat. In manual mode the presenter
-  reveals the solution and opens combat; in auto mode everything is timed.
-- **Missiles**: awarded for correct answers (first correct, or all correct). Fire
-  during the combat phase only.
-- **Winning**: last fleet standing, or the shared target destroyed.
-
-The projector hides unsunk ships; the presenter can reveal them with the
-**Reveal ships** setting.
-
-## Presenter console
-
-Tabs:
-
-- **Setup** — structure (grid count, mode, capacity) locked once players join;
-  live rules (awards, attempts, missile cap, timers, question mode).
-- **Lobby** — QR code, join link, teams, roster, fleet cards, manual/random
-  placement, start checks.
-- **Control** — start/pause/reveal/open combat/next/end/restart/new game,
-  answer monitor, team telemetry, manual missile grants, attack feed, final
-  ranking.
-- **Questions** — search/filter, create/edit/delete, import/export JSON.
-
-Ship placement: click **PLACE** on a fleet, drag over the grid to preview, click to
-place, rotate with the button, clear or randomise, then **APPLY PLACEMENT**.
-
-## Question bank
-
-Questions live in `data/questions.json`. The host editor writes back with a
-timestamped backup in `data/backups/`. Import/export uses the same JSON shape:
-
-```json
-{ "version": 1, "updated": "...", "questions": [ { "id", "topic", "difficulty",
-  "question", "options": [4], "correctIndex", "explanation" } ] }
+```bash
+npm run dev        # API + Vite dev server
+npm run dev:server # API only, with watch
+npm run dev:client # Vite only
+npm run build      # Production client bundle → dist/client
+npm start          # Serve API + built client
+npm test           # Unit + integration tests (PGlite in memory)
+npm run test:watch # Tests in watch mode
 ```
 
 ## Tests
+
+The suite covers:
+
+- Lobby engine rules: joining, unique names, capacity, team switching, moving,
+  kick, lock, start/return transitions and free-for-all mode.
+- Facilitator auth: signed tokens, expiry, tampering, PIN checks and login
+  throttling.
+- Projection safety: no `tokenHash`, `nameKey` or private fields in public,
+  display, host-event or player payloads.
+- Integration: 20 real Socket.IO clients join a lobby, balance across teams,
+  stay synchronised on the host console and projector, switch teams, get locked
+  out, resume after a reconnect and reach mission ready.
+- Recovery: a lobby and its players survive a full server restart on the same
+  PGlite directory and can resume with the original tokens.
 
 ```bash
 npm test
 ```
 
-26 tests covering grid placement/firing, game state machine, sockets, snapshots
-and projections.
+## Deploy to Railway
+
+1. Create a Railway project and add the **PostgreSQL** plugin.
+2. Deploy this repository. `railway.json` runs `npm ci && npm run build` and
+   starts with `npm start`; the health check is `/healthz`.
+3. Set `ADMIN_PIN`, `COOKIE_SECRET` and (optionally) `PUBLIC_URL`. Railway
+   provides `DATABASE_URL` automatically; TLS is enabled by default in
+   production.
+4. Generate a public domain. QR codes and join links use it automatically.
+
+Sessions and player tokens are persisted in PostgreSQL, so redeploys do not lose
+an active lobby. Players resume automatically when their browser reconnects.
+
+## Run with Docker
+
+```bash
+docker compose up --build
+```
+
+This starts PostgreSQL 16 and the app on <http://localhost:3000>. Set `ADMIN_PIN`
+and `COOKIE_SECRET` in the environment or a `.env` file to override the local
+defaults.
+
+## Project layout
+
+```
+client/
+  index.html, host.html, display.html, play.html
+  src/{landing,host,display,play}/main.js
+  src/shared/            # api, socket, audio, clock, dom helpers
+  styles/                # tokens + per-surface CSS
+server/
+  app.js                 # Express routes, auth, QR, static serving
+  auth.js                # PIN login, signed host cookie, throttle
+  realtime/socket.js     # socket roles, commands, broadcasts, reconnect
+  sessions/session.js    # authoritative GameSession state machine
+  sessions/manager.js    # lifecycle, join codes, restore, cleanup
+  sessions/projections.js# role-safe views
+  db/                    # PGlite/Postgres adapter, migrations, repository
+shared/                  # constants, events, schemas, utilities
+test/                    # node:test unit + integration suites
+docs/architecture.md     # deeper design notes
+```
 
 ## Troubleshooting
 
-- **Players cannot join**: check firewall and same-network. Use `PUBLIC_URL` if
-  hosting behind a proxy.
-- **Lost presenter session after restart**: set `HOST_PIN` and keep `DATA_DIR` on a
-  persistent volume.
-- **Audio not playing**: browsers require a user gesture; click anywhere once.
-  The benign `AudioContext` device message is harmless.
-- **Structure locked**: grid count and mode can only change with an empty lobby.
+- **Facilitator PIN unknown** — check the server console. It is printed when
+  `ADMIN_PIN` is not set, and changes on every run unless you set it.
+- **“Client bundle not built”** — run `npm run build` before `npm start`, or use
+  `npm run dev`.
+- **Phones cannot reach the QR URL** — ensure devices are on the same network and
+  use the LAN address printed at startup, or set `PUBLIC_URL` to a reachable
+  host.
+- **Postgres TLS errors locally** — set `PGSSL=false` for a local database
+  without TLS.
+
+## Stage 2 roadmap
+
+Questions, ship placement, captains, missile attacks, scoring, achievements and
+after-action reporting. The session JSONB snapshot, event log and reserved team
+columns are designed to absorb those features without replacing the lobby
+foundation.
