@@ -260,7 +260,19 @@ body.play-page {
 
 .q-timer strong.is-low {
   color: var(--red);
-  animation: flash 1s steps(2) infinite;
+  animation: timer-glow 1s ease-in-out infinite;
+}
+
+@keyframes timer-glow {
+  0%,
+  100% {
+    text-shadow: 0 0 8px rgba(255, 77, 109, 0.5);
+  }
+  50% {
+    text-shadow:
+      0 0 18px rgba(255, 77, 109, 1),
+      0 0 44px rgba(255, 77, 109, 0.8);
+  }
 }
 
 @keyframes flash {
