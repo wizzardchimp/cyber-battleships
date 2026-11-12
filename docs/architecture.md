@@ -1,220 +1,144 @@
-# Cyber Battleships — Architecture
+# Cyber Battleships: Architecture
 
-Stage 1 implements a real-time lobby: facilitator console, projector display and
-mobile player terminals stay synchronised through a server-authoritative game
-session. Stage 2 adds the playable round: timed questions, missile rewards,
-attack grids, scoring, winners and repeated rounds.
-
-## Runtime components
+One server runs one live game. A big screen controls it, and phones play it. The
+server is the only authority: clients send intents and render the state they are
+sent.
 
 ```
-Browser clients                    Node.js server                    PostgreSQL
-┌───────────────┐   HTTP/WS   ┌──────────────────────────┐      ┌──────────────┐
-│ /host         │◀──────────▶│ Express (REST + auth)     │      │ sessions     │
-│ /display      │            │ Socket.IO gateway         │◀────▶│ teams        │
-│ /play         │            │ SessionManager            │      │ players      │
-└───────────────┘            │ GameSession (authority)   │      │ session_     │
-                             │ Projections (safe views)  │      │ events       │
-                             └──────────────────────────┘      └──────────────┘
+Browsers                          Node.js server                     PostgreSQL
+┌──────────────────┐   HTTP/WS   ┌───────────────────────────┐      ┌──────────────┐
+│ /display (screen)│◀──────────▶│ Express (QR, CSV routes)   │      │ sessions     │
+│ /play    (phones)│            │ Socket.IO gateway          │◀────▶│ teams        │
+└──────────────────┘            │ SessionManager (one game)  │      │ players      │
+                                │ GameSession (state machine)│      │ question_sets│
+                                │ Projections (safe views)   │      │ events       │
+                                └───────────────────────────┘      └──────────────┘
 ```
 
-- **Express** serves the built Vite client, facilitator auth, public session
-  summary, QR SVG, the short `/<CODE>` player redirect and health check.
-- **Socket.IO** carries all live operations. Each socket has a role
-  (`host`, `display`, `player`) and joins a `session:<id>` room.
-- **`SessionManager`** owns the in-memory session registry, join-code allocation,
-  expiry cleanup and restart restoration.
-- **`GameSession`** is the authoritative state machine for one lobby. It validates
-  every command, mutates state, records an event and emits `change`.
-- **Projections** build role-safe payloads. They are constructed field by field,
-  never by spreading the session snapshot, so token hashes and future secret
-  state cannot leak.
-- **`SessionRepository`** persists a JSONB snapshot plus normalised lobby rows in
-  one transaction.
+## Phases
 
-## State model
-
-```js
-{
-  id, joinCode, name, phase,          // lobby | mission_ready | question | attack | round_over | ended
-  config,                             // validated session config
-  teams: [{ id, name, color, maxPlayers, missiles, ... }],
-  players: [{ id, displayName, nameKey, teamId, role, tokenHash, connected, stats }],
-  round: {                            // active round, null in the lobby
-    number, phase, startedAt, quizEndsAt,
-    question: { id, number, prompt, options, answerIndex, endsAt, revealedAt, ... },
-    answers: { [playerId]: { questionNumber, optionIndex, correct, reward, ownerId, ... } },
-    combatants: [{ id, name, kind, color, teamId, playerId, targetId }],
-    attacks: [{ id, ownerId, targetId, x, y, hit, sunkShip, round }],
-    attackStartedAt, attackEndsAt, endedAt, outcome, results
-  },
-  fleets: { [combatantId]: { gridSize, ships: [{ key, name, cells, hits, sunk }], shots: [] } },
-  arsenal: { [combatantId]: missileCount },
-  scores: { [combatantId]: { points, hits, misses, sunk, correct, answered, missilesEarned } },
-  usedQuestions: [...],
-  recentEvents: [...], eventSeq, version,
-  createdAt, updatedAt, startedAt, endedAt, expiresAt,
-  joinBaseUrl, displayBaseUrl
-}
+```
+lobby ──start──▶ quiz ──timer or skip──▶ review ──start battle──▶ battle ──▶ result
+  ▲                                                                           │
+  └────────────────────────── back to lobby / play again ◀───────────────────┘
 ```
 
-- The server is the only writer. Clients send intents (`player:join`,
-  `player:chooseTeam`, `host:lockLobby`, `host:start`, ...) and render the next
-  `state` event.
-- A monotonic `version` and the `meta.phase` field let clients detect stale or
-  out-of-order projections.
-- `recentEvents` powers the facilitator event stream and client toasts; the same
-  events are appended to `session_events` for audit history.
+| Phase | Ends when |
+| --- | --- |
+| `lobby` | Facilitator starts (any number of players) |
+| `quiz` | The quiz timer runs out, or the facilitator skips |
+| `review` | The facilitator starts the battle |
+| `battle` | The timer ends, a fleet is destroyed, nobody has missiles (after 3 s), or the facilitator ends it |
+| `result` | Play again (new quiz), back to lobby, or a new game |
 
-## Socket lifecycle
+## Modes
 
-### Player join
+Modes are presets that define the sides and their size.
 
-1. `player:join { code, name, teamId?, asSpectator? }`
-2. `GameSession.join()` validates phase, lock, name uniqueness and capacity, then
-   creates a player with a 32-byte resume token. Only the SHA-256 token hash is
-   stored.
-3. The snapshot is committed, the socket joins the session room and receives
-   `player:ok { playerId, token, ... }`, immediately followed by a player-scoped
-   `state` projection.
-
-### Resume / reconnect
-
-- The browser stores `{ token, playerId, name }` in `localStorage` under
-  `cb.player.<CODE>`.
-- On reconnect it sends `player:resume { code, token }`. The server hashes the
-  token and re-attaches the same player identity, cancelling the pending offline
-  timer.
-- A second device resuming the same token supersedes the old socket. Stale
-  sockets are removed from the live map immediately so disconnect bookkeeping
-  stays correct.
-- If a socket drops without resuming, the player is marked offline after an
-  8-second grace period (`LIMITS.reconnectGraceMs`).
-
-### Host and display
-
-- `/api/host/login` verifies `ADMIN_PIN` and issues an HMAC-signed HttpOnly
-  cookie. Socket connections are authenticated from the same cookie.
-- `host:subscribe` and `display:subscribe` attach the socket to a session room.
-  The host receives the extended projection (all roles, events, `admin.canStart`);
-  the display receives the public projection only.
-
-## Commands and transitions
-
-| Event | Authority | Effect |
+| Mode | Sides | Targets |
 | --- | --- | --- |
-| `host:subscribe` | facilitator cookie | attach host projection |
-| `host:lockLobby` | host | block/imply new joins |
-| `host:movePlayer` | host | reassign a player between teams |
-| `host:removePlayer` | host | delete participant and disconnect them |
-| `host:renameTeam` | host | rename a team while in lobby |
-| `host:start` | host | force-start round 1, enter `question`, lock lobby |
-| `host:advance` | host | questions → attack → round over → next round |
-| `host:endRound` | host | close the current question/attack round immediately |
-| `host:returnToLobby` | host | clear round state and return to `lobby` |
-| `display:start` | display | force-start a round from the Battle Command lobby |
-| `player:chooseTeam` | player | switch teams while lobby is open |
-| `player:answer` | player | submit one option for the open question |
-| `player:attack` | player | fire one missile at the assigned target |
-| `player:join` | anyone | enlist in the lobby, or mid-round when late join is enabled |
-| `player:resume` | token holder | reattach an existing identity |
+| `squad` (3 v 3) | ALPHA, BRAVO × 3 | Each side attacks the other |
+| `duel` (1 v 1) | ALPHA, BRAVO × 1 | Each side attacks the other |
+| `cpu` | CREW × 20 | The crew attacks the CPU fleet |
 
-`canStart()` still reports the normal readiness rules (at least one player, and
-in team/co-op modes at least one player on every configured team), but the
-facilitator and display start commands use a forced start so an event can begin
-with an empty or partially populated lobby. Only the phase check is enforced.
-Starting from `lobby` resets scores and ammunition; starting from `round_over`
-carries them into the next round.
+Changing mode in the lobby rebuilds the sides and re-seats players, keeping each
+on their side where possible. The change is refused if more players are present
+than the new mode holds.
 
-## Round engine
+## Quiz engine
 
-- `SessionManager` runs `tickSessions()` every 750 ms and calls `tick()` on live
-  rounds. Ticks reveal questions when the timer expires or everyone has answered,
-  start the next question after the 4-second reveal, enter the attack phase when
-  the quiz clock (`roundMinutes`) expires, and close the round when the attack
-  clock expires.
-- Each question runs for `questionTimer` seconds. Correct answers award 3 missiles
-  within 5 seconds, 2 within 10, 1 within 20, and 10 points. Answers include the
-  response time for future analytics. The configured age band caps the question
-  pool: cadets get easy/medium, juniors up to hard, adults up to expert.
-- Combatants are teams in team/co-op modes and individual players in free-for-all.
-  Free-for-all players target each other in a ring; a CPU firewall is appended
-  whenever a human has no human opponent, and co-op crews all target the CPU.
-  Fleets are randomised, non-overlapping and regenerated each round.
-- When `allowLateJoin` is on, players can enlist during `mission_ready`,
-  `question`, `attack` or `round_over`. Team modes attach the player to an
-  existing team combatant, so they immediately share its fleet and missile pool.
-  Free-for-all creates a combatant and fleet on the fly and inserts it into the
-  targeting ring without changing any other player's target. Joining during
-  `round_over` waits until the next round for combatant state.
-- Attacks consume one missile, reject duplicate cells for the same owner/target,
-  and are capped by `maxAttacksPerTeam`. Hits score 25, sinking a ship adds 50.
-  Results carry points, hits, misses, sunk ships, correct answers and remaining
-  ammunition; the highest score wins (co-op compares the human score with the
-  CPU firewall's survival).
-- `ammoCarryOver` decides whether unspent missiles survive into the next round;
-  returning to the lobby clears scores, fleets, ammunition and used questions.
-- Projections never include `answerIndex` or `explanation` before the question is
-  revealed. The host projection adds the answer key, answer tallies and full
-  fleets; player projections expose only their own and target boards.
+- Questions are **self-paced**. Each player has their own stream stored in
+  `round.quiz[playerId]`: a counter, the questions already seen, and the current
+  question (with its answer key, server-side only).
+- A player never sees a repeat until their whole set has been used, then it
+  recycles.
+- Options are shuffled when a question is issued, so the answer slot varies.
+- An answer is accepted until the quiz timer ends plus a 1.5 s grace period.
+  The reply carries the correct index and explanation; the next question is
+  issued immediately.
+- A correct answer gives the side 1 missile and 10 points. Teams share one pool.
 
-All socket handlers validate payloads with Zod, apply a per-socket rate limit and
-return an acknowledgement `{ ok: true }` or
-`{ ok: false, error: { code, message } }`.
+## Battle engine
 
-## Database schema (Stage 2)
+- Each side owns a fleet of five ships on a square grid, regenerated every round.
+- A shot costs one missile, can only target the opposing grid, and each cell can
+  be hit once. A hit scores 25, a sunk ship adds 50.
+- Outcome: a destroyed fleet wins at once. Otherwise the higher score wins, then
+  more hits, otherwise it is a draw. Versus CPU, the crew wins only by sinking the
+  whole firewall.
 
-- `sessions` — one row per operation: code, status/phase, mode, config JSONB,
-  full state JSONB, version, timestamps, expiry.
-- `teams` — normalised team rows for reporting and future scoring.
-- `players` — normalised participant rows, including `token_hash` (unique per
-  session/name) and connection timestamps.
-- `session_events` — append-only event log keyed by `(session_id, seq)`.
+## What each screen may see
 
-Migrations live in `server/db/migrations` and are applied automatically on
-startup. The JSONB snapshot is the recovery source of truth; normalised tables
-are rebuilt from it on every save.
+Projections are built field by field, never by spreading the stored state.
 
-### Database drivers
+| View | Sees | Never sees |
+| --- | --- | --- |
+| Game screen / mirror | Rosters, progress, scores, shots, ships **after** the result | Questions, answers, ships during battle, tokens, the control key |
+| Phone | Public view, its own current question (no answer), its target's shots | Other players' questions, ship positions during battle |
 
-- `DATABASE_URL` present → `pg` connection pool against PostgreSQL (Railway).
-- `DATABASE_URL` absent → embedded PGlite. Tests use an in-memory instance;
-  local development uses `data/pglite`.
+The game screen also receives `viewer.control = true` when its socket proved it
+holds the control key.
 
-Both drivers expose the same `query`/`transaction` interface.
+## Control without a PIN
 
-## Restart and failure recovery
+1. `display:create` makes the game and returns a random control key **once**. Only
+   its SHA-256 hash is stored.
+2. The screen keeps the key in `localStorage` and sends it with
+   `display:subscribe`. If it matches, the socket is marked as controlling.
+3. Control events (`advance`, `lobby`, `settings`, `remove`) and the HTTP
+   question routes require that proof.
+4. A second screen without the key is a read-only mirror. It can only start a new
+   game when none exists, or by explicitly taking over (`force`), which ends the
+   current game.
 
-- On boot the manager loads non-expired sessions ordered newest first.
-- Restored players are marked `connected = false` because no sockets survived the
-  restart. Their resume tokens remain valid.
-- Clients retry the socket connection and call `player:resume` /
-  `host:subscribe` using the session in the URL. The lobby therefore survives a
-  server restart without players re-entering their names.
-- Sessions expire after `SESSION_RETENTION_HOURS` (default 24) and are removed by
-  a periodic cleanup task.
-- Commits are serialised per session and broadcast immediately; persistence
-  failures surface as `PERSISTENCE_ERROR` without silently losing the in-memory
-  state.
+## Socket events
 
-## Security boundaries
+| Event | From | Effect |
+| --- | --- | --- |
+| `display:subscribe` | screen | Attach to the game; reports whether it controls |
+| `display:create` | screen | Create a game (replaces the current one with the key or `force`) |
+| `display:advance` | controller | Start, skip, start battle, end battle, or play again, depending on the phase |
+| `display:lobby` | controller | Return to the lobby |
+| `display:settings` | controller | Change settings (lobby only) |
+| `display:remove` | controller | Remove a player |
+| `player:join` / `player:resume` | phone | Enlist or reattach with a saved token |
+| `player:chooseTeam` | phone | Switch sides in the lobby |
+| `player:answer` | phone | Answer the current question |
+| `player:attack` | phone | Fire one missile |
 
-- Facilitator auth: global PIN → signed, HttpOnly, SameSite=Lax cookie with a
-  12-hour lifetime. Login is throttled per IP.
-- Player auth: per-player random token, stored only as a hash; compare on resume.
-- Public/display/player projections never include `tokenHash`, `nameKey` or host
-  event data.
-- All input is length-limited and sanitised; Zod schemas are shared by client and
-  server.
-- Helmet sets a strict CSP; Socket.IO origins are restricted to the same host
-  plus `ALLOWED_ORIGINS`.
+All handlers validate with Zod, are rate limited per socket, and acknowledge with
+`{ ok: true }` or `{ ok: false, error: { code, message } }`.
 
-## Future extension points
+## Question sets
 
-- New phases extend `PHASES` and `GameSession` transition methods; quest and
-  movement timers already run through the same manager tick.
-- Question, fleet, attack and score state persist in the session JSONB and flow
-  through scoped projections, so new modes can extend the same shapes.
-- `session_events` already provides the audit trail for answers, hits and scoring.
-- The `teams` table reserves missile, weapon, target and stats columns for
-  captains, special weapons and reporting without another schema rewrite.
+- Table `question_sets (id, name, questions jsonb, is_custom, updated_at)`.
+- On boot, a default set is written **only if it is missing**, so edits survive
+  redeploys. Sets are cached in memory.
+- Routes (all but the list need the `x-control-key` header):
+  - `GET /api/questions` lists sets with counts
+  - `GET /api/questions/:set/export.csv` downloads a UTF-8 CSV with a BOM
+  - `POST /api/questions/:set/import` validates (`dryRun`) or replaces a set
+  - `POST /api/questions/:set/reset` restores the built-in questions
+- Import and reset only work in the lobby. The parser detects comma, semicolon or
+  tab delimiters, reports problems by spreadsheet row, and refuses the whole file
+  if any row is invalid.
+
+## Persistence and restart
+
+- The full game state is a JSONB snapshot in `sessions`, with normalised team and
+  player rows and an append-only event log.
+- Saves coalesce: if one is already queued it saves the latest state when it runs.
+- On boot the manager restores the newest game of the current schema version and
+  deletes anything older. Players are marked offline until their phones resume;
+  timers carry on from the stored deadlines.
+- Phones reconnect with a stored token. A second device using the same token
+  supersedes the first. A player who stays offline for 8 seconds is marked offline.
+
+## Screens and rendering
+
+- Both clients re-render from each state update, but skip the work when what the
+  user can see has not changed. This stops a tap being lost when another player's
+  answer triggers a broadcast.
+- The big screen keeps its controls, settings dialog and file picker outside the
+  re-rendered area for the same reason.
+- Countdowns are driven by server deadlines, with a clock offset from the server.

@@ -1,10 +1,9 @@
 import crypto from 'node:crypto';
 
 import {
+  CPU_COLOR,
   FLEET_TEMPLATE,
-  MODES,
-  PHASES,
-  ROLES,
+  MODE_PRESETS,
   TEAM_COLORS,
 } from '../../shared/constants.js';
 
@@ -30,6 +29,15 @@ export function emptyScore() {
 export function ensureScore(state, ownerId) {
   if (!state.scores[ownerId]) state.scores[ownerId] = emptyScore();
   return state.scores[ownerId];
+}
+
+export function shuffle(list) {
+  const copy = [...list];
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = crypto.randomInt(0, i + 1);
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
 }
 
 /** Build a random, non-overlapping fleet for a square grid. */
@@ -72,7 +80,7 @@ export function randomFleet(gridSize) {
     if (!failed) return ships;
   }
 
-  // Extremely unlikely fallback: deterministic horizontal placement.
+  // Extremely unlikely fallback: deterministic placement row by row.
   const fallback = [];
   let cursor = 0;
   for (const template of FLEET_TEMPLATE) {
@@ -94,240 +102,83 @@ export function makeFleet(gridSize) {
   };
 }
 
+/** The sides for a mode, ready to be stored on the session. */
+export function buildTeams(mode, now = new Date().toISOString()) {
+  const preset = MODE_PRESETS[mode] || MODE_PRESETS.squad;
+  return preset.teams.map((name, index) => ({
+    id: `t_${crypto.randomUUID()}`,
+    name,
+    color: TEAM_COLORS[index % TEAM_COLORS.length],
+    sortOrder: index,
+    maxPlayers: preset.perTeam,
+    captainPlayerId: null,
+    targetTeamId: null,
+    missiles: 0,
+    weapons: {},
+    eliminated: false,
+    stats: {},
+    createdAt: now,
+  }));
+}
+
 /**
- * Combatants are the things that own a fleet and a score.
- * Team and co-op modes use teams; free-for-all uses individual players.
- * A CPU firewall is added whenever there is no human opponent.
+ * Everything that owns a fleet. Each human side targets the other side; in
+ * "everyone vs CPU" the single crew targets the CPU firewall.
  */
 export function buildCombatants(state) {
-  const mode = state.config.mode;
+  const preset = MODE_PRESETS[state.config.mode] || MODE_PRESETS.squad;
   const teams = [...state.teams].sort((a, b) => a.sortOrder - b.sortOrder);
-  const players = state.players.filter((player) => player.role === ROLES.PLAYER);
-
-  if (mode === MODES.INDIVIDUAL) {
-    const combatants = players.map((player, index) => ({
-      id: player.id,
-      kind: 'player',
-      name: player.displayName,
-      color: TEAM_COLORS[index % TEAM_COLORS.length],
-      teamId: null,
-      playerId: player.id,
-      targetId: null,
-    }));
-    return linkTargets(combatants, false);
-  }
-
-  const combatants = teams.map((team, index) => ({
+  const combatants = teams.map((team) => ({
     id: team.id,
     kind: 'team',
     name: team.name,
-    color: team.color || TEAM_COLORS[index % TEAM_COLORS.length],
+    color: team.color,
     teamId: team.id,
-    playerId: null,
     targetId: null,
   }));
-  return linkTargets(combatants, mode === MODES.COOPERATIVE);
-}
 
-/**
- * Teams form a targeting ring; free-for-all players do the same. In co-op
- * every human crew targets the shared CPU grid. A single human combatant is
- * always given the CPU as a target so the round remains playable.
- */
-function linkTargets(combatants, alwaysCpu) {
-  if (combatants.length === 0) {
-    if (!alwaysCpu) return combatants;
-    return [
-      {
-        id: CPU_ID,
-        kind: 'cpu',
-        name: CPU_NAME,
-        color: TEAM_COLORS[4],
-        teamId: null,
-        playerId: null,
-        targetId: null,
-      },
-    ];
-  }
-
-  const needsCpu = alwaysCpu || combatants.length === 1;
-  let all = combatants;
-  if (needsCpu) {
-    all = [
-      ...combatants,
-      {
-        id: CPU_ID,
-        kind: 'cpu',
-        name: CPU_NAME,
-        color: TEAM_COLORS[4],
-        teamId: null,
-        playerId: null,
-        targetId: null,
-      },
-    ];
-  }
-
-  const humans = all.filter((combatant) => combatant.kind !== 'cpu');
-  if (alwaysCpu) {
-    for (const combatant of humans) combatant.targetId = CPU_ID;
-    return all;
-  }
-
-  if (humans.length === 1) {
-    humans[0].targetId = CPU_ID;
-    const cpu = all.find((entry) => entry.id === CPU_ID);
-    if (cpu) cpu.targetId = humans[0].id;
-    return all;
-  }
-
-  for (let index = 0; index < humans.length; index += 1) {
-    humans[index].targetId = humans[(index + 1) % humans.length].id;
-  }
-  return all;
-}
-
-export function ownerForPlayer(state, player) {
-  if (!player || player.role !== ROLES.PLAYER) return null;
-  if (state.config.mode === MODES.INDIVIDUAL) return player.id;
-  return player.teamId || null;
-}
-
-/**
- * Insert a late joiner into the existing targeting ring without disturbing any
- * other player's target. Used for individual-mode rounds that are already live.
- */
-export function linkLateCombatant(combatants, combatant) {
-  const others = combatants.filter(
-    (entry) => entry.kind !== 'cpu' && entry.id !== combatant.id,
-  );
-  const cpu = combatants.find((entry) => entry.kind === 'cpu');
-
-  if (others.length === 0) {
-    if (cpu) {
-      combatant.targetId = cpu.id;
-      cpu.targetId = combatant.id;
-      return combatant;
-    }
-    const newCpu = {
+  if (preset.versusCpu) {
+    for (const combatant of combatants) combatant.targetId = CPU_ID;
+    combatants.push({
       id: CPU_ID,
       kind: 'cpu',
       name: CPU_NAME,
-      color: TEAM_COLORS[4],
+      color: CPU_COLOR,
       teamId: null,
-      playerId: null,
-      targetId: combatant.id,
-    };
-    combatants.push(newCpu);
-    combatant.targetId = newCpu.id;
-    return combatant;
+      targetId: null,
+    });
+    return combatants;
   }
 
-  const anchor = others.find((entry) => entry.targetId) || others[0];
-  const previousTarget = anchor.targetId;
-  combatant.targetId =
-    previousTarget && previousTarget !== combatant.id ? previousTarget : anchor.id;
-  anchor.targetId = combatant.id;
-  return combatant;
-}
-
-/**
- * Make sure a player who joins a live round owns a fleet, score and arsenal.
- * Team modes already have a team combatant; free-for-all adds one on the fly.
- */
-export function ensureLateCombatant(state, player) {
-  const round = state.round;
-  if (!round) return null;
-  const ownerId = ownerForPlayer(state, player);
-  if (!ownerId) return null;
-
-  let combatant = round.combatants.find((entry) => entry.id === ownerId) || null;
-  if (combatant) {
-    ensureScore(state, ownerId);
-    if (state.arsenal[ownerId] === undefined) state.arsenal[ownerId] = 0;
-    return combatant;
+  for (let index = 0; index < combatants.length; index += 1) {
+    combatants[index].targetId = combatants[(index + 1) % combatants.length].id;
   }
-
-  combatant = {
-    id: ownerId,
-    kind: 'player',
-    name: player.displayName,
-    color: TEAM_COLORS[round.combatants.filter((entry) => entry.kind === 'player').length % TEAM_COLORS.length],
-    teamId: null,
-    playerId: player.id,
-    targetId: null,
-  };
-  round.combatants.push(combatant);
-  state.fleets[ownerId] = makeFleet(state.config.gridSize);
-  ensureScore(state, ownerId);
-  state.arsenal[ownerId] = 0;
-  linkLateCombatant(round.combatants, combatant);
-  return combatant;
+  return combatants;
 }
 
-export function ownerName(state, ownerId) {
-  const combatant = state.round?.combatants?.find((entry) => entry.id === ownerId);
-  if (combatant) return combatant.name;
-  if (ownerId === CPU_ID) return CPU_NAME;
-  const team = state.teams.find((entry) => entry.id === ownerId);
-  if (team) return team.name;
-  const player = state.players.find((entry) => entry.id === ownerId);
-  return player?.displayName || 'Unknown';
-}
-
-export function makeRound({ state, number, question, now, quizEndsAt, combatants }) {
+export function makeRound({ number, now, quizEndsAt, combatants }) {
   return {
     number,
-    phase: PHASES.QUESTION,
     startedAt: new Date(now).toISOString(),
     quizEndsAt: new Date(quizEndsAt).toISOString(),
-    questionNumber: 0,
-    question: null,
-    answers: {},
+    battleStartedAt: null,
+    battleEndsAt: null,
+    endedAt: null,
     combatants,
     attacks: [],
-    attackStartedAt: null,
-    attackEndsAt: null,
-    endedAt: null,
+    quiz: {},
     outcome: null,
     results: [],
   };
 }
 
-export function makeQuestionState(question, number, now, endsAt) {
+/** Question as the player sees it: never includes the answer. */
+export function questionForPlayer(current) {
+  if (!current) return null;
   return {
-    id: question.id,
-    number,
-    category: question.category,
-    difficulty: question.difficulty,
-    prompt: question.prompt,
-    options: [...question.options],
-    answerIndex: question.answerIndex,
-    explanation: question.explanation,
-    startedAt: new Date(now).toISOString(),
-    endsAt: new Date(endsAt).toISOString(),
-    revealedAt: null,
-    revealUntil: null,
+    number: current.number,
+    category: current.category,
+    prompt: current.prompt,
+    options: [...current.options],
   };
-}
-
-/** Attach the question to a round without leaking the answer. */
-export function questionForClient(question, { reveal = false } = {}) {
-  if (!question) return null;
-  return {
-    id: question.id,
-    number: question.number,
-    category: question.category,
-    difficulty: question.difficulty,
-    prompt: question.prompt,
-    options: [...question.options],
-    startedAt: question.startedAt,
-    endsAt: question.endsAt,
-    revealed: Boolean(question.revealedAt),
-    revealUntil: question.revealUntil,
-    ...(reveal ? { answerIndex: question.answerIndex, explanation: question.explanation } : {}),
-  };
-}
-
-export function attackId() {
-  return `a_${crypto.randomUUID()}`;
 }

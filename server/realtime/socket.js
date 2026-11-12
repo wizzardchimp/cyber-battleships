@@ -1,77 +1,47 @@
 import { ZodError } from 'zod';
 
+import { LIMITS } from '../../shared/constants.js';
 import { EVENTS } from '../../shared/events.js';
 import {
   chooseTeamSchema,
-  displayStartSchema,
+  displayCreateSchema,
+  displayRemoveSchema,
+  displaySettingsSchema,
   displaySubscribeSchema,
-  hostAdvanceSchema,
-  hostEndRoundSchema,
-  hostLockSchema,
-  hostMovePlayerSchema,
-  hostRemovePlayerSchema,
-  hostRenameTeamSchema,
-  hostStartSchema,
-  hostSubscribeSchema,
-  hostUpdateConfigSchema,
   playerAnswerSchema,
   playerAttackSchema,
   playerJoinSchema,
   playerResumeSchema,
 } from '../../shared/schemas.js';
 import { AppError, errorPayload } from '../errors.js';
-import { hostProjection, playerProjection, publicProjection } from '../sessions/projections.js';
+import { playerProjection, publicProjection } from '../sessions/projections.js';
+import { baseUrlFromHeaders } from '../util/security.js';
 
 const roomFor = (sessionId) => `session:${sessionId}`;
 
 function validationMessage(error) {
-  const issue = error.issues?.[0];
-  return issue?.message || 'Invalid request.';
+  return error.issues?.[0]?.message || 'Invalid request.';
 }
 
 function toastFor(event) {
   switch (event.type) {
     case 'player_joined':
-      return {
-        level: 'join',
-        message: event.role === 'spectator'
-          ? `${event.name} is watching`
-          : `${event.name} joined ${event.teamName || 'the operation'}`,
-      };
-    case 'player_moved':
-      return { level: 'move', message: `${event.name} moved to ${event.teamName}` };
+      return { level: 'join', message: `${event.name} joined ${event.teamName || 'the game'}` };
     case 'team_changed':
-      return { level: 'move', message: `${event.name} switched to ${event.teamName}` };
+      return { level: 'move', message: `${event.name} moved to ${event.teamName}` };
     case 'player_removed':
       return { level: 'leave', message: `${event.name} was removed` };
-    case 'team_renamed':
-      return { level: 'info', message: `${event.from} renamed to ${event.name}` };
-    case 'lobby_lock_changed':
-      return { level: 'info', message: event.locked ? 'Lobby locked' : 'Lobby unlocked' };
-    case 'mission_ready':
-      return { level: 'alert', message: 'All hands: mission ready' };
-    case 'round_started':
-      return { level: 'alert', message: `Round ${event.round} started` };
-    case 'attack_phase_started':
-      return { level: 'alert', message: `Round ${event.round}: attack phase` };
     case 'ship_sunk':
       return {
         level: 'alert',
-        message: `${event.ownerName} destroyed ${event.targetName}'s ${event.shipName}`,
+        message: `${event.teamName} sank ${event.targetName}'s ${event.shipName}`,
       };
-    case 'round_over':
-      return {
-        level: 'alert',
-        message: `Round ${event.round} complete // ${event.winnerName} leads`,
-      };
-    case 'returned_to_lobby':
-      return { level: 'info', message: 'Returned to lobby' };
     default:
       return null;
   }
 }
 
-export function attachSocketServer(io, { manager, config, auth, logger }) {
+export function attachSocketServer(io, { manager, config, logger }) {
   const playerSockets = new Map(); // playerId -> Set<socket>
   const disconnectTimers = new Map(); // playerId -> timeout
   const broadcastTimers = new Map(); // sessionId -> timeout
@@ -82,10 +52,7 @@ export function attachSocketServer(io, { manager, config, auth, logger }) {
     if (!socket.data.limits) socket.data.limits = new Map();
     const stamps = (socket.data.limits.get(key) || []).filter((stamp) => now - stamp < windowMs);
     if (stamps.length >= max) {
-      socket.emit(EVENTS.GAME_ERROR, {
-        code: 'RATE_LIMIT',
-        message: 'Slow down for a moment.',
-      });
+      socket.emit(EVENTS.GAME_ERROR, { code: 'RATE_LIMIT', message: 'Slow down for a moment.' });
       return false;
     }
     stamps.push(now);
@@ -103,9 +70,7 @@ export function attachSocketServer(io, { manager, config, auth, logger }) {
       payload = { code: 'VALIDATION', message: validationMessage(error) };
     } else {
       payload = errorPayload(error);
-      if (!(error instanceof AppError)) {
-        logger?.error({ err: error }, 'Unhandled socket error');
-      }
+      if (!(error instanceof AppError)) logger?.error({ err: error }, 'Unhandled socket error');
     }
     if (typeof ack === 'function') ack({ ok: false, error: payload });
     else socket.emit(EVENTS.GAME_ERROR, payload);
@@ -115,14 +80,20 @@ export function attachSocketServer(io, { manager, config, auth, logger }) {
     Promise.resolve()
       .then(handler)
       .catch((error) => {
-        logger?.warn({ err: error, socket: socket.id, event: error?.code }, 'Socket handler failed');
+        logger?.debug({ err: error, socket: socket.id }, 'Socket handler failed');
         fail(socket, ack, error);
       });
   }
 
   function sessionFromSocket(socket) {
-    if (!socket.data.sessionId) throw new AppError('NO_SESSION', 'Join an operation first.');
+    if (!socket.data.sessionId) throw new AppError('NO_SESSION', 'Join a game first.');
     return manager.require(socket.data.sessionId);
+  }
+
+  function controlOnly(socket) {
+    if (socket.data.role !== 'display' || !socket.data.control) {
+      throw new AppError('UNAUTHORIZED', 'Only the game screen can do that.', 401);
+    }
   }
 
   function wireSession(session) {
@@ -139,6 +110,7 @@ export function attachSocketServer(io, { manager, config, auth, logger }) {
         for (const target of sockets) {
           target.emit(EVENTS.PLAYER_REMOVED, { reason: 'removed', name });
           target.data.playerId = null;
+          target.data.role = null;
         }
         playerSockets.delete(playerId);
       }
@@ -152,6 +124,16 @@ export function attachSocketServer(io, { manager, config, auth, logger }) {
       io.to(roomFor(session.id)).emit(EVENTS.SESSION_CLOSED, {
         reason: expired ? 'expired' : 'closed',
       });
+      const room = io.sockets.adapter.rooms.get(roomFor(session.id));
+      for (const socketId of [...(room || [])]) {
+        const socket = io.sockets.sockets.get(socketId);
+        if (!socket) continue;
+        socket.leave(roomFor(session.id));
+        socket.data.role = null;
+        socket.data.control = false;
+        socket.data.sessionId = null;
+        socket.data.playerId = null;
+      }
     });
   }
 
@@ -165,36 +147,37 @@ export function attachSocketServer(io, { manager, config, auth, logger }) {
     broadcastTimers.set(session.id, timer);
   }
 
+  function projectionFor(socket, session) {
+    if (socket.data.role === 'display') {
+      return publicProjection(session, { control: Boolean(socket.data.control) });
+    }
+    if (socket.data.role === 'player' && socket.data.playerId) {
+      return playerProjection(session, socket.data.playerId);
+    }
+    return null;
+  }
+
   function broadcast(session) {
     const room = io.sockets.adapter.rooms.get(roomFor(session.id));
     if (!room) return;
     for (const socketId of room) {
       const socket = io.sockets.sockets.get(socketId);
       if (!socket) continue;
-      if (socket.data.role === 'host') {
-        socket.emit(EVENTS.STATE, hostProjection(session));
-      } else if (socket.data.role === 'display') {
-        socket.emit(EVENTS.STATE, publicProjection(session));
-      } else if (socket.data.role === 'player' && socket.data.playerId) {
-        socket.emit(EVENTS.STATE, playerProjection(session, socket.data.playerId));
-      }
+      const projection = projectionFor(socket, session);
+      if (projection) socket.emit(EVENTS.STATE, projection);
     }
   }
 
   function sendState(socket, session) {
-    if (socket.data.role === 'host') {
-      socket.emit(EVENTS.STATE, hostProjection(session));
-    } else if (socket.data.role === 'display') {
-      socket.emit(EVENTS.STATE, publicProjection(session));
-    } else if (socket.data.role === 'player' && socket.data.playerId) {
-      socket.emit(EVENTS.STATE, playerProjection(session, socket.data.playerId));
-    }
+    const projection = projectionFor(socket, session);
+    if (projection) socket.emit(EVENTS.STATE, projection);
   }
 
   function leaveCurrent(socket) {
     if (socket.data.sessionId) socket.leave(roomFor(socket.data.sessionId));
     socket.data.sessionId = null;
     socket.data.role = null;
+    socket.data.control = false;
     socket.data.playerId = null;
   }
 
@@ -217,7 +200,7 @@ export function attachSocketServer(io, { manager, config, auth, logger }) {
             live.setConnected(playerId, false).catch((error) => {
               logger?.warn({ err: error, playerId }, 'Failed to mark player offline');
             });
-          }, 8000);
+          }, LIMITS.reconnectGraceMs);
           timer.unref?.();
           disconnectTimers.set(playerId, timer);
         }
@@ -228,15 +211,11 @@ export function attachSocketServer(io, { manager, config, auth, logger }) {
 
   async function attachPlayer(socket, session, player, { token = null, resumed = false } = {}) {
     wireSession(session);
-
-    // Drop any previous association this socket had without scheduling an
-    // offline timer; it is about to become this player's live connection.
     detachPlayer(socket, { superseded: true });
     leaveCurrent(socket);
 
-    // Supersede every other socket for this player and remove it from the
-    // live set immediately. Keeping stale sockets in the set would stop the
-    // disconnect timer from ever firing for the surviving connection.
+    // Supersede every other socket for this player straight away so the
+    // disconnect timer still fires for the surviving connection.
     const existing = playerSockets.get(player.id);
     if (existing) {
       for (const old of [...existing]) {
@@ -258,6 +237,7 @@ export function attachSocketServer(io, { manager, config, auth, logger }) {
       disconnectTimers.delete(player.id);
     }
     socket.data.role = 'player';
+    socket.data.control = false;
     socket.data.playerId = player.id;
     socket.data.sessionId = session.id;
     socket.join(roomFor(session.id));
@@ -274,7 +254,6 @@ export function attachSocketServer(io, { manager, config, auth, logger }) {
       playerId: player.id,
       sessionId: session.id,
       name: player.displayName,
-      role: player.role,
       resumed,
       ...(token ? { token } : {}),
     });
@@ -282,15 +261,22 @@ export function attachSocketServer(io, { manager, config, auth, logger }) {
     scheduleBroadcast(session);
   }
 
-  function hostOnly(socket) {
-    if (!socket.data.hostAuth) {
-      throw new AppError('UNAUTHORIZED', 'Facilitator login required.', 401);
+  function attachDisplay(socket, session, { control }) {
+    wireSession(session);
+    detachPlayer(socket, { superseded: true });
+    if (socket.data.sessionId && socket.data.sessionId !== session.id) {
+      socket.leave(roomFor(socket.data.sessionId));
     }
+    socket.data.role = 'display';
+    socket.data.control = Boolean(control);
+    socket.data.sessionId = session.id;
+    socket.join(roomFor(session.id));
+    sendState(socket, session);
   }
 
   io.on('connection', (socket) => {
-    socket.data.hostAuth = auth.authenticateSocket(socket);
     socket.data.role = null;
+    socket.data.control = false;
     socket.data.sessionId = null;
     socket.data.playerId = null;
     socket.data.limits = new Map();
@@ -300,123 +286,85 @@ export function attachSocketServer(io, { manager, config, auth, logger }) {
       reply(ack, { ok: true, serverNow: Date.now() });
     });
 
-    socket.on(EVENTS.HOST_SUBSCRIBE, (payload, ack) => {
+    // ------------------------------------------------------------ game screen
+
+    socket.on(EVENTS.DISPLAY_SUBSCRIBE, (payload, ack) => {
       run(socket, ack, async () => {
-        hostOnly(socket);
-        if (!guard(socket, 'host')) return;
-        const data = hostSubscribeSchema.parse(payload);
-        const session = manager.require(data.sessionId);
-        wireSession(session);
-        detachPlayer(socket, { superseded: true });
-        if (socket.data.sessionId && socket.data.sessionId !== session.id) {
-          socket.leave(roomFor(socket.data.sessionId));
+        if (!guard(socket, 'display')) return;
+        const data = displaySubscribeSchema.parse(payload ?? {});
+        const session = manager.current();
+        if (!session) {
+          leaveCurrent(socket);
+          reply(ack, { ok: true, game: null, control: false });
+          return;
         }
-        socket.data.role = 'host';
-        socket.data.sessionId = session.id;
-        socket.join(roomFor(session.id));
-        sendState(socket, session);
-        reply(ack, { ok: true, session: session.summary() });
+        const control = manager.keyMatches(session, data.key);
+        attachDisplay(socket, session, { control });
+        reply(ack, { ok: true, game: session.summary(), control });
       });
     });
 
-    socket.on(EVENTS.HOST_UPDATE_CONFIG, (payload, ack) => {
+    socket.on(EVENTS.DISPLAY_CREATE, (payload, ack) => {
       run(socket, ack, async () => {
-        hostOnly(socket);
-        if (!guard(socket, 'host')) return;
-        const data = hostUpdateConfigSchema.parse(payload);
-        const session = manager.require(data.sessionId);
-        await session.updateConfig(data.patch);
+        if (!guard(socket, 'display-create', 6, 10_000)) return;
+        const data = displayCreateSchema.parse(payload ?? {});
+        const existing = manager.current();
+        if (existing) {
+          const allowed = manager.keyMatches(existing, data.key) || data.force === true;
+          if (!allowed) {
+            throw new AppError(
+              'GAME_EXISTS',
+              'A game is already running. Use the game screen that started it.',
+              409,
+            );
+          }
+        }
+        const baseUrl = baseUrlFromHeaders(socket.handshake.headers, config);
+        const { session, controlKey } = await manager.createGame({ baseUrl });
+        attachDisplay(socket, session, { control: true });
+        reply(ack, { ok: true, key: controlKey, game: session.summary(), control: true });
+      });
+    });
+
+    socket.on(EVENTS.DISPLAY_ADVANCE, (payload, ack) => {
+      run(socket, ack, async () => {
+        controlOnly(socket);
+        if (!guard(socket, 'control', 20)) return;
+        await sessionFromSocket(socket).advance();
         reply(ack, { ok: true });
       });
     });
 
-    socket.on(EVENTS.HOST_RENAME_TEAM, (payload, ack) => {
+    socket.on(EVENTS.DISPLAY_LOBBY, (payload, ack) => {
       run(socket, ack, async () => {
-        hostOnly(socket);
-        if (!guard(socket, 'host')) return;
-        const data = hostRenameTeamSchema.parse(payload);
-        const session = manager.require(data.sessionId);
-        await session.renameTeam(data.teamId, data.name);
+        controlOnly(socket);
+        if (!guard(socket, 'control', 20)) return;
+        await sessionFromSocket(socket).returnToLobby();
         reply(ack, { ok: true });
       });
     });
 
-    socket.on(EVENTS.HOST_MOVE_PLAYER, (payload, ack) => {
+    socket.on(EVENTS.DISPLAY_SETTINGS, (payload, ack) => {
       run(socket, ack, async () => {
-        hostOnly(socket);
-        if (!guard(socket, 'host')) return;
-        const data = hostMovePlayerSchema.parse(payload);
-        const session = manager.require(data.sessionId);
-        await session.movePlayer(data.playerId, data.teamId);
+        controlOnly(socket);
+        if (!guard(socket, 'control', 30)) return;
+        const data = displaySettingsSchema.parse(payload ?? {});
+        await sessionFromSocket(socket).updateConfig(data.patch);
         reply(ack, { ok: true });
       });
     });
 
-    socket.on(EVENTS.HOST_REMOVE_PLAYER, (payload, ack) => {
+    socket.on(EVENTS.DISPLAY_REMOVE, (payload, ack) => {
       run(socket, ack, async () => {
-        hostOnly(socket);
-        if (!guard(socket, 'host')) return;
-        const data = hostRemovePlayerSchema.parse(payload);
-        const session = manager.require(data.sessionId);
-        await session.removePlayer(data.playerId);
+        controlOnly(socket);
+        if (!guard(socket, 'control', 30)) return;
+        const data = displayRemoveSchema.parse(payload ?? {});
+        await sessionFromSocket(socket).removePlayer(data.playerId);
         reply(ack, { ok: true });
       });
     });
 
-    socket.on(EVENTS.HOST_LOCK_LOBBY, (payload, ack) => {
-      run(socket, ack, async () => {
-        hostOnly(socket);
-        if (!guard(socket, 'host')) return;
-        const data = hostLockSchema.parse(payload);
-        const session = manager.require(data.sessionId);
-        await session.lockLobby(data.locked);
-        reply(ack, { ok: true });
-      });
-    });
-
-    socket.on(EVENTS.HOST_START, (payload, ack) => {
-      run(socket, ack, async () => {
-        hostOnly(socket);
-        if (!guard(socket, 'host')) return;
-        const data = hostStartSchema.parse(payload);
-        const session = manager.require(data.sessionId);
-        await session.start({ force: true });
-        reply(ack, { ok: true });
-      });
-    });
-
-    socket.on(EVENTS.HOST_ADVANCE, (payload, ack) => {
-      run(socket, ack, async () => {
-        hostOnly(socket);
-        if (!guard(socket, 'host')) return;
-        const data = hostAdvanceSchema.parse(payload);
-        const session = manager.require(data.sessionId);
-        await session.advance();
-        reply(ack, { ok: true });
-      });
-    });
-
-    socket.on(EVENTS.HOST_END_ROUND, (payload, ack) => {
-      run(socket, ack, async () => {
-        hostOnly(socket);
-        if (!guard(socket, 'host')) return;
-        const data = hostEndRoundSchema.parse(payload);
-        const session = manager.require(data.sessionId);
-        await session.endRound();
-        reply(ack, { ok: true });
-      });
-    });
-
-    socket.on(EVENTS.HOST_RETURN_TO_LOBBY, (payload, ack) => {
-      run(socket, ack, async () => {
-        hostOnly(socket);
-        if (!guard(socket, 'host')) return;
-        const data = hostStartSchema.parse(payload);
-        const session = manager.require(data.sessionId);
-        await session.returnToLobby();
-        reply(ack, { ok: true });
-      });
-    });
+    // ---------------------------------------------------------------- players
 
     socket.on(EVENTS.PLAYER_JOIN, (payload, ack) => {
       run(socket, ack, async () => {
@@ -424,11 +372,7 @@ export function attachSocketServer(io, { manager, config, auth, logger }) {
         const data = playerJoinSchema.parse(payload);
         const session = manager.requireByCode(data.code);
         wireSession(session);
-        const { player, token } = session.join({
-          name: data.name,
-          teamId: data.teamId,
-          asSpectator: data.asSpectator,
-        });
+        const { player, token } = session.join({ name: data.name, teamId: data.teamId });
         await session.commit();
         await attachPlayer(socket, session, player, { token, resumed: false });
         reply(ack, {
@@ -461,7 +405,6 @@ export function attachSocketServer(io, { manager, config, auth, logger }) {
           playerId: player.id,
           sessionId: session.id,
           name: player.displayName,
-          role: player.role,
           resumed: true,
           session: session.summary(),
         });
@@ -473,9 +416,7 @@ export function attachSocketServer(io, { manager, config, auth, logger }) {
         if (!guard(socket, 'team')) return;
         const data = chooseTeamSchema.parse(payload);
         const session = sessionFromSocket(socket);
-        if (socket.data.role !== 'player') {
-          throw new AppError('UNAUTHORIZED', 'Players only.');
-        }
+        if (socket.data.role !== 'player') throw new AppError('UNAUTHORIZED', 'Players only.');
         await session.chooseTeam(socket.data.playerId, data.teamId);
         reply(ack, { ok: true });
       });
@@ -485,11 +426,10 @@ export function attachSocketServer(io, { manager, config, auth, logger }) {
       run(socket, ack, async () => {
         if (!guard(socket, 'answer', 40, 10_000)) return;
         if (socket.data.role !== 'player' || !socket.data.playerId) {
-          throw new AppError('UNAUTHORIZED', 'Enlist as a player to answer.', 401);
+          throw new AppError('UNAUTHORIZED', 'Join the game to answer.', 401);
         }
         const data = playerAnswerSchema.parse(payload);
-        const session = sessionFromSocket(socket);
-        const result = await session.answer(
+        const result = await sessionFromSocket(socket).answer(
           socket.data.playerId,
           data.questionNumber,
           data.optionIndex,
@@ -502,46 +442,11 @@ export function attachSocketServer(io, { manager, config, auth, logger }) {
       run(socket, ack, async () => {
         if (!guard(socket, 'attack', 60, 10_000)) return;
         if (socket.data.role !== 'player' || !socket.data.playerId) {
-          throw new AppError('UNAUTHORIZED', 'Enlist as a player to fire.', 401);
+          throw new AppError('UNAUTHORIZED', 'Join the game to fire.', 401);
         }
         const data = playerAttackSchema.parse(payload);
-        const session = sessionFromSocket(socket);
-        const result = await session.attack(socket.data.playerId, data.x, data.y);
+        const result = await sessionFromSocket(socket).attack(socket.data.playerId, data.x, data.y);
         reply(ack, { ok: true, ...result });
-      });
-    });
-
-    socket.on(EVENTS.DISPLAY_SUBSCRIBE, (payload, ack) => {
-      run(socket, ack, async () => {
-        if (!guard(socket, 'display')) return;
-        const data = displaySubscribeSchema.parse(payload);
-        const session = manager.requireByCode(data.code);
-        wireSession(session);
-        detachPlayer(socket, { superseded: true });
-        if (socket.data.sessionId && socket.data.sessionId !== session.id) {
-          socket.leave(roomFor(socket.data.sessionId));
-        }
-        socket.data.role = 'display';
-        socket.data.sessionId = session.id;
-        socket.join(roomFor(session.id));
-        sendState(socket, session);
-        reply(ack, { ok: true, session: session.summary() });
-      });
-    });
-
-    socket.on(EVENTS.DISPLAY_START, (payload, ack) => {
-      run(socket, ack, async () => {
-        if (!guard(socket, 'display-start', 6, 10_000)) return;
-        if (socket.data.role !== 'display') {
-          throw new AppError('UNAUTHORIZED', 'Connect this display to the operation first.', 401);
-        }
-        const data = displayStartSchema.parse(payload);
-        const session = manager.requireByCode(data.code);
-        if (socket.data.sessionId !== session.id) {
-          throw new AppError('UNAUTHORIZED', 'Connect this display to the operation first.', 401);
-        }
-        await session.start({ force: true });
-        reply(ack, { ok: true });
       });
     });
 
@@ -550,14 +455,5 @@ export function attachSocketServer(io, { manager, config, auth, logger }) {
     });
   });
 
-  manager.on('closed', ({ sessionId }) => {
-    const timer = broadcastTimers.get(sessionId);
-    if (timer) clearTimeout(timer);
-    broadcastTimers.delete(sessionId);
-  });
-
-  return {
-    broadcast,
-    roomFor,
-  };
+  return { broadcast, roomFor };
 }

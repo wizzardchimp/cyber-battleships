@@ -8,10 +8,8 @@ import pinoHttp from 'pino-http';
 import QRCode from 'qrcode';
 import { ZodError } from 'zod';
 
-import { DEFAULT_CONFIG } from '../shared/constants.js';
-import { sessionConfigSchema } from '../shared/schemas.js';
 import { AppError } from './errors.js';
-import { requireHost } from './auth.js';
+import { parseQuestionsCsv, serializeQuestions } from './questions/csv.js';
 import { baseUrlFor, displayUrlFor, normaliseJoinCode, shortJoinUrlFor } from './util/security.js';
 
 function asyncHandler(fn) {
@@ -26,7 +24,7 @@ function isApi(req) {
   return req.path.startsWith('/api/');
 }
 
-export function createApp({ config, manager, db, auth, logger }) {
+export function createApp({ config, manager, db, logger }) {
   const app = express();
   app.set('trust proxy', 1);
   app.disable('x-powered-by');
@@ -51,7 +49,7 @@ export function createApp({ config, manager, db, auth, logger }) {
     }),
   );
   app.use(compression());
-  app.use(express.json({ limit: '96kb' }));
+  app.use(express.json({ limit: '1mb' }));
   app.use(
     pinoHttp({
       logger,
@@ -79,67 +77,86 @@ export function createApp({ config, manager, db, auth, logger }) {
     }),
   );
 
-  // ---------------------------------------------------------------- auth
+  // ------------------------------------------------------ question sets
 
-  app.post(
-    '/api/host/login',
+  /** Only the game screen that started the game holds the control key. */
+  function requireControl(req) {
+    const session = manager.current();
+    const key = String(req.get('x-control-key') || '');
+    if (!session || !key || !manager.keyMatches(session, key)) {
+      throw new AppError('UNAUTHORIZED', 'Only the game screen can manage questions.', 401);
+    }
+    return session;
+  }
+
+  function requireSet(req) {
+    const id = String(req.params.set || '');
+    if (!manager.questions.has(id)) {
+      throw new AppError('SET_NOT_FOUND', 'That question set does not exist.', 404);
+    }
+    return id;
+  }
+
+  app.get('/api/questions', (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ ok: true, sets: manager.questions.summaries() });
+  });
+
+  app.get(
+    '/api/questions/:set/export.csv',
     asyncHandler(async (req, res) => {
-      if (!auth.allowLogin(req.ip)) {
-        res.status(429).json({
-          error: { code: 'RATE_LIMIT', message: 'Too many attempts. Wait ten minutes and try again.' },
-        });
-        return;
-      }
-      const pin = String(req.body?.pin ?? '').trim();
-      if (!auth.checkPin(pin)) {
-        logger.warn({ ip: req.ip }, 'Failed facilitator login');
-        res.status(401).json({
-          error: { code: 'INVALID_PIN', message: 'That facilitator PIN is not valid.' },
-        });
-        return;
-      }
-      auth.resetLoginAttempts(req.ip);
-      const token = auth.createHostToken();
-      res.cookie(config.cookieName, token, auth.cookieOptions());
-      res.json({ ok: true });
+      requireControl(req);
+      const id = requireSet(req);
+      const csv = serializeQuestions(manager.questions.questionsFor(id));
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="cyber-battleships-${id}-questions.csv"`);
+      res.setHeader('Cache-Control', 'no-store');
+      res.send(csv);
     }),
   );
 
-  app.post('/api/host/logout', (req, res) => {
-    res.clearCookie(config.cookieName, auth.clearCookieOptions());
-    res.json({ ok: true });
-  });
-
-  app.get('/api/host/me', requireHost(auth), (req, res) => {
-    res.json({ ok: true });
-  });
-
-  app.get('/api/host/sessions', requireHost(auth), (req, res) => {
-    res.json({ ok: true, sessions: manager.listSummaries() });
-  });
-
   app.post(
-    '/api/host/sessions',
-    requireHost(auth),
+    '/api/questions/:set/import',
     asyncHandler(async (req, res) => {
-      const raw = req.body?.config && typeof req.body.config === 'object' ? req.body.config : req.body || {};
-      const parsed = sessionConfigSchema.parse({ ...DEFAULT_CONFIG, ...raw });
-      const baseUrl = baseUrlFor(req, config);
-      const session = await manager.create({ config: parsed, baseUrl });
-      res.status(201).json({ ok: true, session: session.summary() });
+      const session = requireControl(req);
+      const id = requireSet(req);
+      const result = parseQuestionsCsv(req.body?.csv, { setId: id });
+      if (!result.ok) {
+        res.status(422).json({
+          error: { code: 'INVALID_CSV', message: 'The file has problems. Nothing was changed.' },
+          errors: result.errors,
+          warnings: result.warnings,
+        });
+        return;
+      }
+      const preview = result.questions.slice(0, 3).map((question) => ({
+        category: question.category,
+        prompt: question.prompt,
+      }));
+      if (req.body?.dryRun) {
+        res.json({ ok: true, dryRun: true, count: result.total, warnings: result.warnings, preview });
+        return;
+      }
+      if (session.phase !== 'lobby') {
+        throw new AppError('NOT_IN_LOBBY', 'Questions can only be changed in the lobby.', 409);
+      }
+      await manager.questions.replace(id, result.questions);
+      session.emit('change');
+      res.json({ ok: true, count: result.total, warnings: result.warnings, preview });
     }),
   );
 
-  app.delete(
-    '/api/host/sessions/:id',
-    requireHost(auth),
+  app.post(
+    '/api/questions/:set/reset',
     asyncHandler(async (req, res) => {
-      const removed = await manager.remove(req.params.id);
-      if (!removed) {
-        res.status(404).json({ error: { code: 'SESSION_NOT_FOUND', message: 'Session not found.' } });
-        return;
+      const session = requireControl(req);
+      const id = requireSet(req);
+      if (session.phase !== 'lobby') {
+        throw new AppError('NOT_IN_LOBBY', 'Questions can only be changed in the lobby.', 409);
       }
-      res.json({ ok: true });
+      await manager.questions.reset(id);
+      session.emit('change');
+      res.json({ ok: true, sets: manager.questions.summaries() });
     }),
   );
 
@@ -210,10 +227,10 @@ export function createApp({ config, manager, db, auth, logger }) {
 
   const pages = {
     '/': 'index.html',
-    '/host': 'host.html',
     '/display': 'display.html',
     '/play': 'play.html',
   };
+  app.get('/host', (req, res) => res.redirect(302, '/display'));
   for (const [route, file] of Object.entries(pages)) {
     app.get(route, (req, res, next) => {
       if (!hasClientBuild) {

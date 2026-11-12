@@ -1,13 +1,19 @@
 import crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
 
-import { LIMITS } from '../../shared/constants.js';
 import { GameError } from '../errors.js';
 import { SessionRepository } from '../db/sessionRepository.js';
-import { displayUrlFor, joinUrlFor, makeJoinCode } from '../util/security.js';
+import { QuestionStore } from '../questions/store.js';
+import { displayUrlFor, hashToken, joinUrlFor, makeJoinCode, safeEqual } from '../util/security.js';
 import { createSessionState, GameSession } from './session.js';
 import { publicProjection } from './projections.js';
 
+const SCHEMA_VERSION = 3;
+
+/**
+ * Owns the single live game. Creating a new game replaces the previous one,
+ * so there is never more than one set of players on the server.
+ */
 export class SessionManager extends EventEmitter {
   constructor({ db, config, logger }) {
     super();
@@ -15,6 +21,7 @@ export class SessionManager extends EventEmitter {
     this.config = config;
     this.logger = logger;
     this.repository = new SessionRepository(db, logger);
+    this.questions = new QuestionStore(db, logger);
     this.sessions = new Map();
     this.byCode = new Map();
     this.cleanupTimer = null;
@@ -23,58 +30,88 @@ export class SessionManager extends EventEmitter {
 
   async init() {
     await this.db.migrate();
+    await this.questions.init();
+
     const rows = await this.repository.listActive();
+    let restored = false;
     for (const row of rows) {
       try {
         const state = this.repository.parseState(row);
-        const session = new GameSession({ state, repository: this.repository, logger: this.logger });
+        // Only the newest game of the current schema survives a restart.
+        if (restored || state.schemaVersion !== SCHEMA_VERSION) {
+          await this.repository.delete(row.id);
+          continue;
+        }
+        const session = this.wrap(state);
         this.sessions.set(session.id, session);
         this.byCode.set(session.joinCode, session);
-        // A restart means no browser sockets survived; persist the disconnected state.
         await this.repository.save(session.state);
+        restored = true;
       } catch (error) {
-        this.logger?.error({ err: error, sessionId: row.id }, 'Failed to restore session');
+        this.logger?.error({ err: error, sessionId: row.id }, 'Failed to restore game');
       }
     }
-    if (rows.length > 0) {
-      this.logger?.info({ count: this.sessions.size }, 'Restored active sessions');
-    }
+    if (restored) this.logger?.info('Restored the active game');
+
     this.cleanupTimer = setInterval(() => {
       this.cleanupExpired().catch((error) =>
-        this.logger?.warn({ err: error }, 'Session cleanup failed'),
+        this.logger?.warn({ err: error }, 'Game cleanup failed'),
       );
     }, 10 * 60 * 1000);
     this.cleanupTimer.unref?.();
 
-    // Phase timers only need coarse resolution: clients render countdowns
-    // locally and transitions are broadcast when they happen.
     this.tickTimer = setInterval(() => {
-      this.tickSessions().catch((error) =>
-        this.logger?.warn({ err: error }, 'Round tick failed'),
-      );
-    }, 750);
+      this.tickSessions().catch((error) => this.logger?.warn({ err: error }, 'Game tick failed'));
+    }, 500);
     this.tickTimer.unref?.();
   }
 
+  wrap(state) {
+    return new GameSession({
+      state,
+      repository: this.repository,
+      logger: this.logger,
+      questions: this.questions,
+    });
+  }
+
   async tickSessions() {
-    const active = [...this.sessions.values()];
-    await Promise.allSettled(active.map((session) => session.tick()));
+    await Promise.allSettled([...this.sessions.values()].map((session) => session.tick()));
   }
 
   async cleanupExpired() {
-    const removed = [];
     for (const session of [...this.sessions.values()]) {
       if (Date.parse(session.state.expiresAt) <= Date.now()) {
-        removed.push(session.id);
         await this.remove(session.id, { expired: true });
       }
     }
     const count = await this.repository.cleanupExpired();
-    if (count > 0) this.logger?.info({ count }, 'Deleted expired sessions');
-    return removed;
+    if (count > 0) this.logger?.info({ count }, 'Deleted expired games');
   }
 
-  async create({ config, baseUrl }) {
+  /** The one live game, or null. */
+  current() {
+    let newest = null;
+    for (const session of this.sessions.values()) {
+      if (!newest || Date.parse(session.state.createdAt) > Date.parse(newest.state.createdAt)) {
+        newest = session;
+      }
+    }
+    return newest;
+  }
+
+  keyMatches(session, key) {
+    if (!session?.state.controlKeyHash || !key) return false;
+    return safeEqual(session.state.controlKeyHash, hashToken(key));
+  }
+
+  /** Replace any existing game with a fresh lobby. Returns the control key once. */
+  async createGame({ baseUrl, config = {} }) {
+    for (const existing of [...this.sessions.values()]) {
+      await this.remove(existing.id);
+    }
+
+    const controlKey = crypto.randomBytes(24).toString('base64url');
     let lastError = null;
     for (let attempt = 0; attempt < 10; attempt += 1) {
       const joinCode = makeJoinCode();
@@ -87,27 +124,21 @@ export class SessionManager extends EventEmitter {
         joinBaseUrl: joinUrlFor(baseUrl, joinCode),
         displayBaseUrl: displayUrlFor(baseUrl, joinCode),
         retentionHours: this.config.sessionRetentionHours,
+        controlKeyHash: hashToken(controlKey),
       });
-      const session = new GameSession({
-        state,
-        repository: this.repository,
-        logger: this.logger,
-      });
+      const session = this.wrap(state);
       try {
         await this.repository.save(session.state);
       } catch (error) {
         lastError = error;
-        this.logger?.warn({ err: error, joinCode }, 'Session insert collision');
+        this.logger?.warn({ err: error, joinCode }, 'Game insert collision');
         continue;
       }
       this.sessions.set(session.id, session);
       this.byCode.set(session.joinCode, session);
       this.emit('session', session);
-      this.logger?.info(
-        { sessionId: session.id, joinCode: session.joinCode, mode: session.config.mode },
-        'Session created',
-      );
-      return session;
+      this.logger?.info({ sessionId: session.id, joinCode: session.joinCode }, 'Game created');
+      return { session, controlKey };
     }
     throw new GameError('CODE_EXHAUSTED', 'Could not allocate a join code. Please try again.', lastError);
   }
@@ -122,7 +153,7 @@ export class SessionManager extends EventEmitter {
 
   require(sessionId) {
     const session = this.get(sessionId);
-    if (!session) throw new GameError('SESSION_NOT_FOUND', 'That operation no longer exists.');
+    if (!session) throw new GameError('SESSION_NOT_FOUND', 'That game no longer exists.');
     return session;
   }
 
@@ -137,17 +168,10 @@ export class SessionManager extends EventEmitter {
     return {
       session: projection.session,
       teams: projection.teams,
-      players: projection.players,
       counts: projection.counts,
       join: projection.join,
       meta: projection.meta,
     };
-  }
-
-  listSummaries() {
-    return [...this.sessions.values()]
-      .sort((a, b) => Date.parse(b.state.createdAt) - Date.parse(a.state.createdAt))
-      .map((session) => session.summary());
   }
 
   async remove(sessionId, { expired = false } = {}) {
@@ -156,8 +180,9 @@ export class SessionManager extends EventEmitter {
     this.sessions.delete(sessionId);
     if (this.byCode.get(session.joinCode) === session) this.byCode.delete(session.joinCode);
     session.emit('closed', { sessionId, expired });
+    await session.flush();
     await this.repository.delete(sessionId).catch((error) => {
-      this.logger?.warn({ err: error, sessionId }, 'Failed to delete session row');
+      this.logger?.warn({ err: error, sessionId }, 'Failed to delete game row');
     });
     session.destroy();
     this.emit('closed', { sessionId, expired });
@@ -175,5 +200,3 @@ export class SessionManager extends EventEmitter {
     this.byCode.clear();
   }
 }
-
-export { LIMITS };

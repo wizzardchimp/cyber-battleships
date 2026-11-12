@@ -4,7 +4,6 @@ import pino from 'pino';
 import { Server as SocketServer } from 'socket.io';
 
 import { createApp } from './app.js';
-import { createAuth } from './auth.js';
 import { loadConfig } from './config.js';
 import { createDatabase } from './db/index.js';
 import { attachSocketServer } from './realtime/socket.js';
@@ -24,8 +23,7 @@ async function main() {
   const manager = new SessionManager({ db, config, logger });
   await manager.init();
 
-  const auth = createAuth(config);
-  const app = createApp({ config, manager, db, auth, logger });
+  const app = createApp({ config, manager, db, logger });
   const server = http.createServer(app);
 
   const io = new SocketServer(server, {
@@ -60,7 +58,7 @@ async function main() {
     },
   });
 
-  attachSocketServer(io, { manager, config, auth, logger });
+  attachSocketServer(io, { manager, config, logger });
 
   await new Promise((resolve, reject) => {
     server.once('error', reject);
@@ -78,7 +76,7 @@ async function main() {
       port,
       database: db.kind,
       publicUrl: config.publicUrl || null,
-      activeSessions: manager.sessions.size,
+      activeGames: manager.sessions.size,
     },
     'Cyber Battleships server online',
   );
@@ -88,17 +86,10 @@ async function main() {
   console.log('  ╔══════════════════════════════════════════════════════════╗');
   console.log('  ║                 CYBER BATTLESHIPS // ONLINE              ║');
   console.log('  ╚══════════════════════════════════════════════════════════╝');
-  console.log(`  Facilitator : ${base}/host`);
-  console.log(`  Projector   : ${base}/display`);
-  console.log(`  Join        : ${base}/play`);
+  console.log(`  Game screen : ${base}/display   (open this on the room screen)`);
+  console.log(`  Players     : scan the QR code, or open ${base}/play`);
   if (lanBase && !config.publicUrl) console.log(`  LAN         : ${lanBase}`);
   console.log(`  Database    : ${db.kind}${db.kind === 'pglite' ? ` (${config.pgliteDir})` : ''}`);
-  if (config.adminPinGenerated) {
-    console.log(`  ADMIN PIN   : ${config.adminPin}   (generated for this run)`);
-  }
-  if (config.cookieSecretGenerated && config.production) {
-    console.log('  WARNING     : COOKIE_SECRET is not set; facilitator logins reset on restart.');
-  }
   if (config.production && db.kind === 'pglite') {
     console.log('  WARNING     : Set DATABASE_URL to Railway PostgreSQL for production.');
   }

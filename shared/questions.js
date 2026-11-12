@@ -439,55 +439,467 @@ export const QUESTION_BANK = Object.freeze([
     answerIndex: 0,
     explanation: 'Rainbow tables trade storage for speed. Salting hashes defeats them.',
   },
+  // ---------------------------------------------------------------- extras
+  {
+    id: 'lock-screen',
+    category: 'Devices',
+    difficulty: 'easy',
+    prompt: 'Why should you lock your phone or computer when you walk away?',
+    options: [
+      'It saves battery',
+      'It stops other people using your accounts and data',
+      'It makes the device faster',
+      'It deletes temporary files',
+    ],
+    answerIndex: 1,
+    explanation: 'An unlocked device gives anyone nearby access to everything you are signed in to.',
+  },
+  {
+    id: 'safe-pin',
+    category: 'Devices',
+    difficulty: 'easy',
+    prompt: 'Which PIN is the safest choice for your phone?',
+    options: ['1234', 'Your birth year', 'A random six-digit number', '0000'],
+    answerIndex: 2,
+    explanation: 'Common and personal numbers are the first things an attacker tries.',
+  },
+  {
+    id: 'share-password',
+    category: 'Passwords',
+    difficulty: 'easy',
+    prompt: 'A friend asks to borrow your password "just for a minute". What should you do?',
+    options: [
+      'Share it if they are trusted',
+      'Say no and keep it private',
+      'Send it in a text message',
+      'Write it down and pass it over',
+    ],
+    answerIndex: 1,
+    explanation: 'Passwords are personal. Anything done with your login is traced back to you.',
+  },
+  {
+    id: 'antivirus',
+    category: 'Malware',
+    difficulty: 'easy',
+    prompt: 'What is the main job of antivirus software?',
+    options: [
+      'Make the internet faster',
+      'Detect and block malicious software',
+      'Back up your photos',
+      'Hide your location',
+    ],
+    answerIndex: 1,
+    explanation: 'Antivirus scans for known and suspicious malware and stops it running.',
+  },
+  {
+    id: 'app-permissions',
+    category: 'Privacy',
+    difficulty: 'easy',
+    prompt: 'A torch app asks for your contacts and microphone. What is the best response?',
+    options: [
+      'Allow everything',
+      'Deny permissions the app does not need',
+      'Allow them but only at weekends',
+      'Tell all your friends about the app',
+    ],
+    answerIndex: 1,
+    explanation: 'Apps should only get the permissions they genuinely need to work.',
+  },
+  {
+    id: 'oversharing',
+    category: 'Privacy',
+    difficulty: 'easy',
+    prompt: 'Which of these is the riskiest thing to post publicly?',
+    options: [
+      'A photo of your lunch',
+      'Your home address and holiday dates',
+      'Your favourite song',
+      'A joke',
+    ],
+    answerIndex: 1,
+    explanation: 'Revealing where you live and when you are away invites burglars and scammers.',
+  },
+  {
+    id: 'official-stores',
+    category: 'Devices',
+    difficulty: 'easy',
+    prompt: 'Where is the safest place to download apps?',
+    options: [
+      'Links sent in emails',
+      'The official app store',
+      'Any website offering free versions',
+      'Attachments in chat groups',
+    ],
+    answerIndex: 1,
+    explanation: 'Official stores check apps for malware. Random downloads are a common infection route.',
+  },
+  {
+    id: 'smishing',
+    category: 'Phishing',
+    difficulty: 'easy',
+    prompt: 'A text says your parcel is held and asks you to pay a fee through a link. This is most likely...',
+    options: [
+      'A normal delivery update',
+      'Smishing, a scam sent by text',
+      'A bank statement',
+      'A software update',
+    ],
+    answerIndex: 1,
+    explanation: 'Unexpected texts with payment links are a classic scam. Go to the real website instead.',
+  },
+  {
+    id: 'shared-computer',
+    category: 'Accounts',
+    difficulty: 'easy',
+    prompt: 'You checked your email on a shared computer. What should you do afterwards?',
+    options: [
+      'Close the tab only',
+      'Log out and close the browser',
+      'Leave it open for next time',
+      'Let the browser save your password',
+    ],
+    answerIndex: 1,
+    explanation: 'Logging out stops the next person getting into your account.',
+  },
+  {
+    id: 'hurtful-message',
+    category: 'Online Safety',
+    difficulty: 'easy',
+    prompt: 'You see a hurtful message about a classmate in a group chat. What is a good response?',
+    options: [
+      'Join in so you fit in',
+      'Do not join in, keep the evidence and report it',
+      'Delete your account',
+      'Forward it to more people',
+    ],
+    answerIndex: 1,
+    explanation: 'Do not amplify it. Save the evidence and tell a trusted adult or use the report tools.',
+  },
+  {
+    id: 'firewall',
+    category: 'Networks',
+    difficulty: 'medium',
+    prompt: 'What does a firewall do?',
+    options: [
+      'Cools the server room',
+      'Filters network traffic using rules',
+      'Encrypts every file',
+      'Removes malware automatically',
+    ],
+    answerIndex: 1,
+    explanation: 'Firewalls allow or block traffic according to security rules.',
+  },
+  {
+    id: 'vpn',
+    category: 'Networks',
+    difficulty: 'medium',
+    prompt: 'What does a VPN mainly provide?',
+    options: [
+      'An encrypted tunnel for your traffic',
+      'A guarantee you cannot be hacked',
+      'Free unlimited data',
+      'Faster downloads',
+    ],
+    answerIndex: 0,
+    explanation: 'A VPN protects traffic between you and the VPN server. It is not a cure-all.',
+  },
+  {
+    id: 'encryption',
+    category: 'Cryptography',
+    difficulty: 'medium',
+    prompt: 'What does encryption do to data?',
+    options: [
+      'Deletes it',
+      'Scrambles it so only authorised parties can read it',
+      'Makes it smaller',
+      'Copies it to the cloud',
+    ],
+    answerIndex: 1,
+    explanation: 'Encryption protects confidentiality: without the key the data is unreadable.',
+  },
+  {
+    id: 'insider-threat',
+    category: 'Access Control',
+    difficulty: 'medium',
+    prompt: 'What is an insider threat?',
+    options: [
+      'A hacker from another country',
+      'A risk from someone with legitimate access who misuses it',
+      'A firewall misconfiguration',
+      'A faulty laptop',
+    ],
+    answerIndex: 1,
+    explanation: 'Employees, contractors and partners can cause harm deliberately or by accident.',
+  },
+  {
+    id: 'clean-desk',
+    category: 'Physical Security',
+    difficulty: 'medium',
+    prompt: 'Why do many organisations have a clean-desk policy?',
+    options: [
+      'To look tidy for visitors',
+      'To stop sensitive papers and devices being seen or taken',
+      'To save electricity',
+      'To reduce printing costs',
+    ],
+    answerIndex: 1,
+    explanation: 'Information left out can be photographed, read or stolen by anyone passing.',
+  },
+  {
+    id: 'vishing',
+    category: 'Social Engineering',
+    difficulty: 'hard',
+    prompt: 'What is vishing?',
+    options: [
+      'Phishing carried out by voice call',
+      'A virus spread through video files',
+      'Visual snooping on a screen',
+      'A VPN protocol',
+    ],
+    answerIndex: 0,
+    explanation: 'Vishing uses phone calls and urgency to pressure people into revealing information.',
+  },
+  {
+    id: 'spear-phishing',
+    category: 'Phishing',
+    difficulty: 'hard',
+    prompt: 'How does spear phishing differ from ordinary phishing?',
+    options: [
+      'It targets a specific person using personal details',
+      'It only uses text messages',
+      'It never contains links',
+      'It is always fully automated',
+    ],
+    answerIndex: 0,
+    explanation: 'Attackers research the victim so the message looks believable and personal.',
+  },
+  {
+    id: 'whaling',
+    category: 'Phishing',
+    difficulty: 'hard',
+    prompt: 'What is whaling?',
+    options: [
+      'Phishing aimed at senior executives',
+      'A DDoS attack on shipping firms',
+      'Scanning for open ports',
+      'Sending oversized files',
+    ],
+    answerIndex: 0,
+    explanation: 'Whaling targets high-value individuals such as directors who can approve payments.',
+  },
+  {
+    id: 'ddos',
+    category: 'Networks',
+    difficulty: 'hard',
+    prompt: 'What is the goal of a DDoS attack?',
+    options: [
+      'Silently steal passwords',
+      'Overwhelm a service so real users cannot reach it',
+      "Encrypt a victim's files",
+      'Install a keylogger',
+    ],
+    answerIndex: 1,
+    explanation: 'Distributed denial of service floods a target with traffic until it fails.',
+  },
+  {
+    id: 'keylogger',
+    category: 'Malware',
+    difficulty: 'hard',
+    prompt: 'What does a keylogger do?',
+    options: [
+      'Records what you type',
+      'Blocks pop-ups',
+      'Speeds up typing',
+      'Encrypts your keyboard',
+    ],
+    answerIndex: 0,
+    explanation: 'Keyloggers capture keystrokes, including passwords and messages.',
+  },
+  {
+    id: 'mfa-fatigue',
+    category: 'Accounts',
+    difficulty: 'hard',
+    prompt: 'What is an MFA fatigue (push bombing) attack?',
+    options: [
+      'Flooding a user with approval prompts until they accept one',
+      'Cracking a hardware security key',
+      'Guessing an SMS code in one try',
+      'Breaking encryption on the server',
+    ],
+    answerIndex: 0,
+    explanation: 'Never approve a prompt you did not trigger. Report unexpected requests.',
+  },
+  {
+    id: 'privilege-escalation',
+    category: 'Access Control',
+    difficulty: 'hard',
+    prompt: 'What is privilege escalation?',
+    options: [
+      'Gaining higher access than originally granted',
+      'Raising the cost of software licences',
+      'Promoting an administrator',
+      'Increasing password length',
+    ],
+    answerIndex: 0,
+    explanation: 'Attackers move from a low-level account to admin-level control.',
+  },
+  {
+    id: 'breach-notification',
+    category: 'Governance',
+    difficulty: 'hard',
+    prompt: 'Under UK GDPR, a notifiable personal data breach should normally be reported to the regulator within...',
+    options: ['72 hours of becoming aware', '7 days', '30 days', '1 year'],
+    answerIndex: 0,
+    explanation: 'The ICO expects notification within 72 hours where there is a risk to individuals.',
+  },
+  {
+    id: 'backup-321',
+    category: 'Data',
+    difficulty: 'hard',
+    prompt: 'What does the 3-2-1 backup rule recommend?',
+    options: [
+      '3 copies, 2 media types, 1 copy off-site',
+      '3 passwords, 2 devices, 1 account',
+      '3 servers, 2 firewalls, 1 router',
+      '3 daily, 2 weekly and 1 monthly backup',
+    ],
+    answerIndex: 0,
+    explanation: 'Multiple copies on different media with one stored elsewhere survive most disasters.',
+  },
+  {
+    id: 'pen-test',
+    category: 'Testing',
+    difficulty: 'hard',
+    prompt: 'What is a penetration test?',
+    options: [
+      'An authorised simulated attack that finds weaknesses',
+      'A fire drill for the server room',
+      'A test of printer ink',
+      'An unauthorised break-in',
+    ],
+    answerIndex: 0,
+    explanation: 'Pen testers attack systems with permission so defenders can fix problems first.',
+  },
+  {
+    id: 'cve',
+    category: 'Vulnerabilities',
+    difficulty: 'expert',
+    prompt: 'What is a CVE identifier?',
+    options: [
+      'A standard ID for a publicly known vulnerability',
+      'A type of encryption key',
+      'A malware family name',
+      'A firewall rule format',
+    ],
+    answerIndex: 0,
+    explanation: 'CVE numbers let everyone refer to the same vulnerability consistently.',
+  },
+  {
+    id: 'zero-trust',
+    category: 'Architecture',
+    difficulty: 'expert',
+    prompt: 'What is the core idea of zero trust?',
+    options: [
+      'Never trust, always verify every request',
+      'Trust everything inside the network',
+      'Trust only administrators',
+      'Disable authentication internally',
+    ],
+    answerIndex: 0,
+    explanation: 'Access is decided per request using identity and context, not network location.',
+  },
+  {
+    id: 'ssrf',
+    category: 'Application Security',
+    difficulty: 'expert',
+    prompt: 'What does server-side request forgery (SSRF) abuse?',
+    options: [
+      "A server making requests on an attacker's behalf to internal resources",
+      'A browser extension',
+      'A weak Wi-Fi password',
+      'An expired certificate',
+    ],
+    answerIndex: 0,
+    explanation: 'The attacker tricks the server into reaching systems the attacker cannot.',
+  },
+  {
+    id: 'kerberoasting',
+    category: 'Access Control',
+    difficulty: 'expert',
+    prompt: 'Kerberoasting targets which part of Active Directory?',
+    options: [
+      'Service account tickets that can be cracked offline',
+      'The DHCP server',
+      'USB device policies',
+      'Wi-Fi beacons',
+    ],
+    answerIndex: 0,
+    explanation: 'Weak service account passwords can be recovered from captured tickets.',
+  },
+  {
+    id: 'lateral-movement',
+    category: 'Monitoring',
+    difficulty: 'expert',
+    prompt: 'What is lateral movement in an attack?',
+    options: [
+      'Moving between systems after gaining a first foothold',
+      'Rotating server racks',
+      'Forwarding phishing between inboxes only',
+      'Moving data to the cloud for backup',
+    ],
+    answerIndex: 0,
+    explanation: 'Attackers pivot across the network to reach valuable systems. Segmentation slows them.',
+  },
+  {
+    id: 'incident-response',
+    category: 'Monitoring',
+    difficulty: 'expert',
+    prompt: 'In incident response, what is the purpose of the containment step?',
+    options: [
+      'Limit the spread and impact of an incident',
+      'Announce the incident publicly',
+      'Delete all logs',
+      'Replace every password immediately',
+    ],
+    answerIndex: 0,
+    explanation: 'Containment stops damage growing while evidence is preserved for investigation.',
+  },
+  {
+    id: 'dkim',
+    category: 'Email',
+    difficulty: 'expert',
+    prompt: 'What does DKIM help prove about an email?',
+    options: [
+      'It was signed by the sending domain and not altered in transit',
+      'It contains no malware',
+      'It was sent from a mobile phone',
+      'It was encrypted end to end',
+    ],
+    answerIndex: 0,
+    explanation: 'DKIM adds a cryptographic signature that receivers can verify against DNS.',
+  },
 ]);
 
-const difficultyOrder = ['easy', 'medium', 'hard', 'expert'];
-
 /**
- * The age band caps how advanced the question pool may get. Facilitators can
- * still choose an easier difficulty inside the band, but never a harder one.
+ * Built-in sets. Easy covers the easy and medium questions; Complex covers
+ * hard and expert. The database copy can be edited through CSV import.
  */
-export const AGE_DIFFICULTY_LIMITS = Object.freeze({
-  '10-15': ['easy', 'medium'],
-  '15-20': ['easy', 'medium', 'hard'],
-  adult: ['easy', 'medium', 'hard', 'expert'],
-});
+export const DEFAULT_SET_DEFS = Object.freeze([
+  { id: 'easy', name: 'Easy', difficulties: ['easy', 'medium'] },
+  { id: 'complex', name: 'Complex', difficulties: ['hard', 'expert'] },
+]);
 
-/** Pick an unused question for the requested difficulty, then widen the pool. */
-export function pickQuestion({ difficulty = 'medium', ageGroup = '15-20', used = [] } = {}) {
-  const allowed = AGE_DIFFICULTY_LIMITS[ageGroup] || difficultyOrder;
-  const pool = QUESTION_BANK.filter((question) => allowed.includes(question.difficulty));
-  const target = allowed.includes(difficulty) ? difficulty : allowed[allowed.length - 1];
-  const usedSet = new Set(used);
-  const exact = pool.filter((question) => question.difficulty === target);
-  const exactUnused = exact.filter((question) => !usedSet.has(question.id));
-  if (exactUnused.length) {
-    return randomEntry(exactUnused);
-  }
-
-  const allUnused = pool.filter((question) => !usedSet.has(question.id));
-  if (allUnused.length) {
-    // Prefer a neighbouring difficulty before jumping across the whole band.
-    const rank = difficultyOrder.indexOf(target);
-    allUnused.sort((a, b) => {
-      const distanceA = Math.abs(difficultyOrder.indexOf(a.difficulty) - rank);
-      const distanceB = Math.abs(difficultyOrder.indexOf(b.difficulty) - rank);
-      return distanceA - distanceB;
-    });
-    const bestDistance = Math.abs(difficultyOrder.indexOf(allUnused[0].difficulty) - rank);
-    const nearest = allUnused.filter(
-      (question) => Math.abs(difficultyOrder.indexOf(question.difficulty) - rank) === bestDistance,
-    );
-    return randomEntry(nearest);
-  }
-
-  return randomEntry(exact.length ? exact : pool);
-}
-
-function randomEntry(list) {
-  return list[Math.floor(Math.random() * list.length)];
-}
-
-export function questionById(id) {
-  return QUESTION_BANK.find((question) => question.id === id) || null;
+export function defaultQuestionsFor(setId) {
+  const def = DEFAULT_SET_DEFS.find((entry) => entry.id === setId);
+  if (!def) return [];
+  return QUESTION_BANK.filter((question) => def.difficulties.includes(question.difficulty)).map(
+    (question, index) => ({
+      id: `${setId}-${index + 1}`,
+      category: question.category,
+      prompt: question.prompt,
+      options: [...question.options],
+      answerIndex: question.answerIndex,
+      explanation: question.explanation,
+    }),
+  );
 }

@@ -40,16 +40,6 @@ export function loadConfig(overrides = {}) {
   const port = Number.parseInt(String(overrides.port ?? process.env.PORT ?? '3000'), 10);
   const dataDir = path.resolve(overrides.dataDir || process.env.DATA_DIR || path.join(ROOT, 'data'));
 
-  const generatedPin = String(Math.floor(100000 + Math.random() * 900000));
-  const adminPin = String(overrides.adminPin ?? process.env.ADMIN_PIN ?? generatedPin);
-  const adminPinGenerated = !(overrides.adminPin ?? process.env.ADMIN_PIN);
-
-  const cookieSecret =
-    overrides.cookieSecret ||
-    process.env.COOKIE_SECRET ||
-    crypto.randomBytes(32).toString('hex');
-  const cookieSecretGenerated = !(overrides.cookieSecret || process.env.COOKIE_SECRET);
-
   const railwayDomain = process.env.RAILWAY_PUBLIC_DOMAIN;
   const publicUrl = String(
     overrides.publicUrl ?? process.env.PUBLIC_URL ?? (railwayDomain ? `https://${railwayDomain}` : ''),
@@ -75,12 +65,6 @@ export function loadConfig(overrides = {}) {
     dataDir,
     clientDist: path.resolve(overrides.clientDist || path.join(ROOT, 'dist', 'client')),
     publicUrl,
-    adminPin,
-    adminPinGenerated,
-    cookieSecret,
-    cookieSecretGenerated,
-    cookieName: 'cb_host',
-    cookieSecure: production && (publicUrl.startsWith('https://') || truthy(process.env.COOKIE_SECURE)),
     sessionRetentionHours: Number(
       overrides.sessionRetentionHours ?? process.env.SESSION_RETENTION_HOURS ?? 24,
     ),
@@ -92,15 +76,8 @@ export function loadConfig(overrides = {}) {
       .map((entry) => entry.trim())
       .filter(Boolean),
     logLevel: overrides.logLevel || process.env.LOG_LEVEL || (production ? 'info' : 'debug'),
-    bcryptRounds: 12,
   };
 
-  if (config.adminPin.length < 4) {
-    throw new Error('ADMIN_PIN must contain at least 4 characters.');
-  }
-  if (config.cookieSecret.length < 24) {
-    throw new Error('COOKIE_SECRET must contain at least 24 characters.');
-  }
   if (!Number.isFinite(config.port) || config.port < 0) {
     throw new Error('PORT must be a valid port number.');
   }

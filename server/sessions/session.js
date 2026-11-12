@@ -4,73 +4,81 @@ import { EventEmitter } from 'node:events';
 import {
   DEFAULT_CONFIG,
   LIMITS,
-  MIN_ATTACK_SECONDS,
-  MODES,
+  MODE_PRESETS,
   PHASES,
   ROLES,
-  ROUND_REVEAL_SECONDS,
-  TEAM_COLORS,
-  missileRewardFor,
+  SCORING,
+  TIMING,
 } from '../../shared/constants.js';
-import { pickQuestion } from '../../shared/questions.js';
-import { sessionConfigSchema } from '../../shared/schemas.js';
 import { cleanText, nameKey } from '../../shared/util.js';
 import { GameError, assert } from '../errors.js';
 import { hashToken, makePlayerToken, shortJoinUrlFor } from '../util/security.js';
 import {
   CPU_ID,
   CPU_NAME,
-  attackId,
   buildCombatants,
+  buildTeams,
   cellKey,
   ensureScore,
-  ensureLateCombatant,
   makeFleet,
-  makeQuestionState,
   makeRound,
-  ownerForPlayer,
-  ownerName,
+  shuffle,
 } from './round.js';
 
+const SCHEMA_VERSION = 3;
+
 function emptyStats() {
-  return {
-    questionsAnswered: 0,
-    correctAnswers: 0,
-    incorrectAnswers: 0,
-    totalResponseMs: 0,
-    missilesEarned: 0,
-    specialWeaponsEarned: 0,
-    attacks: 0,
-    hits: 0,
-    misses: 0,
-  };
+  return { answered: 0, correct: 0, attacks: 0, hits: 0 };
 }
 
-function createTeam({ id, name, color, sortOrder, maxPlayers, now }) {
+export function createSessionState({
+  id,
+  joinCode,
+  config,
+  joinBaseUrl,
+  displayBaseUrl,
+  retentionHours = LIMITS.sessionRetentionHours,
+  controlKeyHash = null,
+}) {
+  const now = new Date().toISOString();
+  const merged = { ...DEFAULT_CONFIG, ...config };
   return {
+    schemaVersion: SCHEMA_VERSION,
     id,
-    name,
-    color,
-    sortOrder,
-    maxPlayers,
-    captainPlayerId: null,
-    targetTeamId: null,
-    missiles: 0,
-    weapons: {},
-    eliminated: false,
-    stats: {},
+    joinCode,
+    name: 'CYBER BATTLESHIPS',
+    phase: PHASES.LOBBY,
+    config: merged,
+    teams: buildTeams(merged.mode, now),
+    players: [],
+    round: null,
+    fleets: {},
+    arsenal: {},
+    scores: {},
+    recentEvents: [],
+    eventSeq: 0,
+    version: 0,
     createdAt: now,
+    updatedAt: now,
+    startedAt: null,
+    endedAt: null,
+    expiresAt: new Date(Date.now() + retentionHours * 3600_000).toISOString(),
+    joinBaseUrl,
+    displayBaseUrl,
+    controlKeyHash,
   };
 }
 
 export class GameSession extends EventEmitter {
-  constructor({ state, repository, logger }) {
+  constructor({ state, repository, logger, questions }) {
     super();
     this.state = state;
     this.repository = repository;
     this.logger = logger;
+    this.questions = questions;
     this.closed = false;
     this.ticking = false;
+    this.savePending = false;
     this.saveQueue = Promise.resolve();
     this.lastSaveError = null;
     this.ensureShape();
@@ -82,20 +90,19 @@ export class GameSession extends EventEmitter {
   }
 
   ensureShape() {
-    this.state.teams = Array.isArray(this.state.teams) ? this.state.teams : [];
-    this.state.players = Array.isArray(this.state.players) ? this.state.players : [];
-    this.state.recentEvents = Array.isArray(this.state.recentEvents) ? this.state.recentEvents : [];
-    this.state.version = Number(this.state.version) || 0;
-    this.state.eventSeq = Number(this.state.eventSeq) || 0;
-    this.state.expiresAt = this.state.expiresAt || new Date(Date.now() + LIMITS.sessionRetentionHours * 3600_000).toISOString();
-
-    // Stage 2 round state. Older snapshots simply gain an empty shape.
-    this.state.schemaVersion = Math.max(2, Number(this.state.schemaVersion) || 0);
-    this.state.round = this.state.round || null;
-    this.state.fleets = this.state.fleets && typeof this.state.fleets === 'object' ? this.state.fleets : {};
-    this.state.arsenal = this.state.arsenal && typeof this.state.arsenal === 'object' ? this.state.arsenal : {};
-    this.state.scores = this.state.scores && typeof this.state.scores === 'object' ? this.state.scores : {};
-    this.state.usedQuestions = Array.isArray(this.state.usedQuestions) ? this.state.usedQuestions : [];
+    const state = this.state;
+    state.teams = Array.isArray(state.teams) ? state.teams : [];
+    state.players = Array.isArray(state.players) ? state.players : [];
+    state.recentEvents = Array.isArray(state.recentEvents) ? state.recentEvents : [];
+    state.version = Number(state.version) || 0;
+    state.eventSeq = Number(state.eventSeq) || 0;
+    state.schemaVersion = SCHEMA_VERSION;
+    state.round = state.round || null;
+    state.fleets = state.fleets && typeof state.fleets === 'object' ? state.fleets : {};
+    state.arsenal = state.arsenal && typeof state.arsenal === 'object' ? state.arsenal : {};
+    state.scores = state.scores && typeof state.scores === 'object' ? state.scores : {};
+    state.expiresAt =
+      state.expiresAt || new Date(Date.now() + LIMITS.sessionRetentionHours * 3600_000).toISOString();
   }
 
   get id() {
@@ -114,6 +121,10 @@ export class GameSession extends EventEmitter {
     return this.state.config;
   }
 
+  get preset() {
+    return MODE_PRESETS[this.state.config.mode] || MODE_PRESETS.squad;
+  }
+
   playerById(playerId) {
     return this.state.players.find((player) => player.id === playerId) || null;
   }
@@ -123,13 +134,15 @@ export class GameSession extends EventEmitter {
   }
 
   playersOnTeam(teamId) {
-    return this.state.players.filter(
-      (player) => player.teamId === teamId && player.role === ROLES.PLAYER,
-    );
+    return this.state.players.filter((player) => player.teamId === teamId);
   }
 
   teamOccupancy(teamId) {
     return this.playersOnTeam(teamId).length;
+  }
+
+  capacity() {
+    return this.state.teams.reduce((total, team) => total + team.maxPlayers, 0);
   }
 
   recordEvent(type, payload = {}) {
@@ -141,8 +154,8 @@ export class GameSession extends EventEmitter {
       ...payload,
     };
     this.state.recentEvents.push(event);
-    if (this.state.recentEvents.length > 80) {
-      this.state.recentEvents.splice(0, this.state.recentEvents.length - 80);
+    if (this.state.recentEvents.length > 40) {
+      this.state.recentEvents.splice(0, this.state.recentEvents.length - 40);
     }
     this.repository.appendEvent(this.state.id, event.seq, type, payload);
     this.emit('event', event);
@@ -154,20 +167,26 @@ export class GameSession extends EventEmitter {
     this.state.updatedAt = new Date().toISOString();
   }
 
-  /** Broadcast immediately, persist in a serialized queue. */
-  async commit() {
+  /**
+   * Broadcast immediately and persist in a serialized queue. Saves coalesce:
+   * if one is already waiting it will pick up the latest state when it runs.
+   */
+  commit() {
     this.emit('change');
-    this.saveQueue = this.saveQueue
-      .catch(() => {})
-      .then(() => this.repository.save(this.state))
-      .catch((error) => {
-        this.lastSaveError = error;
-        this.logger?.error({ err: error, sessionId: this.state.id }, 'Failed to persist session');
-        throw new GameError(
-          'PERSISTENCE_ERROR',
-          'The game could not be saved. Please try again.',
-        );
-      });
+    if (!this.savePending) {
+      this.savePending = true;
+      this.saveQueue = this.saveQueue
+        .catch(() => {})
+        .then(async () => {
+          this.savePending = false;
+          await this.repository.save(this.state);
+        })
+        .catch((error) => {
+          this.lastSaveError = error;
+          this.logger?.error({ err: error, sessionId: this.state.id }, 'Failed to persist session');
+          throw new GameError('PERSISTENCE_ERROR', 'The game could not be saved. Please try again.');
+        });
+    }
     return this.saveQueue;
   }
 
@@ -175,92 +194,43 @@ export class GameSession extends EventEmitter {
     await this.saveQueue.catch(() => {});
   }
 
-  canStart() {
-    if (this.state.phase !== PHASES.LOBBY) {
-      return { ok: false, reason: 'The operation has already started.' };
-    }
-    const players = this.state.players.filter((player) => player.role === ROLES.PLAYER);
-    if (players.length === 0) return { ok: false, reason: 'At least one player is required.' };
-
-    if (this.config.mode === MODES.TEAM || this.config.mode === MODES.COOPERATIVE) {
-      const empty = this.state.teams.filter((team) => this.teamOccupancy(team.id) === 0);
-      if (empty.length > 0) {
-        return {
-          ok: false,
-          reason: `Every team needs at least one player. Empty: ${empty.map((team) => team.name).join(', ')}.`,
-        };
-      }
-    }
-    return { ok: true, reason: null };
+  destroy() {
+    this.closed = true;
+    this.removeAllListeners();
   }
 
-  join({ name, teamId = null, asSpectator = false }) {
-    const phase = this.state.phase;
-    const inLobby = phase === PHASES.LOBBY;
-    const lateOpen =
-      this.config.allowLateJoin &&
-      [PHASES.MISSION_READY, PHASES.QUESTION, PHASES.ATTACK, PHASES.ROUND_OVER].includes(phase);
-    assert(inLobby || lateOpen, 'JOIN_CLOSED', 'Joining is closed.');
-    if (inLobby) {
-      assert(!this.config.lobbyLocked, 'LOBBY_LOCKED', 'The facilitator has locked this lobby.');
-    }
+  // ---------------------------------------------------------------- lobby
+
+  join({ name, teamId = null }) {
+    assert(this.state.phase === PHASES.LOBBY, 'JOIN_CLOSED', 'This game has already started.');
     const clean = cleanText(name, LIMITS.maxNameLength);
-    assert(clean.length >= LIMITS.minNameLength, 'INVALID_NAME', 'That display name is too short.');
+    assert(clean.length >= LIMITS.minNameLength, 'INVALID_NAME', 'That name is too short.');
     const key = nameKey(clean);
     assert(
       !this.state.players.some((player) => player.nameKey === key),
       'NAME_TAKEN',
-      'That display name is already in use.',
+      'That name is already taken.',
     );
 
-    if (asSpectator) {
-      assert(this.config.allowSpectators, 'SPECTATORS_OFF', 'Spectator access is disabled.');
-      const spectators = this.state.players.filter((player) => player.role === ROLES.SPECTATOR);
-      assert(spectators.length < 100, 'ROOM_FULL', 'The spectator list is full.');
-      return this.createPlayer({ name: clean, teamId: null, role: ROLES.SPECTATOR });
+    let team = null;
+    if (teamId) {
+      team = this.teamById(teamId);
+      assert(team, 'INVALID_TEAM', 'That side no longer exists.');
+      assert(this.teamOccupancy(team.id) < team.maxPlayers, 'TEAM_FULL', `${team.name} is full.`);
+    } else {
+      team =
+        [...this.state.teams]
+          .filter((entry) => this.teamOccupancy(entry.id) < entry.maxPlayers)
+          .sort(
+            (a, b) =>
+              this.teamOccupancy(a.id) - this.teamOccupancy(b.id) || a.sortOrder - b.sortOrder,
+          )[0] || null;
     }
-
-    const activePlayers = this.state.players.filter((player) => player.role === ROLES.PLAYER);
-    assert(
-      activePlayers.length < this.config.maxPlayersTotal,
-      'GAME_FULL',
-      'This operation is full.',
-    );
-
-    let resolvedTeamId = null;
-    if (this.config.mode !== MODES.INDIVIDUAL) {
-      let team = null;
-      if (teamId) {
-        team = this.teamById(teamId);
-        assert(team, 'INVALID_TEAM', 'That team no longer exists.');
-        assert(
-          this.teamOccupancy(team.id) < Math.min(team.maxPlayers, this.config.maxPlayersPerTeam),
-          'TEAM_FULL',
-          `${team.name} is already at capacity.`,
-        );
-      } else {
-        const candidates = this.state.teams
-          .filter(
-            (entry) =>
-              this.teamOccupancy(entry.id) <
-              Math.min(entry.maxPlayers, this.config.maxPlayersPerTeam),
-          )
-          .sort((a, b) => this.teamOccupancy(a.id) - this.teamOccupancy(b.id));
-        team = candidates[0] || null;
-      }
-      assert(team, 'TEAM_FULL', 'There is no space left on any team.');
-      resolvedTeamId = team.id;
-    }
-
-    const result = this.createPlayer({ name: clean, teamId: resolvedTeamId, role: ROLES.PLAYER });
-    if (!inLobby && this.state.round && [PHASES.QUESTION, PHASES.ATTACK].includes(phase)) {
-      ensureLateCombatant(this.state, result.player);
-      this.bump();
-    }
-    return result;
+    assert(team, 'GAME_FULL', 'This game is full.');
+    return this.createPlayer({ name: clean, teamId: team.id });
   }
 
-  createPlayer({ name, teamId, role }) {
+  createPlayer({ name, teamId }) {
     const token = makePlayerToken();
     const now = new Date().toISOString();
     const player = {
@@ -268,7 +238,7 @@ export class GameSession extends EventEmitter {
       displayName: name,
       nameKey: nameKey(name),
       teamId: teamId || null,
-      role,
+      role: ROLES.PLAYER,
       tokenHash: hashToken(token),
       connected: true,
       joinedAt: now,
@@ -278,13 +248,12 @@ export class GameSession extends EventEmitter {
       stats: emptyStats(),
     };
     this.state.players.push(player);
-    const team = player.teamId ? this.teamById(player.teamId) : null;
+    const team = this.teamById(teamId);
     this.recordEvent('player_joined', {
       playerId: player.id,
       name: player.displayName,
       teamId: player.teamId,
       teamName: team?.name || null,
-      role,
     });
     this.bump();
     return { player, token };
@@ -292,9 +261,7 @@ export class GameSession extends EventEmitter {
 
   resume(token) {
     const tokenHash = hashToken(token);
-    return (
-      this.state.players.find((player) => player.tokenHash === tokenHash) || null
-    );
+    return this.state.players.find((player) => player.tokenHash === tokenHash) || null;
   }
 
   async setConnected(playerId, connected) {
@@ -307,52 +274,20 @@ export class GameSession extends EventEmitter {
   }
 
   async chooseTeam(playerId, teamId) {
-    assert(this.state.phase === PHASES.LOBBY, 'NOT_IN_LOBBY', 'Teams are locked.');
-    assert(!this.config.lobbyLocked, 'LOBBY_LOCKED', 'The facilitator has locked the lobby.');
-    assert(this.config.mode !== MODES.INDIVIDUAL, 'NOT_TEAM_MODE', 'This operation is free-for-all.');
+    assert(this.state.phase === PHASES.LOBBY, 'NOT_IN_LOBBY', 'Sides are locked.');
+    assert(this.state.teams.length > 1, 'ONE_SIDE', 'There is only one side in this mode.');
     const player = this.playerById(playerId);
-    assert(player && player.role === ROLES.PLAYER, 'PLAYER_NOT_FOUND', 'Player not found.');
+    assert(player, 'PLAYER_NOT_FOUND', 'Player not found.');
     const team = this.teamById(teamId);
-    assert(team, 'INVALID_TEAM', 'That team no longer exists.');
-    assert(player.teamId !== team.id, 'ALREADY_ON_TEAM', 'You are already on that team.');
-    assert(
-      this.teamOccupancy(team.id) < Math.min(team.maxPlayers, this.config.maxPlayersPerTeam),
-      'TEAM_FULL',
-      `${team.name} is already at capacity.`,
-    );
-    const from = player.teamId ? this.teamById(player.teamId) : null;
+    assert(team, 'INVALID_TEAM', 'That side no longer exists.');
+    assert(player.teamId !== team.id, 'ALREADY_ON_TEAM', 'You are already on that side.');
+    assert(this.teamOccupancy(team.id) < team.maxPlayers, 'TEAM_FULL', `${team.name} is full.`);
+    const from = this.teamById(player.teamId);
     player.teamId = team.id;
     this.recordEvent('team_changed', {
       playerId: player.id,
       name: player.displayName,
-      fromTeamId: from?.id || null,
       fromTeamName: from?.name || null,
-      teamId: team.id,
-      teamName: team.name,
-    });
-    this.bump();
-    await this.commit();
-  }
-
-  async movePlayer(playerId, teamId) {
-    assert(this.state.phase === PHASES.LOBBY, 'NOT_IN_LOBBY', 'Players can only be moved in the lobby.');
-    const player = this.playerById(playerId);
-    assert(player && player.role === ROLES.PLAYER, 'PLAYER_NOT_FOUND', 'Player not found.');
-    const team = teamId ? this.teamById(teamId) : null;
-    assert(team, 'INVALID_TEAM', 'That team no longer exists.');
-    assert(player.teamId !== team.id, 'ALREADY_ON_TEAM', 'The player is already on that team.');
-    assert(
-      this.teamOccupancy(team.id) < Math.min(team.maxPlayers, this.config.maxPlayersPerTeam),
-      'TEAM_FULL',
-      `${team.name} is already at capacity.`,
-    );
-    const from = player.teamId ? this.teamById(player.teamId) : null;
-    player.teamId = team.id;
-    this.recordEvent('player_moved', {
-      playerId: player.id,
-      name: player.displayName,
-      fromTeamName: from?.name || null,
-      teamId: team.id,
       teamName: team.name,
     });
     this.bump();
@@ -363,11 +298,11 @@ export class GameSession extends EventEmitter {
     const index = this.state.players.findIndex((player) => player.id === playerId);
     assert(index >= 0, 'PLAYER_NOT_FOUND', 'Player not found.');
     const [player] = this.state.players.splice(index, 1);
-    const team = player.teamId ? this.teamById(player.teamId) : null;
+    if (this.state.round?.quiz) delete this.state.round.quiz[player.id];
+    const team = this.teamById(player.teamId);
     this.recordEvent('player_removed', {
       playerId: player.id,
       name: player.displayName,
-      teamId: player.teamId,
       teamName: team?.name || null,
     });
     this.bump();
@@ -376,118 +311,54 @@ export class GameSession extends EventEmitter {
     return player;
   }
 
-  async renameTeam(teamId, name) {
-    assert(this.state.phase === PHASES.LOBBY, 'NOT_IN_LOBBY', 'Team names are locked.');
-    const team = this.teamById(teamId);
-    assert(team, 'INVALID_TEAM', 'That team no longer exists.');
-    const clean = cleanText(name, LIMITS.maxTeamNameLength);
-    assert(clean.length >= 2, 'INVALID_NAME', 'Team names need at least two characters.');
-    assert(
-      !this.state.teams.some(
-        (entry) => entry.id !== teamId && entry.name.toLowerCase() === clean.toLowerCase(),
-      ),
-      'TEAM_NAME_TAKEN',
-      'Another team already uses that name.',
-    );
-    const previous = team.name;
-    team.name = clean;
-    this.state.config.teamNames = this.state.teams
-      .slice()
-      .sort((a, b) => a.sortOrder - b.sortOrder)
-      .map((entry) => entry.name);
-    this.recordEvent('team_renamed', {
-      teamId,
-      from: previous,
-      name: clean,
-    });
-    this.bump();
-    await this.commit();
-  }
-
-  async lockLobby(locked) {
-    assert(this.state.phase === PHASES.LOBBY, 'NOT_IN_LOBBY', 'The lobby is no longer active.');
-    this.state.config.lobbyLocked = Boolean(locked);
-    this.recordEvent('lobby_lock_changed', { locked: Boolean(locked) });
-    this.bump();
-    await this.commit();
-  }
-
   async updateConfig(patch) {
-    assert(this.state.phase === PHASES.LOBBY, 'NOT_IN_LOBBY', 'Settings are locked after start.');
-    const merged = { ...this.state.config, ...patch };
-
-    const structural = ['mode', 'teamCount', 'teamNames'];
-    const changesStructure = structural.some(
-      (key) => key in patch && JSON.stringify(patch[key]) !== JSON.stringify(this.state.config[key]),
-    );
-    if (changesStructure) {
-      assert(
-        this.state.players.length === 0,
-        'PLAYERS_PRESENT',
-        'Remove players before changing the game structure.',
-      );
+    assert(this.state.phase === PHASES.LOBBY, 'NOT_IN_LOBBY', 'Settings are locked during a game.');
+    if ('questionSet' in patch) {
+      assert(this.questions.has(patch.questionSet), 'UNKNOWN_SET', 'That question set does not exist.');
     }
-    if ('maxPlayersPerTeam' in patch) {
-      const largest = Math.max(
-        0,
-        ...this.state.teams.map((team) => this.teamOccupancy(team.id)),
-      );
-      assert(
-        Number(patch.maxPlayersPerTeam) >= largest,
-        'CAPACITY_TOO_LOW',
-        'Team capacity cannot be lower than the largest current team.',
-      );
-    }
-    if ('maxPlayersTotal' in patch) {
-      assert(
-        Number(patch.maxPlayersTotal) >= this.state.players.length,
-        'CAPACITY_TOO_LOW',
-        'Total capacity cannot be lower than the current number of players.',
-      );
-    }
-
-    const parsed = sessionConfigSchema.parse(merged);
-    const modeChanged = parsed.mode !== this.state.config.mode;
-    const teamCountChanged = parsed.teamCount !== this.state.config.teamCount;
-
-    this.state.config = parsed;
-    if (changesStructure && (modeChanged || teamCountChanged || this.state.teams.length === 0)) {
-      this.rebuildTeams();
-    } else if (changesStructure && this.state.teams.length) {
-      this.state.teams.forEach((team, index) => {
-        team.name = parsed.teamNames[index] || team.name;
-        team.maxPlayers = parsed.maxPlayersPerTeam;
-      });
-    }
-    for (const team of this.state.teams) {
-      team.maxPlayers = parsed.maxPlayersPerTeam;
-    }
-    this.state.name = parsed.name;
-    this.recordEvent('settings_changed', { patch });
+    if (patch.mode && patch.mode !== this.state.config.mode) this.changeMode(patch.mode);
+    this.state.config = { ...this.state.config, ...patch };
+    this.recordEvent('settings_changed', { keys: Object.keys(patch) });
     this.bump();
     await this.commit();
   }
 
-  rebuildTeams() {
-    const now = new Date().toISOString();
-    this.state.teams = this.config.teamNames.map((name, index) =>
-      createTeam({
-        id: `t_${crypto.randomUUID()}`,
-        name,
-        color: TEAM_COLORS[index % TEAM_COLORS.length],
-        sortOrder: index,
-        maxPlayers: this.config.maxPlayersPerTeam,
-        now,
-      }),
+  changeMode(mode) {
+    const preset = MODE_PRESETS[mode];
+    assert(preset, 'INVALID_MODE', 'Unknown game mode.');
+    const capacity = preset.teams.length * preset.perTeam;
+    const players = this.state.players;
+    assert(
+      players.length <= capacity,
+      'TOO_MANY_PLAYERS',
+      `${preset.label} holds ${capacity} player${capacity === 1 ? '' : 's'}. Remove players first.`,
     );
-    for (const player of this.state.players) player.teamId = null;
+
+    const oldOrder = new Map(this.state.teams.map((team) => [team.id, team.sortOrder]));
+    const teams = buildTeams(mode);
+    const counts = new Map(teams.map((team) => [team.id, 0]));
+    const pending = [];
+
+    for (const player of players) {
+      const team = teams[oldOrder.get(player.teamId)];
+      if (team && counts.get(team.id) < team.maxPlayers) {
+        player.teamId = team.id;
+        counts.set(team.id, counts.get(team.id) + 1);
+      } else {
+        pending.push(player);
+      }
+    }
+    for (const player of pending) {
+      const team = teams
+        .filter((entry) => counts.get(entry.id) < entry.maxPlayers)
+        .sort((a, b) => counts.get(a.id) - counts.get(b.id))[0];
+      player.teamId = team.id;
+      counts.set(team.id, counts.get(team.id) + 1);
+    }
+    this.state.teams = teams;
   }
 
-  // ------------------------------------------------------------- stage 2
-
-  playersInRound() {
-    return this.state.players.filter((player) => player.role === ROLES.PLAYER);
-  }
+  // ---------------------------------------------------------------- arsenal
 
   arsenalFor(ownerId) {
     return Number(this.state.arsenal[ownerId]) || 0;
@@ -496,7 +367,7 @@ export class GameSession extends EventEmitter {
   setArsenal(ownerId, value) {
     const next = Math.max(0, Number(value) || 0);
     this.state.arsenal[ownerId] = next;
-    const team = this.state.teams.find((entry) => entry.id === ownerId);
+    const team = this.teamById(ownerId);
     if (team) team.missiles = next;
     return next;
   }
@@ -505,269 +376,170 @@ export class GameSession extends EventEmitter {
     return this.setArsenal(ownerId, this.arsenalFor(ownerId) + Number(amount || 0));
   }
 
-  activeCombatant(ownerId) {
-    return this.state.round?.combatants?.find((entry) => entry.id === ownerId) || null;
-  }
+  // ---------------------------------------------------------------- quiz
 
-  /** Start a fresh round of questions and attacks. */
-  beginRound({ reset = false } = {}) {
+  beginRound() {
     const now = Date.now();
-    const gridSize = this.config.gridSize;
-    const number = reset ? 1 : (this.state.round?.number || 0) + 1;
+    const number = (this.state.round?.number || 0) + 1;
+    const combatants = buildCombatants(this.state);
 
-    if (reset) {
-      this.state.usedQuestions = [];
-      this.state.scores = {};
-      this.state.fleets = {};
-      this.state.arsenal = {};
+    this.state.scores = {};
+    this.state.fleets = {};
+    this.state.arsenal = {};
+    for (const team of this.state.teams) team.missiles = 0;
+    for (const combatant of combatants) {
+      this.state.fleets[combatant.id] = makeFleet(this.config.gridSize);
+      ensureScore(this.state, combatant.id);
+      this.setArsenal(combatant.id, 0);
     }
 
-    const combatants = buildCombatants(this.state);
     this.state.round = makeRound({
-      state: this.state,
       number,
       now,
-      quizEndsAt: now + this.config.roundMinutes * 60_000,
+      quizEndsAt: now + this.config.quizMinutes * 60_000,
       combatants,
     });
 
-    for (const combatant of combatants) {
-      this.state.fleets[combatant.id] = makeFleet(gridSize);
-      ensureScore(this.state, combatant.id);
-      if (reset || !this.config.ammoCarryOver || this.state.arsenal[combatant.id] === undefined) {
-        this.setArsenal(combatant.id, 0);
-      } else {
-        this.setArsenal(combatant.id, this.arsenalFor(combatant.id));
-      }
+    for (const player of this.state.players) {
+      player.stats = emptyStats();
+      this.state.round.quiz[player.id] = { answered: 0, correct: 0, seen: [], current: null };
+      this.issueQuestion(player.id, now);
     }
 
-    // Drop arsenal entries for teams/players no longer in the round.
-    const liveIds = new Set(combatants.map((combatant) => combatant.id));
-    for (const ownerId of Object.keys(this.state.arsenal)) {
-      if (!liveIds.has(ownerId)) delete this.state.arsenal[ownerId];
-    }
-
-    this.state.phase = PHASES.QUESTION;
-    this.state.round.phase = PHASES.QUESTION;
+    this.state.phase = PHASES.QUIZ;
+    this.state.startedAt = new Date(now).toISOString();
     this.state.endedAt = null;
-    this.startQuestion(now);
-    this.recordEvent('round_started', { round: number });
+    this.recordEvent('quiz_started', { round: number });
     this.bump();
   }
 
-  startQuestion(now = Date.now()) {
-    const round = this.state.round;
-    assert(round, 'NOT_IN_ROUND', 'No round is active.');
-    const question = pickQuestion({
-      difficulty: this.config.difficulty,
-      ageGroup: this.config.ageGroup,
-      used: this.state.usedQuestions,
-    });
-    if (!question) return;
-    round.questionNumber += 1;
-    round.answers = {};
-    round.question = makeQuestionState(
-      question,
-      round.questionNumber,
-      now,
-      now + this.config.questionTimer * 1000,
-    );
-    if (!this.state.usedQuestions.includes(question.id)) {
-      this.state.usedQuestions.push(question.id);
-    }
-    // Reset the used list when the bank is exhausted so long drills keep going.
-    if (this.state.usedQuestions.length >= 32) this.state.usedQuestions = [];
-  }
-
-  allPlayersAnswered() {
-    const players = this.playersInRound();
-    const answered = this.state.round?.answers || {};
-    if (players.length === 0) return false;
-    return players.every((player) => answered[player.id]);
-  }
-
-  revealQuestion(now = Date.now()) {
-    const question = this.state.round?.question;
-    if (!question || question.revealedAt) return false;
-    question.revealedAt = new Date(now).toISOString();
-    question.revealUntil = new Date(now + ROUND_REVEAL_SECONDS * 1000).toISOString();
-    this.recordEvent('question_revealed', {
-      round: this.state.round.number,
-      questionNumber: question.number,
-      answerCount: Object.keys(this.state.round.answers).length,
-    });
-    this.bump();
-    return true;
-  }
-
-  enterAttack(now = Date.now()) {
-    const round = this.state.round;
-    assert(round, 'NOT_IN_ROUND', 'No round is active.');
-    round.lastQuestion = round.question;
-    round.question = null;
-    round.phase = PHASES.ATTACK;
-    round.attackStartedAt = new Date(now).toISOString();
-    round.attackEndsAt = new Date(
-      now + Math.max(MIN_ATTACK_SECONDS, this.config.tacticalSeconds) * 1000,
-    ).toISOString();
-    this.state.phase = PHASES.ATTACK;
-    this.recordEvent('attack_phase_started', { round: round.number });
-    this.bump();
-  }
-
-  finishRound(now = Date.now()) {
-    const round = this.state.round;
-    assert(round, 'NOT_IN_ROUND', 'No round is active.');
-    round.phase = PHASES.ROUND_OVER;
-    round.endedAt = new Date(now).toISOString();
-    round.question = null;
-    this.state.phase = PHASES.ROUND_OVER;
-
-    const results = round.combatants
-      .map((combatant) => {
-        const score = ensureScore(this.state, combatant.id);
-        const fleet = this.state.fleets[combatant.id];
-        const shipsTotal = fleet?.ships?.length || 0;
-        const shipsSunk = fleet?.ships?.filter((ship) => ship.sunk).length || 0;
-        return {
-          id: combatant.id,
-          name: combatant.name,
-          color: combatant.color,
-          kind: combatant.kind,
-          points: score.points,
-          hits: score.hits,
-          misses: score.misses,
-          sunk: score.sunk,
-          correct: score.correct,
-          answered: score.answered,
-          missiles: this.arsenalFor(combatant.id),
-          shipsTotal,
-          shipsSunk,
-          shipsRemaining: shipsTotal - shipsSunk,
-          eliminated: shipsTotal > 0 && shipsSunk >= shipsTotal,
-        };
-      })
-      .sort((a, b) => {
-        if (b.points !== a.points) return b.points - a.points;
-        if (b.hits !== a.hits) return b.hits - a.hits;
-        return a.name.localeCompare(b.name);
-      });
-
-    round.results = results;
-
-    const cpu = results.find((entry) => entry.id === CPU_ID);
-    const human = results.find((entry) => entry.kind === 'team' || entry.kind === 'player');
-    let winner = results[0] || null;
-    let reason = 'Highest score';
-    if (this.config.mode === MODES.COOPERATIVE && human) {
-      const breached = Boolean(cpu?.eliminated);
-      winner = breached ? human : { id: CPU_ID, name: CPU_NAME, color: '#c084fc', kind: 'cpu' };
-      reason = breached ? 'Firewall breached' : 'Firewall held';
+  issueQuestion(playerId, now = Date.now()) {
+    const entry = this.state.round?.quiz?.[playerId];
+    if (!entry) return null;
+    const pool = this.questions.questionsFor(this.config.questionSet);
+    if (!pool.length) {
+      entry.current = null;
+      return null;
     }
 
-    round.outcome = winner
-      ? {
-          winnerId: winner.id,
-          winnerName: winner.name,
-          winnerColor: winner.color,
-          reason,
-        }
-      : { winnerId: null, winnerName: 'No winner', winnerColor: '#63899d', reason };
+    let candidates = pool.filter((question) => !entry.seen.includes(question.id));
+    if (candidates.length === 0) {
+      entry.seen = [];
+      candidates = pool;
+    }
+    const question = candidates[crypto.randomInt(0, candidates.length)];
+    entry.seen.push(question.id);
 
-    this.recordEvent('round_over', {
-      round: round.number,
-      winnerName: round.outcome.winnerName,
-      reason,
-    });
-    this.bump();
+    // Shuffle so the correct answer is not always in the same slot.
+    const order = shuffle(question.options.map((_, index) => index));
+    entry.current = {
+      number: entry.answered + 1,
+      id: question.id,
+      category: question.category,
+      prompt: question.prompt,
+      options: order.map((index) => question.options[index]),
+      answerIndex: order.indexOf(question.answerIndex),
+      explanation: question.explanation || '',
+      issuedAt: new Date(now).toISOString(),
+    };
+    return entry.current;
   }
 
-  /** Player submits one multiple-choice answer. */
   async answer(playerId, questionNumber, optionIndex) {
-    assert(this.state.phase === PHASES.QUESTION, 'NOT_QUESTION_PHASE', 'No question is open.');
+    assert(this.state.phase === PHASES.QUIZ, 'NOT_QUIZ', 'The quiz is not running.');
     const round = this.state.round;
-    const question = round?.question;
-    assert(question && !question.revealedAt, 'QUESTION_CLOSED', 'That question has closed.');
+    const now = Date.now();
     assert(
-      Number(questionNumber) === question.number,
-      'QUESTION_CHANGED',
-      'A newer question is already open.',
+      now <= Date.parse(round.quizEndsAt) + TIMING.answerGraceMs,
+      'QUIZ_CLOSED',
+      'Time is up.',
     );
 
     const player = this.playerById(playerId);
-    assert(player && player.role === ROLES.PLAYER, 'PLAYER_NOT_FOUND', 'Players only.');
-    assert(!round.answers[playerId], 'ALREADY_ANSWERED', 'You already answered this question.');
-
+    assert(player, 'PLAYER_NOT_FOUND', 'Player not found.');
+    const entry = round.quiz[player.id];
+    assert(entry?.current, 'NO_QUESTION', 'No question is available.');
+    const current = entry.current;
+    assert(
+      Number(questionNumber) === current.number,
+      'QUESTION_CHANGED',
+      'That question has already been answered.',
+    );
     const index = Number(optionIndex);
     assert(
-      Number.isInteger(index) && index >= 0 && index < question.options.length,
+      Number.isInteger(index) && index >= 0 && index < current.options.length,
       'INVALID_ANSWER',
-      'Choose one of the listed answers.',
+      'Choose one of the answers.',
     );
 
-    const ownerId = ownerForPlayer(this.state, player);
-    assert(ownerId, 'NO_TEAM', 'Join a team before answering.');
+    const ownerId = player.teamId;
+    assert(ownerId && this.teamById(ownerId), 'NO_TEAM', 'Join a side first.');
 
-    const now = Date.now();
-    const elapsedMs = Math.max(0, now - Date.parse(question.startedAt));
-    const elapsedSeconds = elapsedMs / 1000;
-    const correct = index === question.answerIndex;
-    const reward = correct ? missileRewardFor(elapsedSeconds) : 0;
-
-    round.answers[playerId] = {
-      questionNumber: question.number,
-      optionIndex: index,
-      at: new Date(now).toISOString(),
-      ms: elapsedMs,
-      correct,
-      reward,
-      ownerId,
-    };
-
+    const correct = index === current.answerIndex;
+    const reward = correct ? SCORING.missilesPerCorrect : 0;
     const score = ensureScore(this.state, ownerId);
     score.answered += 1;
-    player.stats.questionsAnswered = (player.stats.questionsAnswered || 0) + 1;
-    player.stats.totalResponseMs = (player.stats.totalResponseMs || 0) + elapsedMs;
+    entry.answered += 1;
+    player.stats.answered += 1;
 
     if (correct) {
       score.correct += 1;
-      score.points += 10;
+      score.points += SCORING.correct;
       score.missilesEarned += reward;
-      player.stats.correctAnswers = (player.stats.correctAnswers || 0) + 1;
-      player.stats.missilesEarned = (player.stats.missilesEarned || 0) + reward;
-      player.streak = (player.streak || 0) + 1;
+      entry.correct += 1;
+      player.stats.correct += 1;
       this.addArsenal(ownerId, reward);
-    } else {
-      player.stats.incorrectAnswers = (player.stats.incorrectAnswers || 0) + 1;
-      player.streak = 0;
     }
 
-    this.bump();
-    if (this.allPlayersAnswered()) this.revealQuestion(now);
-    await this.commit();
-
-    return {
+    const result = {
+      number: current.number,
       correct,
+      correctIndex: current.answerIndex,
+      chosenIndex: index,
+      explanation: current.explanation,
       reward,
       missiles: this.arsenalFor(ownerId),
-      ownerId,
     };
+
+    this.issueQuestion(player.id, now);
+    this.bump();
+    await this.commit();
+    return result;
   }
 
-  /** Fire one missile at the player's assigned target grid. */
+  // ---------------------------------------------------------------- briefing
+
+  enterReview() {
+    assert(this.state.round, 'NOT_IN_ROUND', 'No game is running.');
+    this.state.phase = PHASES.REVIEW;
+    for (const entry of Object.values(this.state.round.quiz)) entry.current = null;
+    this.recordEvent('briefing_started', { round: this.state.round.number });
+    this.bump();
+  }
+
+  // ---------------------------------------------------------------- battle
+
+  enterBattle(now = Date.now()) {
+    const round = this.state.round;
+    assert(round, 'NOT_IN_ROUND', 'No game is running.');
+    round.battleStartedAt = new Date(now).toISOString();
+    round.battleEndsAt = new Date(now + this.config.battleSeconds * 1000).toISOString();
+    this.state.phase = PHASES.BATTLE;
+    this.recordEvent('battle_started', { round: round.number });
+    this.bump();
+  }
+
   async attack(playerId, x, y) {
-    assert(this.state.phase === PHASES.ATTACK, 'NOT_ATTACK_PHASE', 'The attack phase is closed.');
+    assert(this.state.phase === PHASES.BATTLE, 'NOT_BATTLE', 'The battle is not running.');
     const round = this.state.round;
     const player = this.playerById(playerId);
-    assert(player && player.role === ROLES.PLAYER, 'PLAYER_NOT_FOUND', 'Players only.');
-    const ownerId = ownerForPlayer(this.state, player);
-    const combatant = this.activeCombatant(ownerId);
-    assert(combatant, 'NO_TEAM', 'Your team is not in this round.');
-    assert(combatant.targetId, 'NO_TARGET', 'No target is assigned.');
-    assert(combatant.targetId !== ownerId, 'NO_TARGET', 'You cannot attack your own grid.');
+    assert(player, 'PLAYER_NOT_FOUND', 'Player not found.');
+    const ownerId = player.teamId;
+    const combatant = round.combatants.find((entry) => entry.id === ownerId);
+    assert(combatant?.targetId, 'NO_TARGET', 'No target is assigned.');
 
     const targetFleet = this.state.fleets[combatant.targetId];
-    assert(targetFleet, 'NO_TARGET', 'That target grid is unavailable.');
+    assert(targetFleet, 'NO_TARGET', 'That target is unavailable.');
     const cx = Number(x);
     const cy = Number(y);
     assert(
@@ -778,26 +550,13 @@ export class GameSession extends EventEmitter {
         cx < targetFleet.gridSize &&
         cy < targetFleet.gridSize,
       'INVALID_COORDINATE',
-      'Choose a cell inside the target grid.',
+      'Choose a cell inside the grid.',
     );
-    assert(this.arsenalFor(ownerId) > 0, 'NO_MISSILES', 'No missiles available. Answer questions to earn more.');
-
-    const used = round.attacks.filter((entry) => entry.ownerId === ownerId).length;
+    assert(this.arsenalFor(ownerId) > 0, 'NO_MISSILES', 'No missiles left.');
     assert(
-      used < this.config.maxAttacksPerTeam,
-      'ATTACK_LIMIT',
-      `You have used all ${this.config.maxAttacksPerTeam} attacks this round.`,
-    );
-    assert(
-      !round.attacks.some(
-        (entry) =>
-          entry.ownerId === ownerId &&
-          entry.targetId === combatant.targetId &&
-          entry.x === cx &&
-          entry.y === cy,
-      ),
+      !targetFleet.shots.some((shot) => shot.x === cx && shot.y === cy),
       'CELL_ALREADY_TARGETED',
-      'That cell has already been targeted.',
+      'That cell was already hit.',
     );
 
     this.addArsenal(ownerId, -1);
@@ -817,47 +576,30 @@ export class GameSession extends EventEmitter {
       }
     }
 
-    targetFleet.shots.push({
-      x: cx,
-      y: cy,
-      by: ownerId,
-      hit,
-      at: new Date(now).toISOString(),
-      round: round.number,
-    });
-    round.attacks.push({
-      id: attackId(),
-      ownerId,
-      targetId: combatant.targetId,
-      x: cx,
-      y: cy,
-      hit,
-      sunkShip,
-      at: new Date(now).toISOString(),
-      round: round.number,
-    });
+    targetFleet.shots.push({ x: cx, y: cy, by: ownerId, hit, at: new Date(now).toISOString() });
+    round.attacks.push({ ownerId, targetId: combatant.targetId, x: cx, y: cy, hit, sunkShip });
 
     const score = ensureScore(this.state, ownerId);
+    player.stats.attacks += 1;
     if (hit) {
       score.hits += 1;
-      score.points += 25;
-      player.stats.attacks = (player.stats.attacks || 0) + 1;
-      player.stats.hits = (player.stats.hits || 0) + 1;
+      score.points += SCORING.hit;
+      player.stats.hits += 1;
       if (sunkShip) {
         score.sunk += 1;
-        score.points += 50;
+        score.points += SCORING.sunk;
         this.recordEvent('ship_sunk', {
-          round: round.number,
-          ownerName: ownerName(this.state, ownerId),
-          targetName: ownerName(this.state, combatant.targetId),
+          teamName: combatant.name,
+          targetName: round.combatants.find((entry) => entry.id === combatant.targetId)?.name,
           shipName: sunkShip,
         });
       }
     } else {
       score.misses += 1;
-      player.stats.attacks = (player.stats.attacks || 0) + 1;
-      player.stats.misses = (player.stats.misses || 0) + 1;
     }
+
+    const eliminated = targetFleet.ships.every((entry) => entry.sunk);
+    if (eliminated) this.finishBattle(now, { reason: 'Fleet destroyed', winnerId: ownerId });
 
     this.bump();
     await this.commit();
@@ -866,132 +608,160 @@ export class GameSession extends EventEmitter {
       hit,
       sunk: Boolean(sunkShip),
       shipName: sunkShip,
+      eliminated,
+      x: cx,
+      y: cy,
       missiles: this.arsenalFor(ownerId),
-      attacksUsed: used + 1,
-      attacksLimit: this.config.maxAttacksPerTeam,
     };
   }
 
-  /** Tick timers forward. Returns true when the phase changed. */
+  noMissilesLeft() {
+    const sides = this.state.round?.combatants.filter((entry) => entry.kind === 'team') || [];
+    return sides.length > 0 && sides.every((entry) => this.arsenalFor(entry.id) === 0);
+  }
+
+  finishBattle(now = Date.now(), { reason = 'Time expired', winnerId = null } = {}) {
+    const round = this.state.round;
+    assert(round, 'NOT_IN_ROUND', 'No game is running.');
+    round.endedAt = new Date(now).toISOString();
+    this.state.phase = PHASES.RESULT;
+    this.state.endedAt = round.endedAt;
+
+    const results = round.combatants.map((combatant) => {
+      const score = ensureScore(this.state, combatant.id);
+      const fleet = this.state.fleets[combatant.id];
+      const shipsTotal = fleet?.ships?.length || 0;
+      const shipsSunk = fleet?.ships?.filter((ship) => ship.sunk).length || 0;
+      return {
+        id: combatant.id,
+        name: combatant.name,
+        color: combatant.color,
+        kind: combatant.kind,
+        points: score.points,
+        hits: score.hits,
+        misses: score.misses,
+        sunk: score.sunk,
+        correct: score.correct,
+        answered: score.answered,
+        missiles: this.arsenalFor(combatant.id),
+        shipsTotal,
+        shipsSunk,
+        eliminated: shipsTotal > 0 && shipsSunk >= shipsTotal,
+      };
+    });
+    round.results = results.sort((a, b) => b.points - a.points || b.hits - a.hits);
+
+    const humans = results.filter((entry) => entry.kind === 'team');
+    let outcome;
+
+    if (this.preset.versusCpu) {
+      const cpu = results.find((entry) => entry.kind === 'cpu');
+      const crew = humans[0];
+      const breached = Boolean(cpu?.eliminated);
+      outcome = breached
+        ? { winnerId: crew?.id || null, winnerName: crew?.name || 'CREW', winnerColor: crew?.color, reason: 'Firewall breached', humanWin: true, draw: false }
+        : { winnerId: CPU_ID, winnerName: CPU_NAME, winnerColor: cpu?.color, reason: 'Firewall held', humanWin: false, draw: false };
+    } else {
+      let winner = winnerId ? humans.find((entry) => entry.id === winnerId) : null;
+      let finalReason = reason;
+      if (!winner) {
+        const ranked = [...humans].sort((a, b) => b.points - a.points || b.hits - a.hits);
+        const [first, second] = ranked;
+        if (first && second && first.points === second.points && first.hits === second.hits) {
+          outcome = { winnerId: null, winnerName: 'DRAW', winnerColor: '#d9f4ff', reason: 'Scores level', humanWin: false, draw: true };
+        } else {
+          winner = first || null;
+          finalReason = 'Highest score';
+        }
+      }
+      if (!outcome) {
+        outcome = {
+          winnerId: winner?.id || null,
+          winnerName: winner?.name || 'NO WINNER',
+          winnerColor: winner?.color || '#d9f4ff',
+          reason: finalReason,
+          humanWin: Boolean(winner),
+          draw: false,
+        };
+      }
+    }
+
+    round.outcome = outcome;
+    this.recordEvent('round_over', { round: round.number, winnerName: outcome.winnerName });
+    this.bump();
+  }
+
+  // ---------------------------------------------------------------- timers
+
   async tick(now = Date.now()) {
     if (this.closed) return false;
-    if (![PHASES.QUESTION, PHASES.ATTACK].includes(this.state.phase)) return false;
+    if (this.state.phase !== PHASES.QUIZ && this.state.phase !== PHASES.BATTLE) return false;
     if (this.ticking) return false;
     this.ticking = true;
-    let changed = false;
     try {
       const round = this.state.round;
       if (!round) return false;
+      let changed = false;
 
-      if (this.state.phase === PHASES.QUESTION) {
-        const question = round.question;
-        if (question && !question.revealedAt) {
-          const timedOut = now >= Date.parse(question.endsAt);
-          if (timedOut || this.allPlayersAnswered()) {
-            changed = this.revealQuestion(now) || changed;
-          }
-        } else if (question && question.revealedAt && now >= Date.parse(question.revealUntil)) {
-          if (now >= Date.parse(round.quizEndsAt)) {
-            this.enterAttack(now);
-          } else {
-            this.startQuestion(now);
-          }
-          changed = true;
-        } else if (!question && now >= Date.parse(round.quizEndsAt)) {
-          this.enterAttack(now);
+      if (this.state.phase === PHASES.QUIZ) {
+        if (now >= Date.parse(round.quizEndsAt)) {
+          this.enterReview();
           changed = true;
         }
-      } else if (this.state.phase === PHASES.ATTACK) {
-        if (now >= Date.parse(round.attackEndsAt)) {
-          this.finishRound(now);
-          changed = true;
-        }
+      } else if (now >= Date.parse(round.battleEndsAt)) {
+        this.finishBattle(now, { reason: 'Time expired' });
+        changed = true;
+      } else if (
+        now - Date.parse(round.battleStartedAt) >= TIMING.minBattleMs &&
+        this.noMissilesLeft()
+      ) {
+        this.finishBattle(now, { reason: 'Out of missiles' });
+        changed = true;
       }
 
       if (changed) await this.commit();
       return changed;
     } catch (error) {
-      this.logger?.error({ err: error, sessionId: this.state.id }, 'Round tick failed');
+      this.logger?.error({ err: error, sessionId: this.state.id }, 'Game tick failed');
       return false;
     } finally {
       this.ticking = false;
     }
   }
 
-  async start({ force = false } = {}) {
-    const phase = this.state.phase;
-    if (phase === PHASES.LOBBY) {
-      if (!force) {
-        const check = this.canStart();
-        assert(check.ok, 'CANNOT_START', check.reason || 'The operation cannot start yet.');
-      }
-      this.state.config.lobbyLocked = true;
-      this.state.startedAt = new Date().toISOString();
-      this.beginRound({ reset: true });
-      await this.commit();
-      return;
-    }
-    if (phase === PHASES.MISSION_READY || phase === PHASES.ROUND_OVER) {
-      this.beginRound({ reset: false });
-      await this.commit();
-      return;
-    }
-    throw new GameError('ALREADY_STARTED', 'A round is already in progress.');
-  }
+  // ---------------------------------------------------------------- controls
 
-  /** Host control: advance the current phase or launch the next round. */
+  /** The single facilitator control: move to whatever comes next. */
   async advance() {
-    const phase = this.state.phase;
-    if (phase === PHASES.LOBBY || phase === PHASES.MISSION_READY) {
-      await this.start({ force: true });
-      return;
+    const now = Date.now();
+    switch (this.state.phase) {
+      case PHASES.LOBBY:
+      case PHASES.RESULT:
+        this.beginRound();
+        break;
+      case PHASES.QUIZ:
+        this.enterReview();
+        break;
+      case PHASES.REVIEW:
+        this.enterBattle(now);
+        break;
+      case PHASES.BATTLE:
+        this.finishBattle(now, { reason: 'Ended by facilitator' });
+        break;
+      default:
+        throw new GameError('INVALID_PHASE', 'Nothing to advance.');
     }
-    if (phase === PHASES.QUESTION) {
-      this.enterAttack();
-      await this.commit();
-      return;
-    }
-    if (phase === PHASES.ATTACK) {
-      this.finishRound();
-      await this.commit();
-      return;
-    }
-    if (phase === PHASES.ROUND_OVER) {
-      this.beginRound({ reset: false });
-      await this.commit();
-      return;
-    }
-    throw new GameError('NOT_IN_ROUND', 'There is no active round to advance.');
-  }
-
-  /** Host control: end the current round immediately. */
-  async endRound() {
-    const phase = this.state.phase;
-    if (phase === PHASES.QUESTION || phase === PHASES.ATTACK) {
-      this.finishRound();
-      await this.commit();
-      return;
-    }
-    throw new GameError('NOT_IN_ROUND', 'There is no active round to end.');
+    await this.commit();
   }
 
   async returnToLobby() {
-    assert(
-      [PHASES.MISSION_READY, PHASES.QUESTION, PHASES.ATTACK, PHASES.ROUND_OVER].includes(
-        this.state.phase,
-      ),
-      'NOT_READY',
-      'The operation is not in a running round.',
-    );
     this.state.phase = PHASES.LOBBY;
     this.state.startedAt = null;
     this.state.endedAt = null;
-    this.state.config.lobbyLocked = false;
     this.state.round = null;
     this.state.fleets = {};
     this.state.arsenal = {};
     this.state.scores = {};
-    this.state.usedQuestions = [];
     for (const team of this.state.teams) {
       team.missiles = 0;
       team.eliminated = false;
@@ -1005,80 +775,57 @@ export class GameSession extends EventEmitter {
     await this.commit();
   }
 
+  // ---------------------------------------------------------------- views
+
+  /** Progress per side, shared by the quiz, briefing and result screens. */
+  teamProgress() {
+    const round = this.state.round;
+    if (!round) return [];
+    return [...this.state.teams]
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .map((team) => {
+        const players = this.playersOnTeam(team.id)
+          .map((player) => {
+            const entry = round.quiz?.[player.id] || {};
+            return {
+              id: player.id,
+              name: player.displayName,
+              answered: entry.answered || 0,
+              correct: entry.correct || 0,
+              connected: Boolean(player.connected),
+            };
+          })
+          .sort((a, b) => b.correct - a.correct || a.name.localeCompare(b.name));
+        const answered = players.reduce((total, player) => total + player.answered, 0);
+        const correct = players.reduce((total, player) => total + player.correct, 0);
+        return {
+          id: team.id,
+          name: team.name,
+          color: team.color,
+          answered,
+          correct,
+          accuracy: answered > 0 ? Math.round((correct / answered) * 100) : 0,
+          missiles: this.arsenalFor(team.id),
+          points: Number(this.state.scores[team.id]?.points) || 0,
+          players,
+        };
+      });
+  }
+
   summary() {
-    const players = this.state.players.filter((player) => player.role === ROLES.PLAYER);
     return {
       id: this.state.id,
-      name: this.state.name,
       joinCode: this.state.joinCode,
-      mode: this.config.mode,
       phase: this.state.phase,
-      playerCount: players.length,
-      connectedCount: players.filter((player) => player.connected).length,
-      spectatorCount: this.state.players.length - players.length,
-      teamCount: this.state.teams.length,
-      createdAt: this.state.createdAt,
-      startedAt: this.state.startedAt || null,
+      mode: this.config.mode,
+      playerCount: this.state.players.length,
+      connectedCount: this.state.players.filter((player) => player.connected).length,
       roundNumber: this.state.round?.number || null,
-      roundPhase: this.state.round?.phase || null,
+      createdAt: this.state.createdAt,
       expiresAt: this.state.expiresAt,
       joinUrl: shortJoinUrlFor(this.state.joinBaseUrl, this.state.joinCode),
-      displayUrl: this.state.displayBaseUrl,
     };
   }
-
-  destroy() {
-    this.closed = true;
-    this.removeAllListeners();
-  }
 }
 
-export function createSessionState({
-  id,
-  joinCode,
-  config,
-  joinBaseUrl,
-  displayBaseUrl,
-  retentionHours = LIMITS.sessionRetentionHours,
-}) {
-  const now = new Date();
-  const parsed = sessionConfigSchema.parse({ ...DEFAULT_CONFIG, ...config });
-  const state = {
-    schemaVersion: 2,
-    id,
-    joinCode,
-    name: parsed.name,
-    phase: PHASES.LOBBY,
-    config: parsed,
-    teams: [],
-    players: [],
-    recentEvents: [],
-    eventSeq: 0,
-    version: 1,
-    createdAt: now.toISOString(),
-    updatedAt: now.toISOString(),
-    startedAt: null,
-    endedAt: null,
-    expiresAt: new Date(now.getTime() + retentionHours * 3600_000).toISOString(),
-    joinBaseUrl,
-    displayBaseUrl,
-    round: null,
-    fleets: {},
-    arsenal: {},
-    scores: {},
-    usedQuestions: [],
-  };
-
-  state.teams = parsed.teamNames.map((name, index) =>
-    createTeam({
-      id: `t_${crypto.randomUUID()}`,
-      name,
-      color: TEAM_COLORS[index % TEAM_COLORS.length],
-      sortOrder: index,
-      maxPlayers: parsed.maxPlayersPerTeam,
-      now: state.createdAt,
-    }),
-  );
-
-  return state;
-}
+export { CPU_ID, CPU_NAME };

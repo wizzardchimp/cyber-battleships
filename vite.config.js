@@ -30,7 +30,6 @@ export default defineConfig({
     rollupOptions: {
       input: {
         index: path.join(here, 'client', 'index.html'),
-        host: path.join(here, 'client', 'host.html'),
         display: path.join(here, 'client', 'display.html'),
         play: path.join(here, 'client', 'play.html'),
       },

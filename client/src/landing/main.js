@@ -1,4 +1,4 @@
-import '../../styles/tokens.css';
+import '../../styles/theme.css';
 import '../../styles/landing.css';
 import { $, on } from '../shared/dom.js';
 import { unlockAudio, sfx } from '../shared/audio.js';

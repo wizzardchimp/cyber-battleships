@@ -1,17 +1,5 @@
 /** Canonical socket event names shared by server and clients. */
 export const EVENTS = Object.freeze({
-  // Host -> server
-  HOST_SUBSCRIBE: 'host:subscribe',
-  HOST_UPDATE_CONFIG: 'host:updateConfig',
-  HOST_RENAME_TEAM: 'host:renameTeam',
-  HOST_MOVE_PLAYER: 'host:movePlayer',
-  HOST_REMOVE_PLAYER: 'host:removePlayer',
-  HOST_LOCK_LOBBY: 'host:lockLobby',
-  HOST_START: 'host:start',
-  HOST_ADVANCE: 'host:advance',
-  HOST_END_ROUND: 'host:endRound',
-  HOST_RETURN_TO_LOBBY: 'host:returnToLobby',
-
   // Player -> server
   PLAYER_JOIN: 'player:join',
   PLAYER_RESUME: 'player:resume',
@@ -19,9 +7,13 @@ export const EVENTS = Object.freeze({
   PLAYER_ANSWER: 'player:answer',
   PLAYER_ATTACK: 'player:attack',
 
-  // Display -> server
+  // Game screen -> server
   DISPLAY_SUBSCRIBE: 'display:subscribe',
-  DISPLAY_START: 'display:start',
+  DISPLAY_CREATE: 'display:create',
+  DISPLAY_ADVANCE: 'display:advance',
+  DISPLAY_LOBBY: 'display:lobby',
+  DISPLAY_SETTINGS: 'display:settings',
+  DISPLAY_REMOVE: 'display:remove',
 
   // Shared
   TIME_SYNC: 'time:sync',
@@ -34,5 +26,4 @@ export const EVENTS = Object.freeze({
   SESSION_CLOSED: 'session:closed',
   GAME_ERROR: 'game:error',
   TOAST: 'toast',
-  HOST_DENIED: 'host:denied',
 });

@@ -24,8 +24,6 @@ services:
       NODE_ENV: production
       PORT: 3000
       PUBLIC_URL: http://localhost:3000
-      ADMIN_PIN: ${ADMIN_PIN:-123456}
-      COOKIE_SECRET: ${COOKIE_SECRET:-local-development-cookie-secret-change-me}
       DATABASE_URL: postgres://battleships:battleships@db:5432/battleships
       PGSSL: "false"
     ports:

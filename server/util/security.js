@@ -51,17 +51,25 @@ export function localIPv4() {
   return preferred || candidates[0] || null;
 }
 
-export function baseUrlFor(req, config) {
+export function baseUrlFromHeaders(headers, config, protocolFallback = 'http') {
   if (config.publicUrl) return config.publicUrl;
-  const host = req?.get?.('host');
-  const forwardedProto = String(req?.get?.('x-forwarded-proto') || '').split(',')[0].trim();
-  const protocol = forwardedProto || req?.protocol || 'http';
+  const host = headers?.host || headers?.Host || '';
+  const forwardedProto = String(headers?.['x-forwarded-proto'] || '').split(',')[0].trim();
+  const protocol = forwardedProto || protocolFallback;
   if (host && !/^(localhost|127\.0\.0\.1|\[::1\])(?::|$)/i.test(host)) {
     return `${protocol}://${host}`;
   }
   const lan = localIPv4();
   if (lan) return `http://${lan}:${config.port}`;
   return `${protocol}://${host || `localhost:${config.port}`}`;
+}
+
+export function baseUrlFor(req, config) {
+  return baseUrlFromHeaders(
+    { host: req?.get?.('host'), 'x-forwarded-proto': req?.get?.('x-forwarded-proto') },
+    config,
+    req?.protocol || 'http',
+  );
 }
 
 export function joinUrlFor(baseUrl, code) {

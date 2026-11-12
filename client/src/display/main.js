@@ -1,602 +1,1061 @@
-import '../../styles/tokens.css';
+import '../../styles/theme.css';
 import '../../styles/display.css';
-import '../../styles/battle.css';
 
-import { MODES, PHASES, modeLabel, phaseLabel } from '@shared/constants.js';
+import { LIMITS, MODE_LIST, MODE_PRESETS, PHASES, phaseLabel, setLabel } from '@shared/constants.js';
 import { EVENTS } from '@shared/events.js';
-import { isMuted, muteLabel, sfx, toggleMute, unlockAudio } from '../shared/audio.js';
-import { formatClock, formatCountdown, syncClock } from '../shared/clock.js';
-import { $, escapeHtml, initials, on, toast } from '../shared/dom.js';
+import { api } from '../shared/api.js';
+import { isMuted, sfx, toggleMute, unlockAudio } from '../shared/audio.js';
+import { formatCountdown, syncClock } from '../shared/clock.js';
+import { $, escapeHtml, toast } from '../shared/dom.js';
 import { renderGrid } from '../shared/grid.js';
 import { createSocket, request } from '../shared/socket.js';
-import { normaliseCode } from '@shared/util.js';
 
+const KEY_STORAGE = 'cb.display.key';
 const app = $('#app');
-const params = new URLSearchParams(window.location.search);
-let code = normaliseCode(params.get('code') || '');
-let state = null;
+const modalRoot = $('#modal-root');
+
 let socket = null;
+let state = null;
 let connected = false;
-let subscribing = false;
-let lastError = '';
+let creating = false;
+let fatal = '';
 
-function playerJoinUrl(current) {
-  if (!current) return '';
-  const base = current.join?.url || location.origin;
-  try {
-    return new URL(`/${encodeURIComponent(current.session.joinCode)}`, base).href;
-  } catch {
-    return `${location.origin}/${encodeURIComponent(current.session.joinCode)}`;
-  }
+let settingsOpen = false;
+let menuOpen = false;
+let importUi = null;
+let armed = null; // { action, timer } for two-step confirmations
+let lastPhase = null;
+let stageSig = '';
+let chromeSig = '';
+let controlsSig = '';
+let modalSig = '';
+
+const fileInput = document.createElement('input');
+fileInput.type = 'file';
+fileInput.accept = '.csv,text/csv';
+fileInput.hidden = true;
+document.body.append(fileInput);
+let importTarget = null;
+
+// ------------------------------------------------------------------ helpers
+
+const controlKey = () => localStorage.getItem(KEY_STORAGE) || '';
+const hasControl = () => Boolean(state?.viewer?.control);
+const configOf = () => state?.session?.config || {};
+
+function play(name) {
+  if (configOf().soundEnabled === false) return;
+  sfx[name]?.();
 }
 
-function topbar(current) {
-  return `
-    <header class="display-top">
-      <div class="display-brand">
-        <div class="display-brand__mark">CB</div>
-        <div class="display-brand__text">
-          <div class="display-brand__name">CYBER BATTLESHIPS</div>
-          <div class="display-brand__sub">Battle command centre</div>
-        </div>
-      </div>
-      <div class="display-top__spacer"></div>
-      <div class="display-top__status ${connected ? '' : 'display-top__status--off'}">
-        <span class="status-dot"></span><span>${connected ? 'LIVE LINK' : 'RECONNECTING'}</span>
-      </div>
-      ${
-        current
-          ? `<div class="display-top__code"><span>JOIN CODE</span><strong>${escapeHtml(current.session.joinCode)}</strong></div>`
-          : ''
-      }
-    </header>
-  `;
+function countdown(endsAt) {
+  return `<strong class="timer__value" data-countdown="${escapeHtml(endsAt || '')}">${formatCountdown(endsAt)}</strong>`;
 }
 
-function renderCodeEntry(message = '') {
-  state = null;
-  app.innerHTML = `
-    <div class="display-shell">
-      ${topbar(null)}
-      <main class="display-main">
-        <section class="display-mission">
-          <div class="display-mission__inner">
-            <p class="display-mission__eyebrow">// COMMAND LINK STANDBY //</p>
-            <h1>ENTER<br />OPERATION</h1>
-            <p>Type the join code shown in the facilitator console, or open this display from the console.</p>
-            <form id="display-form" style="width:min(420px,100%);display:grid;gap:0.8rem">
-              <input class="input input--code" name="code" value="${escapeHtml(code)}" maxlength="6" placeholder="ABC123" autocomplete="off" autocapitalize="characters" spellcheck="false" />
-              <button class="btn btn--primary btn--wide" type="submit">CONNECT DISPLAY</button>
-              ${message ? `<p class="form-error">${escapeHtml(message)}</p>` : ''}
-            </form>
-          </div>
-        </section>
-      </main>
-      <footer class="display-foot">
-        <span>CB // PROJECTOR TERMINAL</span>
-        <span>Awaiting command link</span>
-      </footer>
-    </div>
-  `;
-  const input = $('#display-form input');
-  setTimeout(() => input?.focus(), 50);
+function timerBlock(label, endsAt) {
+  return `<div class="timer"><span class="timer__label">${label}</span>${countdown(endsAt)}</div>`;
 }
 
-function renderLobby() {
-  const current = state;
-  const session = current.session;
-  const join = playerJoinUrl(current);
-  const teams = current.teams || [];
-  const individual = session.mode === MODES.INDIVIDUAL;
-  const gridClass = `display-team-grid--${Math.min(6, Math.max(1, teams.length))}`;
-  const title = individual ? 'INDIVIDUAL COMPETITORS' : 'TEAM ROSTERS';
-
-  app.innerHTML = `
-    <div class="display-shell">
-      ${topbar(current)}
-      <main class="display-main">
-        <section class="display-lobby">
-          <aside class="display-join panel">
-            <p class="display-join__eyebrow">SCAN TO ENLIST</p>
-            <div class="display-qr"><img src="${current.join.qrUrl}" alt="QR code to join" /></div>
-            <div class="display-join-url">${escapeHtml(join)}</div>
-            <div>
-              <p class="display-join__eyebrow">JOIN CODE</p>
-              <div class="display-code-big">${escapeHtml(session.joinCode)}</div>
-            </div>
-            <div class="display-count">
-              <strong>${current.counts.players}</strong>
-              <span>Operatives enlisted</span>
-            </div>
-            ${current.counts.spectators > 0 ? `<div class="display-top__status" style="color:var(--muted)"><span class="status-dot status-dot--amber"></span>${current.counts.spectators} SPECTATOR${current.counts.spectators === 1 ? '' : 'S'}</div>` : ''}
-            <button class="btn btn--green btn--wide display-start" type="button" data-action="start-round">START ROUND</button>
-            <p class="display-start__hint">Launches with any number of operatives</p>
-          </aside>
-
-          <div class="display-teams">
-            <div class="display-section-head">
-              <strong>${title}</strong>
-              <span>${escapeHtml(modeLabel(session.mode))} // ${escapeHtml(session.config.ageGroup.toUpperCase())} // ${escapeHtml(session.config.difficulty.toUpperCase())}</span>
-            </div>
-            ${
-              individual
-                ? renderIndividuals(current)
-                : `<div class="display-team-grid ${gridClass}">
-                     ${teams.map((team) => renderTeam(team)).join('') || renderWaitingTeam()}
-                   </div>`
-            }
-            <div class="display-ticker">
-              <span class="display-ticker__dot"></span>
-              <span><strong>${escapeHtml(session.name)}</strong> // ${current.counts.connected} of ${current.counts.players} devices online // ${current.counts.teams} ${current.counts.teams === 1 ? 'team' : 'teams'} configured // ${session.config.lobbyLocked ? 'LOBBY LOCKED' : 'AWAITING OPERATIVES'}</span>
-            </div>
-          </div>
-        </section>
-      </main>
-      ${footer()}
-    </div>
-  `;
-}
-
-function renderTeam(team) {
-  const roster = team.players || [];
-  return `
-    <article class="display-team" style="--team:${team.color}">
-      <div class="display-team__head">
-        <div class="display-team__name">${escapeHtml(team.name)}</div>
-        <div class="display-team__count">${team.playerCount}<small>/${team.maxPlayers}</small></div>
-      </div>
-      ${
-        roster.length
-          ? `<div class="display-team__roster">
-               ${roster
-                 .map(
-                   (player) =>
-                     `<span class="display-chip ${player.connected ? '' : 'display-chip--off'}"><span class="display-chip__dot"></span>${escapeHtml(player.name)}</span>`,
-                 )
-                 .join('')}
-             </div>`
-          : '<div class="display-team__empty">Awaiting operatives</div>'
-      }
-      <div class="display-team__footer">
-        <span>${team.playerCount > 0 ? '<strong>READY</strong>' : '<strong class="waiting">WAITING</strong>'}</span>
-        <span>${team.connectedCount}/${team.playerCount} ONLINE</span>
-      </div>
-    </article>
-  `;
-}
-
-function renderWaitingTeam() {
-  return `
-    <article class="display-team" style="--team:var(--cyan)">
-      <div class="display-team__head"><div class="display-team__name">STANDBY</div></div>
-      <div class="display-team__empty">Teams appear here when the operation is configured</div>
-    </article>
-  `;
-}
-
-function renderIndividuals(current) {
-  const players = current.players || [];
-  if (!players.length) {
-    return `<div class="display-individuals"><div class="display-team__empty">Awaiting individual competitors</div></div>`;
-  }
-  return `
-    <div class="display-individuals">
-      ${players
-        .map(
-          (player, index) => `
-          <div class="display-individual" style="--team:${index % 2 ? 'var(--amber)' : 'var(--cyan)'}">
-            <strong>${escapeHtml(player.name)}</strong>
-            <span>${player.connected ? 'ONLINE' : 'OFFLINE'} // COMPETITOR ${String(index + 1).padStart(2, '0')}</span>
-          </div>`,
-        )
-        .join('')}
-    </div>
-  `;
-}
-
-function footer() {
-  return `
-    <footer class="display-foot">
-      <span>CB // BATTLE COMMAND CENTRE</span>
-      <span id="display-clock">${formatClock(Date.now())}</span>
-      <div class="display-foot__actions">
-        <button class="icon-btn" type="button" data-action="sound" title="Toggle audio">${isMuted() ? 'OFF' : 'SND'}</button>
-        <button class="icon-btn" type="button" data-action="fullscreen" title="Toggle fullscreen">⛶</button>
-      </div>
-    </footer>
-  `;
-}
-
-function renderMission() {
-  const current = state;
-  app.innerHTML = `
-    <div class="display-shell">
-      ${topbar(current)}
-      <main class="display-main">
-        <section class="display-mission">
-          <div class="display-mission__inner">
-            <p class="display-mission__eyebrow">// ALL HANDS // ALL STATIONS //</p>
-            <h1>MISSION<br />READY</h1>
-            <p>${escapeHtml(current.session.name)} // ${current.counts.players} operatives across ${current.counts.teams || 1} ${current.counts.teams === 1 ? 'team' : 'teams'}</p>
-            <div class="display-mission__lineup">
-              ${
-                current.teams
-                  .map(
-                    (team) => `
-                    <div class="display-mission__team" style="--team:${team.color}">
-                      <strong>${escapeHtml(team.name)}</strong>
-                      ${team.players.map((player) => `<span>${escapeHtml(player.name)}</span>`).join('') || '<span>No operatives</span>'}
-                    </div>`,
-                  )
-                  .join('') ||
-                (current.players || [])
-                  .map(
-                    (player) =>
-                      `<div class="display-mission__team" style="--team:var(--cyan)"><strong>${escapeHtml(player.name)}</strong><span>INDIVIDUAL COMPETITOR</span></div>`,
-                  )
-                  .join('')
-              }
-            </div>
-            <p class="tiny muted">LAUNCH THE FIRST QUESTION ROUND WHEN EVERY OPERATIVE IS READY</p>
-            <button class="btn btn--green display-start" type="button" data-action="start-round">START ROUND</button>
-          </div>
-        </section>
-      </main>
-      ${footer()}
-    </div>
-  `;
-}
-
-const OPTION_KEYS = 'ABCDEF';
-
-function optionKey(index) {
-  return OPTION_KEYS[index] || String(index + 1);
-}
-
-function displayScores(round) {
-  return [...(round?.scores || [])].sort(
-    (a, b) => b.points - a.points || b.hits - a.hits || a.name.localeCompare(b.name),
-  );
-}
-
-function displayScoreboard(round) {
-  const rows = displayScores(round);
-  return `
-    <section class="display-round-score panel">
-      <div class="display-round-score__head">
-        <strong>BATTLE SCORE</strong>
-        <span>ROUND ${round?.number || 1}</span>
-      </div>
-      <div class="display-round-score__rows">
-        ${rows
-          .map(
-            (row, index) => `
-            <div class="display-score-row" style="--row:${row.color}">
-              <span class="display-score-row__rank">${index + 1}</span>
-              <span class="display-score-row__name">${escapeHtml(row.name)}</span>
-              <span class="display-score-row__points">${row.points}</span>
-              <span class="display-score-row__meta">${row.hits} HIT // ${row.missiles} MSL</span>
-            </div>`,
-          )
-          .join('') || '<p class="tiny muted">Awaiting combatants</p>'}
-      </div>
-    </section>
-  `;
-}
-
-function displayRoundHead(round, { title, label, endsAt }) {
-  const current = state;
-  return `
-    <header class="display-round-head">
-      <div>
-        <p class="display-round-head__eyebrow">// ROUND ${round.number} // ${escapeHtml(label)} //</p>
-        <h1 class="display-round-head__title">${escapeHtml(title)}</h1>
-      </div>
-      <div class="display-round-head__meta">
-        <span>${escapeHtml(current.session.name)}</span>
-        <strong data-countdown="${escapeHtml(endsAt || '')}">${formatCountdown(endsAt)}</strong>
-      </div>
-    </header>
-  `;
-}
-
-function renderDisplayBoard(board, round) {
-  const combatant = round.combatants.find((entry) => entry.id === board.id);
-  return `
-    <article class="board-panel" style="--board-color:${board.color}">
-      <div class="board-panel__head">
-        <div>
-          <div class="board-panel__name">${escapeHtml(board.name)}</div>
-          <div class="board-panel__meta">
-            ${combatant?.targetId ? 'ON THE ATTACK' : 'HOLDING POSITION'}
-          </div>
-        </div>
-        <div class="board-panel__meta">${board.shipsSunk}/${board.shipsTotal} SUNK</div>
-      </div>
-      ${renderGrid({
-        size: board.gridSize,
-        shots: board.shots,
-        ships: board.ships || [],
-        revealShips: Boolean(board.ships?.length),
-        label: `${board.name} grid`,
-      })}
-    </article>
-  `;
-}
-
-function renderQuestion() {
-  const round = state.round;
-  const question = round?.question;
-  if (!round) return renderMission();
-  if (!question) {
-    app.innerHTML = `
-      <div class="display-shell">
-        ${topbar(state)}
-        ${displayRoundHead(round, { title: 'NEXT QUESTION', label: 'QUESTION PHASE', endsAt: round.quizEndsAt })}
-        <main class="display-round display-round--waiting">
-          <p>Next question incoming…</p>
-        </main>
-        ${footer()}
-      </div>
-    `;
-    return;
-  }
-
-  app.innerHTML = `
-    <div class="display-shell">
-      ${topbar(state)}
-      ${displayRoundHead(round, {
-        title: 'LIVE QUESTION',
-        label: `${round.answered}/${round.totalPlayers} ANSWERED`,
-        endsAt: question.revealed ? question.revealUntil : question.endsAt,
-      })}
-      <main class="display-round display-round--question">
-        <section class="display-question panel">
-          <div class="display-question__meta">
-            <span>Q${question.number}</span>
-            <span>${escapeHtml(question.category)}</span>
-            <span>${escapeHtml(question.difficulty)}</span>
-          </div>
-          <h2 class="display-question__prompt">${escapeHtml(question.prompt)}</h2>
-          <div class="display-options">
-            ${question.options
-              .map(
-                (option, index) => `
-                <div class="display-option ${question.revealed && index === question.answerIndex ? 'is-correct' : ''} ${question.revealed && index !== question.answerIndex ? 'is-dim' : ''}">
-                  <span class="display-option__key">${optionKey(index)}</span>
-                  <span class="display-option__text">${escapeHtml(option)}</span>
-                  ${round.answerTally ? `<span class="display-option__count">${round.answerTally[index] || 0}</span>` : ''}
-                </div>`,
-              )
-              .join('')}
-          </div>
-          ${
-            question.revealed
-              ? `<div class="display-answer">
-                   <strong>ANSWER ${optionKey(question.answerIndex)}</strong>
-                   <span>${escapeHtml(question.explanation || '')}</span>
-                 </div>`
-              : '<div class="display-answer display-answer--hidden">CORRECT ANSWER HIDDEN UNTIL REVEAL</div>'
-          }
-        </section>
-        ${displayScoreboard(round)}
-      </main>
-      ${footer()}
-    </div>
-  `;
-}
-
-function renderAttack() {
-  const round = state.round;
-  if (!round) return renderMission();
-  app.innerHTML = `
-    <div class="display-shell">
-      ${topbar(state)}
-      ${displayRoundHead(round, {
-        title: 'ATTACK PHASE',
-        label: `${round.attacks.length} MISSILES FIRED`,
-        endsAt: round.attackEndsAt,
-      })}
-      <main class="display-round display-round--attack">
-        <div class="display-board-grid">
-          ${round.boards.map((board) => renderDisplayBoard(board, round)).join('')}
-        </div>
-        ${displayScoreboard(round)}
-      </main>
-      ${footer()}
-    </div>
-  `;
-}
-
-function renderRoundOver() {
-  const round = state.round;
-  if (!round) return renderMission();
-  const outcome = round.outcome || {};
-  app.innerHTML = `
-    <div class="display-shell">
-      ${topbar(state)}
-      ${displayRoundHead(round, {
-        title: 'ROUND COMPLETE',
-        label: `${round.attacks.length} MISSILES // ${round.answered} ANSWERS`,
-      })}
-      <main class="display-round display-round--over">
-        <section class="display-outcome" style="--winner:${outcome.winnerColor || 'var(--cyan)'}">
-          <p class="display-outcome__eyebrow">// WINNING SIGNAL //</p>
-          <h2 class="display-outcome__name">${escapeHtml(outcome.winnerName || 'ROUND COMPLETE')}</h2>
-          <p class="display-outcome__reason">${escapeHtml(outcome.reason || '')}</p>
-        </section>
-        <div class="display-board-grid display-board-grid--compact">
-          ${round.boards.map((board) => renderDisplayBoard(board, round)).join('')}
-        </div>
-        ${displayScoreboard(round)}
-      </main>
-      ${footer()}
-    </div>
-  `;
-}
-
-function render() {
-  if (!state) {
-    if (code) renderBoot();
-    else renderCodeEntry(lastError);
-    return;
-  }
-  switch (state.session.phase) {
-    case PHASES.MISSION_READY:
-      renderMission();
-      break;
-    case PHASES.QUESTION:
-      renderQuestion();
-      break;
-    case PHASES.ATTACK:
-      renderAttack();
-      break;
-    case PHASES.ROUND_OVER:
-      renderRoundOver();
-      break;
-    default:
-      renderLobby();
-  }
-}
-
-function renderBoot() {
-  app.innerHTML = `
-    <div class="display-shell">
-      ${topbar(null)}
-      <main class="display-main">
-        <div class="boot-screen" style="min-height:60vh">
-          <div class="boot-screen__logo">OPERATION ${escapeHtml(code || 'STANDBY')}</div>
-          <div class="boot-screen__bar"><span></span></div>
-          <p>${lastError ? escapeHtml(lastError) : 'Synchronising battle command…'}</p>
-        </div>
-      </main>
-      ${footer()}
-    </div>
-  `;
-}
-
-async function subscribe() {
-  if (!code || subscribing) return;
-  if (!socket) ensureSocket();
-  if (!socket.connected) {
-    socket.connect();
-    return;
-  }
-  subscribing = true;
-  lastError = '';
-  renderBoot();
-  try {
-    await request(socket, EVENTS.DISPLAY_SUBSCRIBE, { code });
-  } catch (error) {
-    lastError = error.message || 'That operation could not be found.';
-    state = null;
-    renderCodeEntry(lastError);
-  } finally {
-    subscribing = false;
-  }
-}
+// -------------------------------------------------------------- connection
 
 function ensureSocket() {
   if (socket) return;
   socket = createSocket();
+  socket.on('hello', ({ serverNow }) => syncClock(serverNow));
   socket.on('connect', () => {
     connected = true;
-    if (code) subscribe();
-    else renderCodeEntry(lastError);
+    renderChromeStatus();
+    subscribe();
   });
   socket.on('disconnect', () => {
     connected = false;
-    const status = document.querySelector('.display-top__status');
-    if (status) {
-      status.classList.add('display-top__status--off');
-      status.innerHTML = '<span class="status-dot"></span><span>RECONNECTING</span>';
-    }
+    renderChromeStatus();
+  });
+  socket.on('connect_error', () => {
+    connected = false;
+    renderChromeStatus();
   });
   socket.on(EVENTS.STATE, (next) => {
-    if (!next?.session || next.session.joinCode !== code) return;
-    state = next;
     syncClock(next.meta?.serverNow);
-    render();
+    applyState(next);
   });
-  socket.on(EVENTS.TOAST, (payload) => {
-    toast(payload.message, payload.level || 'info', '#toast-root');
-    if (payload.level === 'join') sfx.join();
-    else if (payload.level === 'alert') sfx.alert();
+  socket.on(EVENTS.TOAST, (message) => {
+    toast(message.message, message.level, '#toast-root');
+    if (message.level === 'join') play('join');
   });
   socket.on(EVENTS.SESSION_CLOSED, () => {
-    toast('Operation closed.', 'error', '#toast-root');
+    if (creating) return;
     state = null;
-    lastError = 'This operation has closed.';
-    renderCodeEntry(lastError);
+    subscribe();
   });
+  socket.on(EVENTS.GAME_ERROR, (error) => toast(error.message, 'error', '#toast-root'));
   socket.connect();
 }
 
-on(app, 'click', async (event) => {
-  const button = event.target.closest('[data-action]');
-  if (!button) return;
-  unlockAudio();
-  sfx.click();
-  if (button.dataset.action === 'sound') {
-    toggleMute();
-    button.textContent = isMuted() ? 'OFF' : 'SND';
-  }
-  if (button.dataset.action === 'fullscreen') {
-    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-    else document.documentElement.requestFullscreen?.().catch(() => {});
-  }
-  if (button.dataset.action === 'start-round') {
-    if (!socket?.connected || !code) {
-      toast('Display is not connected.', 'error', '#toast-root');
-      return;
+async function subscribe() {
+  try {
+    const wantsNew = new URLSearchParams(window.location.search).has('new');
+    const result = await request(socket, EVENTS.DISPLAY_SUBSCRIBE, { key: controlKey() || null });
+    if (!result.game || wantsNew) {
+      await createGame({ force: wantsNew });
+      if (wantsNew) window.history.replaceState({}, '', '/display');
     }
-    button.disabled = true;
-    button.textContent = 'STARTING…';
-    try {
-      await request(socket, EVENTS.DISPLAY_START, { code });
-      sfx.success();
-    } catch (error) {
+  } catch (error) {
+    fatal = error.message || 'Could not reach the game server.';
+    renderFatal();
+  }
+}
+
+async function createGame({ force = false } = {}) {
+  creating = true;
+  try {
+    const result = await request(socket, EVENTS.DISPLAY_CREATE, {
+      key: controlKey() || null,
+      force,
+    });
+    localStorage.setItem(KEY_STORAGE, result.key);
+    settingsOpen = false;
+    menuOpen = false;
+    importUi = null;
+    fatal = '';
+  } finally {
+    creating = false;
+  }
+}
+
+function renderFatal() {
+  if (state) return;
+  app.innerHTML = `
+    <div class="boot-screen">
+      <div class="boot-screen__logo">CYBER BATTLESHIPS</div>
+      <p class="form-error">${escapeHtml(fatal)}</p>
+      <button class="btn btn--primary" type="button" data-action="reload">TRY AGAIN</button>
+    </div>`;
+}
+
+function applyState(next) {
+  const previous = state?.session?.phase ?? null;
+  state = next;
+  const phase = next.session.phase;
+  if (previous !== null && previous !== phase) {
+    if (phase !== PHASES.LOBBY) settingsOpen = false;
+    if (phase === PHASES.QUIZ || phase === PHASES.BATTLE) play('alert');
+    if (phase === PHASES.REVIEW || phase === PHASES.RESULT) play('success');
+  }
+  render();
+}
+
+// ------------------------------------------------------------------- shell
+
+function ensureShell() {
+  if ($('#stage')) return;
+  app.innerHTML = `
+    <header id="chrome" class="chrome"></header>
+    <main id="stage" class="stage"></main>
+    <footer id="controls" class="controls"></footer>`;
+  chromeSig = '';
+  stageSig = '';
+  controlsSig = '';
+}
+
+function render() {
+  if (!state) return;
+  ensureShell();
+  renderChrome();
+  renderStage();
+  renderControls();
+  renderModal();
+}
+
+function renderChrome() {
+  const phase = state.session.phase;
+  const control = hasControl();
+  const sig = [phase, control, isMuted(), settingsOpen, menuOpen].join('|');
+  if (sig === chromeSig) return;
+  chromeSig = sig;
+  const gear = control
+    ? `<button class="btn btn--small btn--ghost" type="button" data-action="${phase === PHASES.LOBBY ? 'settings' : 'menu'}">${phase === PHASES.LOBBY ? 'SETTINGS' : 'MENU'}</button>`
+    : '';
+  $('#chrome').innerHTML = `
+    <div class="brand">
+      <div class="brand__mark">CB</div>
+      <div>
+        <div class="brand__name">CYBER BATTLESHIPS</div>
+        <div class="brand__tag">LIVE CYBER DEFENCE</div>
+      </div>
+    </div>
+    <span class="badge badge--live chrome__phase">${escapeHtml(phaseLabel(phase))}</span>
+    ${control ? '' : '<span class="badge badge--warn">VIEW ONLY</span>'}
+    <div class="chrome__spacer"></div>
+    <div id="link" class="chrome__link"></div>
+    <div class="chrome__tools">
+      ${gear}
+      <button class="icon-btn" type="button" data-action="audio" title="Sound">${isMuted() ? 'OFF' : 'SND'}</button>
+      <button class="icon-btn" type="button" data-action="fullscreen" title="Full screen">FS</button>
+    </div>`;
+  renderChromeStatus();
+}
+
+function renderChromeStatus() {
+  const node = $('#link');
+  if (!node) return;
+  node.classList.toggle('is-off', !connected);
+  node.innerHTML = `<span class="status-dot ${connected ? '' : 'status-dot--off'}"></span>${connected ? 'LINKED' : 'RECONNECTING'}`;
+}
+
+// ------------------------------------------------------------------- stage
+
+function renderStage() {
+  const phase = state.session.phase;
+  const sig = [state.meta.version, hasControl(), armed?.action, connected].join('|');
+  if (sig === stageSig) return;
+  const isNew = phase !== lastPhase;
+  stageSig = sig;
+  lastPhase = phase;
+
+  let html;
+  switch (phase) {
+    case PHASES.QUIZ:
+      html = quizScreen();
+      break;
+    case PHASES.REVIEW:
+      html = briefingScreen();
+      break;
+    case PHASES.BATTLE:
+      html = battleScreen();
+      break;
+    case PHASES.RESULT:
+      html = resultScreen();
+      break;
+    default:
+      html = lobbyScreen();
+  }
+  const stage = $('#stage');
+  stage.innerHTML = html;
+  if (isNew) stage.firstElementChild?.classList.add('is-new');
+  updateCountdowns();
+}
+
+function slotMarkup(player, { wrap }) {
+  const control = hasControl();
+  const confirming = armed?.action === `remove:${player.id}`;
+  return `
+    <div class="slot ${wrap ? 'slot--wrap' : ''}">
+      <span class="slot__name">${escapeHtml(player.name)}</span>
+      <span class="slot__state">
+        <span class="slot__dot ${player.connected ? '' : 'is-off'}" title="${player.connected ? 'Online' : 'Offline'}"></span>
+        ${
+          control
+            ? `<button class="slot__remove" type="button" data-remove="${escapeHtml(player.id)}" aria-label="Remove ${escapeHtml(player.name)}">${confirming ? '?' : '✕'}</button>`
+            : ''
+        }
+      </span>
+    </div>`;
+}
+
+function sideCard(team, { wrap }) {
+  const slots = wrap
+    ? team.players.map((player) => slotMarkup(player, { wrap })).join('')
+    : Array.from({ length: team.maxPlayers }, (_, index) =>
+        team.players[index]
+          ? slotMarkup(team.players[index], { wrap })
+          : '<div class="slot slot--empty">WAITING FOR PLAYER</div>',
+      ).join('');
+  return `
+    <article class="side" style="--side:${team.color}">
+      <header class="side__head">
+        <h2 class="side__name">${escapeHtml(team.name)}</h2>
+        <span class="side__count">${team.playerCount} / ${team.maxPlayers}</span>
+      </header>
+      <div class="slots ${wrap ? 'slots--wrap' : ''}">
+        ${slots || '<div class="slot slot--empty">SCAN THE QR CODE TO JOIN</div>'}
+      </div>
+    </article>`;
+}
+
+function lobbyScreen() {
+  const { session, teams, join, counts } = state;
+  const config = session.config;
+  const preset = MODE_PRESETS[session.mode];
+  const versusCpu = Boolean(preset?.versusCpu);
+  const grid = config.gridSize;
+
+  const sides = versusCpu
+    ? `<div class="sides sides--cpu">
+         ${teams.map((team) => sideCard(team, { wrap: true })).join('')}
+         <div class="vs">VS</div>
+         <aside class="cpu-card hud" style="--bracket:var(--violet)">
+           <div class="cpu-card__name">CPU<br />FIREWALL</div>
+           <p class="cpu-card__note">5 hidden ships on a ${grid} × ${grid} grid. Sink them all to win.</p>
+         </aside>
+       </div>`
+    : `<div class="sides sides--versus">
+         ${sideCard(teams[0], { wrap: false })}
+         <div class="vs">VS</div>
+         ${sideCard(teams[1], { wrap: false })}
+       </div>`;
+
+  const tip = hasControl()
+    ? counts.players === 0
+      ? 'Waiting for players to scan the QR code. You can start at any time.'
+      : 'Press START GAME when everyone has joined.'
+    : 'Waiting for the facilitator to start the game.';
+
+  return `
+    <section class="screen lobby">
+      <aside class="join-card panel hud">
+        <p class="eyebrow">Scan to join</p>
+        <div class="join-card__qr"><img src="${escapeHtml(join.qrUrl)}" alt="QR code to join the game" /></div>
+        <div>
+          <div class="join-card__label">JOIN CODE</div>
+          <div class="join-card__code">${escapeHtml(join.code)}</div>
+        </div>
+        <div class="join-card__url">${escapeHtml(join.url.replace(/^https?:\/\//, ''))}</div>
+      </aside>
+      <div class="lobby__main">
+        <div class="mode-strip">
+          <span class="badge badge--mode">${escapeHtml(preset?.label || session.mode)}</span>
+          <span class="badge">Quiz ${config.quizMinutes} min</span>
+          <span class="badge">Battle ${config.battleSeconds} sec</span>
+          <span class="badge">${escapeHtml(setLabel(config.questionSet))} questions</span>
+          <span class="badge">Grid ${grid} × ${grid}</span>
+        </div>
+        ${sides}
+        <p class="lobby__tip">${escapeHtml(tip)}</p>
+      </div>
+    </section>`;
+}
+
+function maxCorrect(teams) {
+  return Math.max(1, ...teams.flatMap((team) => team.players.map((player) => player.correct)));
+}
+
+function progressCard(team, scale, many) {
+  const rows = team.players
+    .map(
+      (player) => `
+      <div class="row ${player.connected ? '' : 'is-offline'}">
+        <span class="row__name">${escapeHtml(player.name)}</span>
+        <span class="row__bar"><span style="width:${Math.round((player.correct / scale) * 100)}%"></span></span>
+        <span class="row__nums">${player.correct} / ${player.answered}</span>
+      </div>`,
+    )
+    .join('');
+  return `
+    <article class="progress" style="--side:${team.color}">
+      <header class="progress__head"><h2 class="progress__name">${escapeHtml(team.name)}</h2></header>
+      <div class="stats">
+        <div class="stat stat--missiles"><span class="stat__value">${team.missiles}</span><span class="stat__label">Missiles</span></div>
+        <div class="stat"><span class="stat__value">${team.correct}</span><span class="stat__label">Correct</span></div>
+        <div class="stat"><span class="stat__value">${team.answered}</span><span class="stat__label">Answered</span></div>
+        <div class="stat"><span class="stat__value">${team.accuracy}%</span><span class="stat__label">Accuracy</span></div>
+      </div>
+      <div class="roster-rows ${many ? 'roster-rows--two' : ''}">${rows || '<p class="muted">No players on this side.</p>'}</div>
+    </article>`;
+}
+
+function quizScreen() {
+  const round = state.round;
+  const teams = round.teams;
+  const scale = maxCorrect(teams);
+  const many = teams.some((team) => team.players.length > 8);
+  return `
+    <section class="screen quiz" style="grid-template-rows:auto minmax(0,1fr)">
+      <header class="screen-head">
+        <div>
+          <h1 class="screen-title">QUIZ UNDERWAY</h1>
+          <p class="screen-sub">Answer on your phone. Every correct answer earns a missile.</p>
+        </div>
+        ${timerBlock('TIME LEFT', round.quizEndsAt)}
+      </header>
+      <div class="progress-grid" style="--teams:${teams.length}">
+        ${teams.map((team) => progressCard(team, scale, many)).join('')}
+      </div>
+    </section>`;
+}
+
+function topPlayer(team) {
+  const best = [...team.players].sort((a, b) => b.correct - a.correct)[0];
+  return best && best.correct > 0 ? best : null;
+}
+
+function briefingScreen() {
+  const round = state.round;
+  const teams = round.teams;
+  const cpu = round.boards.find((board) => board.kind === 'cpu');
+  const cards = teams
+    .map((team) => {
+      const best = topPlayer(team);
+      return `
+      <article class="brief hud" style="--side:${team.color};--bracket:${team.color}">
+        <h2 class="brief__name">${escapeHtml(team.name)}</h2>
+        <div>
+          <div class="brief__missiles">${team.missiles}</div>
+          <div class="brief__missiles-label">MISSILES WON</div>
+        </div>
+        <div class="brief__facts">
+          <div class="brief__fact"><strong>${team.correct}</strong><span>CORRECT</span></div>
+          <div class="brief__fact"><strong>${team.accuracy}%</strong><span>ACCURACY</span></div>
+          <div class="brief__fact"><strong>${team.answered}</strong><span>ANSWERED</span></div>
+        </div>
+        <p class="brief__top">${best ? `Top operative: <b>${escapeHtml(best.name)}</b> (${best.correct} correct)` : 'No correct answers'}</p>
+      </article>`;
+    })
+    .join('');
+
+  const cpuCard = cpu
+    ? `<article class="brief hud" style="--side:var(--violet);--bracket:var(--violet)">
+         <h2 class="brief__name">CPU FIREWALL</h2>
+         <div>
+           <div class="brief__missiles" style="color:var(--violet);text-shadow:0 0 40px rgba(182,109,255,0.55)">${cpu.shipsTotal}</div>
+           <div class="brief__missiles-label">SHIPS TO SINK</div>
+         </div>
+         <p class="brief__top">Hidden on a ${cpu.gridSize} × ${cpu.gridSize} grid</p>
+       </article>`
+    : '';
+
+  const columns = teams.length + (cpu ? 1 : 0);
+  return `
+    <section class="screen" style="grid-template-rows:auto minmax(0,1fr) auto">
+      <header class="screen-head">
+        <div>
+          <h1 class="screen-title">BATTLE BRIEFING</h1>
+          <p class="screen-sub">The quiz is over. This is what each side has won.</p>
+        </div>
+      </header>
+      <div class="briefing-grid" style="--teams:${columns}">${cards}${cpuCard}</div>
+      <p class="briefing-note">${hasControl() ? 'Press START BATTLE when everyone is ready.' : 'Waiting for the facilitator to start the battle.'}</p>
+    </section>`;
+}
+
+function targetBoards(round) {
+  const targeted = new Set(round.combatants.map((combatant) => combatant.targetId));
+  return round.boards.filter((board) => targeted.has(board.id));
+}
+
+function attackersOf(round, boardId) {
+  return round.combatants
+    .filter((combatant) => combatant.targetId === boardId)
+    .map((combatant) => combatant.name)
+    .join(' + ');
+}
+
+function boardMarkup(round, board, { revealed }) {
+  const title = board.kind === 'cpu' ? board.name : `${board.name} FLEET`;
+  return `
+    <article class="board" style="--side:${board.color};--board-size:${revealed ? '36vh' : '50vh'}">
+      <h2 class="board__title">${escapeHtml(title)}<small>ATTACKED BY ${escapeHtml(attackersOf(round, board.id))}</small></h2>
+      <div class="board__grid">${renderGrid({ size: board.gridSize, shots: board.shots, ships: board.ships || [], label: title })}</div>
+      <div class="board__foot"><span>SUNK <b>${board.shipsSunk}/${board.shipsTotal}</b></span><span>SHOTS <b>${board.shots.length}</b></span></div>
+    </article>`;
+}
+
+function scoreBar(round, { detailed }) {
+  const scores = round.scores.filter((score) => score.kind === 'team');
+  return `
+    <div class="scorebar" style="--teams:${scores.length}">
+      ${scores
+        .map(
+          (score) => `
+        <div class="score" style="--side:${score.color}">
+          <span class="score__name">${escapeHtml(score.name)}</span>
+          <span class="score__nums">
+            <span class="score__points">${score.points}<small>PTS</small></span>
+            ${
+              detailed
+                ? `<span class="muted">${score.correct} correct · ${score.hits} hits · ${score.sunk} sunk</span>`
+                : `<span class="score__ammo">${score.missiles}<small>MISSILES</small></span>`
+            }
+          </span>
+        </div>`,
+        )
+        .join('')}
+    </div>`;
+}
+
+function battleScreen() {
+  const round = state.round;
+  return `
+    <section class="screen battle">
+      <header class="screen-head">
+        <div>
+          <h1 class="screen-title">BATTLE</h1>
+          <p class="screen-sub">Fire from your phone. One missile per shot.</p>
+        </div>
+        ${timerBlock('TIME LEFT', round.battleEndsAt)}
+      </header>
+      <div class="boards">${targetBoards(round).map((board) => boardMarkup(round, board, { revealed: false })).join('')}</div>
+      ${scoreBar(round, { detailed: false })}
+    </section>`;
+}
+
+function resultScreen() {
+  const round = state.round;
+  const outcome = round.outcome || {};
+  const preset = MODE_PRESETS[state.session.mode];
+  const eyebrow = preset?.versusCpu
+    ? outcome.humanWin
+      ? 'MISSION COMPLETE'
+      : 'MISSION FAILED'
+    : outcome.draw
+      ? 'NO WINNER'
+      : 'WINNER';
+  return `
+    <section class="screen result">
+      <div class="winner" style="--win:${escapeHtml(outcome.winnerColor || '#19e3ff')}">
+        <span class="winner__eyebrow">${eyebrow}</span>
+        <h1 class="winner__name">${escapeHtml(outcome.winnerName || 'GAME OVER')}</h1>
+        <span class="winner__reason">${escapeHtml(outcome.reason || '')}</span>
+      </div>
+      <div class="boards">${targetBoards(round).map((board) => boardMarkup(round, board, { revealed: true })).join('')}</div>
+      ${scoreBar(round, { detailed: true })}
+    </section>`;
+}
+
+// ---------------------------------------------------------------- controls
+
+function button(label, { action, kind = '', main = false, confirm = false }) {
+  const isArmed = armed?.action === action;
+  const text = confirm && isArmed ? 'TAP AGAIN TO CONFIRM' : label;
+  return `<button class="btn ${kind} ${main ? 'btn--main' : ''} ${isArmed ? 'is-confirm' : ''}" type="button" data-action="${action}" ${confirm ? 'data-confirm' : ''}>${text}</button>`;
+}
+
+function renderControls() {
+  const phase = state.session.phase;
+  const control = hasControl();
+  const players = state.counts.players;
+  const sig = [phase, control, phase === PHASES.LOBBY ? players : '', armed?.action, connected].join('|');
+  if (sig === controlsSig) return;
+  controlsSig = sig;
+
+  let hint = '';
+  let buttons = '';
+
+  if (!control) {
+    hint = 'View only. This screen cannot change the game.';
+    buttons = button('TAKE CONTROL', { action: 'take-control', kind: 'btn--ghost', confirm: true });
+  } else {
+    switch (phase) {
+      case PHASES.LOBBY:
+        hint = `${players} of ${state.counts.capacity} players joined`;
+        buttons = button('START GAME', { action: 'advance', kind: 'btn--go', main: true });
+        break;
+      case PHASES.QUIZ:
+        hint = 'The quiz timer is running.';
+        buttons =
+          button('BACK TO LOBBY', { action: 'lobby', kind: 'btn--ghost', confirm: true }) +
+          button('SKIP TIMER', { action: 'advance', kind: 'btn--primary', main: true });
+        break;
+      case PHASES.REVIEW:
+        hint = 'Share the results, then launch the battle.';
+        buttons =
+          button('BACK TO LOBBY', { action: 'lobby', kind: 'btn--ghost', confirm: true }) +
+          button('START BATTLE', { action: 'advance', kind: 'btn--go', main: true });
+        break;
+      case PHASES.BATTLE:
+        hint = 'The battle ends when the timer runs out or a fleet is sunk.';
+        buttons =
+          button('BACK TO LOBBY', { action: 'lobby', kind: 'btn--ghost', confirm: true }) +
+          button('END BATTLE', { action: 'advance', kind: 'btn--primary', main: true });
+        break;
+      case PHASES.RESULT:
+        hint = 'Same players, fresh fleets. Or reset the room.';
+        buttons =
+          button('NEW GAME', { action: 'new-game', kind: 'btn--ghost', confirm: true }) +
+          button('BACK TO LOBBY', { action: 'lobby', kind: 'btn--ghost' }) +
+          button('PLAY AGAIN', { action: 'advance', kind: 'btn--go', main: true });
+        break;
+      default:
+        break;
+    }
+  }
+
+  $('#controls').innerHTML = `<span class="controls__hint">${escapeHtml(hint)}</span>${buttons}`;
+}
+
+// ------------------------------------------------------------------- modal
+
+function setCardMarkup(set, selected) {
+  const edited = set.custom;
+  return `
+    <div class="set-card ${selected ? 'is-selected' : ''}">
+      <div class="set-card__head">
+        <span class="set-card__name">${escapeHtml(setLabel(set.id))}</span>
+        <button class="btn btn--small ${selected ? 'btn--primary' : ''}" type="button" data-key="questionSet" data-value="${escapeHtml(set.id)}">${selected ? 'IN USE' : 'USE THIS SET'}</button>
+      </div>
+      <p class="set-card__meta">${set.count} questions · ${edited ? 'your edited version' : 'built-in'}</p>
+      <div class="set-card__actions">
+        <button class="btn btn--small btn--ghost" type="button" data-export="${escapeHtml(set.id)}">EXPORT CSV</button>
+        <button class="btn btn--small btn--ghost" type="button" data-import="${escapeHtml(set.id)}">IMPORT CSV</button>
+        ${edited ? `<button class="btn btn--small btn--ghost ${armed?.action === `reset:${set.id}` ? 'is-confirm' : ''}" type="button" data-reset="${escapeHtml(set.id)}">${armed?.action === `reset:${set.id}` ? 'TAP AGAIN' : 'RESET'}</button>` : ''}
+      </div>
+    </div>`;
+}
+
+function importPanelMarkup() {
+  if (!importUi) return '';
+  const name = escapeHtml(importUi.fileName || 'file');
+  const label = escapeHtml(setLabel(importUi.setId));
+  if (importUi.status === 'checking') {
+    return `<div class="import-panel"><p class="import-panel__title">Checking ${name}…</p></div>`;
+  }
+  if (importUi.status === 'saving') {
+    return `<div class="import-panel"><p class="import-panel__title">Saving to the ${label} set…</p></div>`;
+  }
+  if (importUi.status === 'error') {
+    return `
+      <div class="import-panel import-panel--error">
+        <p class="import-panel__title" style="color:var(--red)">NOTHING WAS CHANGED</p>
+        <p class="muted">${name} has problems. Fix them in your spreadsheet and try again.</p>
+        <ul>${importUi.errors.map((entry) => `<li>${entry.row ? `<b>Row ${entry.row}:</b> ` : ''}${escapeHtml(entry.message)}</li>`).join('')}</ul>
+        <div class="import-panel__actions"><button class="btn btn--small" type="button" data-import-cancel>CLOSE</button></div>
+      </div>`;
+  }
+  const current = state.questionSets.find((set) => set.id === importUi.setId);
+  return `
+    <div class="import-panel">
+      <p class="import-panel__title" style="color:var(--green)">READY TO IMPORT INTO ${label}</p>
+      <p><b>${importUi.count}</b> valid questions found in ${name}. This replaces all <b>${current?.count ?? 0}</b> questions currently in the ${label} set.</p>
+      <ul>${importUi.preview.map((entry) => `<li>${escapeHtml(entry.prompt)}</li>`).join('')}</ul>
+      ${importUi.warnings.length ? `<ul>${importUi.warnings.map((entry) => `<li><b>${entry.row ? `Row ${entry.row}` : 'Note'}:</b> ${escapeHtml(entry.message)}</li>`).join('')}</ul>` : ''}
+      <div class="import-panel__actions">
+        <button class="btn btn--small btn--go" type="button" data-import-confirm>CONFIRM IMPORT</button>
+        <button class="btn btn--small btn--ghost" type="button" data-import-cancel>CANCEL</button>
+      </div>
+    </div>`;
+}
+
+function segMarkup(key, values, current, { suffix = '', labels = null } = {}) {
+  return `<div class="seg">${values
+    .map(
+      (value) =>
+        `<button class="seg__opt ${String(current) === String(value) ? 'is-active' : ''}" type="button" data-key="${key}" data-value="${value}">${labels ? labels[value] : value}${suffix}</button>`,
+    )
+    .join('')}</div>`;
+}
+
+function settingsModal() {
+  const config = configOf();
+  const players = state.counts.players;
+  const modeCards = MODE_LIST.map(
+    (preset) => `
+      <button class="mode-card ${config.mode === preset.id ? 'is-active' : ''}" type="button" data-key="mode" data-value="${preset.id}">
+        <strong>${escapeHtml(preset.label)}</strong>
+        <span>${escapeHtml(preset.blurb)}</span>
+      </button>`,
+  ).join('');
+
+  return `
+    <div class="modal-backdrop" data-backdrop>
+      <section class="modal hud" role="dialog" aria-modal="true" aria-label="Game settings">
+        <header class="modal__head">
+          <h2 class="modal__title">GAME SETTINGS</h2>
+          <span class="badge badge--warn">${players} joined</span>
+        </header>
+        <div class="modal__body">
+          <div class="setting">
+            <span class="setting__label">GAME MODE</span>
+            <div class="mode-cards">${modeCards}</div>
+          </div>
+          <div class="setting-grid">
+            <div class="setting">
+              <span class="setting__label">QUIZ TIME</span>
+              ${segMarkup('quizMinutes', range(LIMITS.minQuizMinutes, LIMITS.maxQuizMinutes), config.quizMinutes, { suffix: ' MIN' })}
+            </div>
+            <div class="setting">
+              <span class="setting__label">BATTLE TIME</span>
+              ${segMarkup('battleSeconds', [30, 60, 90, 120, 180], config.battleSeconds, { suffix: 's' })}
+            </div>
+            <div class="setting">
+              <span class="setting__label">GRID SIZE</span>
+              ${segMarkup('gridSize', [8, 10, 12], config.gridSize)}
+            </div>
+          </div>
+          <div class="setting">
+            <span class="setting__label">QUESTION SET</span>
+            <div class="setting-grid" style="grid-template-columns:repeat(2,minmax(0,1fr))">
+              ${state.questionSets.map((set) => setCardMarkup(set, set.id === config.questionSet)).join('')}
+            </div>
+            ${importPanelMarkup()}
+            <p class="setting__help">Export a set to get a CSV file, edit it in Excel or Google Sheets, then import it back. Each row is one question with the columns below. Import replaces only the set you choose.</p>
+            <div class="code-block">category, question, option_a, option_b, option_c, option_d, correct (A-D), explanation</div>
+          </div>
+          <div class="setting">
+            <span class="setting__label">SOUND EFFECTS</span>
+            ${segMarkup('soundEnabled', ['true', 'false'], String(config.soundEnabled), { labels: { true: 'ON', false: 'OFF' } })}
+          </div>
+        </div>
+        <footer class="modal__foot">
+          <button class="btn btn--primary" type="button" data-modal="close">DONE</button>
+        </footer>
+      </section>
+    </div>`;
+}
+
+function menuModal() {
+  return `
+    <div class="modal-backdrop" data-backdrop>
+      <section class="modal hud" role="dialog" aria-modal="true" aria-label="Game menu" style="max-width:36rem">
+        <header class="modal__head"><h2 class="modal__title">GAME MENU</h2></header>
+        <div class="modal__body">
+          <p class="setting__help" style="font-size:1.15rem">Settings can only be changed in the lobby. Go back to the lobby to adjust them, or start a new game with a fresh join code.</p>
+          ${button('BACK TO LOBBY', { action: 'lobby', kind: 'btn--wide', confirm: true })}
+          ${button('NEW GAME (NEW CODE)', { action: 'new-game', kind: 'btn--wide btn--danger', confirm: true })}
+        </div>
+        <footer class="modal__foot"><button class="btn btn--primary" type="button" data-modal="close">CLOSE</button></footer>
+      </section>
+    </div>`;
+}
+
+function range(from, to) {
+  return Array.from({ length: to - from + 1 }, (_, index) => from + index);
+}
+
+function renderModal() {
+  const open = (settingsOpen || menuOpen) && hasControl();
+  if (!open) {
+    if (modalSig !== '') {
+      modalRoot.innerHTML = '';
+      modalSig = '';
+    }
+    return;
+  }
+  const sig = JSON.stringify([
+    settingsOpen,
+    menuOpen,
+    configOf(),
+    state.questionSets,
+    state.counts.players,
+    importUi,
+    armed?.action,
+  ]);
+  if (sig === modalSig) return;
+  const body = $('.modal__body', modalRoot);
+  const scroll = body ? body.scrollTop : 0;
+  modalSig = sig;
+  modalRoot.innerHTML = settingsOpen ? settingsModal() : menuModal();
+  const next = $('.modal__body', modalRoot);
+  if (next) next.scrollTop = scroll;
+}
+
+// ----------------------------------------------------------------- actions
+
+async function send(event, payload = {}) {
+  try {
+    await request(socket, event, payload);
+    return true;
+  } catch (error) {
+    toast(error.message, 'error', '#toast-root');
+    play('error');
+    return false;
+  }
+}
+
+function disarm() {
+  if (armed?.timer) clearTimeout(armed.timer);
+  armed = null;
+}
+
+function arm(action) {
+  disarm();
+  armed = {
+    action,
+    timer: setTimeout(() => {
+      armed = null;
+      stageSig = '';
+      controlsSig = '';
+      modalSig = '';
+      render();
+    }, 3500),
+  };
+  stageSig = '';
+  controlsSig = '';
+  modalSig = '';
+  render();
+}
+
+async function runAction(action, node) {
+  if (node) node.disabled = true;
+  let ok = true;
+  switch (action) {
+    case 'advance':
+      ok = await send(EVENTS.DISPLAY_ADVANCE);
+      break;
+    case 'lobby':
+      ok = await send(EVENTS.DISPLAY_LOBBY);
+      if (ok) menuOpen = false;
+      break;
+    case 'new-game':
+    case 'take-control':
+      try {
+        await createGame({ force: action === 'take-control' });
+      } catch (error) {
+        ok = false;
+        toast(error.message, 'error', '#toast-root');
+      }
+      break;
+    default:
+      break;
+  }
+  if (!ok && node) node.disabled = false;
+  if (ok) play('click');
+  chromeSig = '';
+  render();
+}
+
+async function patchSettings(patch) {
+  const ok = await send(EVENTS.DISPLAY_SETTINGS, { patch });
+  if (ok) play('click');
+}
+
+function parseValue(raw) {
+  if (raw === 'true') return true;
+  if (raw === 'false') return false;
+  if (/^\d+$/.test(raw)) return Number(raw);
+  return raw;
+}
+
+async function exportSet(id) {
+  try {
+    const response = await fetch(`/api/questions/${encodeURIComponent(id)}/export.csv`, {
+      headers: { 'x-control-key': controlKey() },
+    });
+    if (!response.ok) throw new Error('Only the game screen that started this game can export questions.');
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `cyber-battleships-${id}-questions.csv`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    toast(`${setLabel(id)} questions exported.`, 'success', '#toast-root');
+  } catch (error) {
+    toast(error.message, 'error', '#toast-root');
+  }
+}
+
+async function importRequest(setId, body) {
+  return api(`/api/questions/${encodeURIComponent(setId)}/import`, {
+    method: 'POST',
+    headers: { 'x-control-key': controlKey() },
+    body,
+  });
+}
+
+fileInput.addEventListener('change', async () => {
+  const file = fileInput.files?.[0];
+  const setId = importTarget;
+  fileInput.value = '';
+  if (!file || !setId) return;
+  if (file.size > 1_000_000) {
+    toast('That file is larger than 1 MB.', 'error', '#toast-root');
+    return;
+  }
+  const csv = await file.text();
+  importUi = { status: 'checking', setId, fileName: file.name };
+  modalSig = '';
+  render();
+  try {
+    const result = await importRequest(setId, { csv, dryRun: true });
+    importUi = {
+      status: 'preview',
+      setId,
+      fileName: file.name,
+      csv,
+      count: result.count,
+      preview: result.preview || [],
+      warnings: result.warnings || [],
+    };
+  } catch (error) {
+    if (error.status === 422 && error.payload?.errors) {
+      importUi = {
+        status: 'error',
+        setId,
+        fileName: file.name,
+        errors: error.payload.errors,
+        warnings: error.payload.warnings || [],
+      };
+    } else {
+      importUi = null;
       toast(error.message, 'error', '#toast-root');
-      sfx.error();
-      button.disabled = false;
-      button.textContent = 'START ROUND';
     }
+  }
+  modalSig = '';
+  render();
+});
+
+async function confirmImport() {
+  if (!importUi || importUi.status !== 'preview') return;
+  const { setId, csv, count } = importUi;
+  importUi = { ...importUi, status: 'saving' };
+  modalSig = '';
+  render();
+  try {
+    await importRequest(setId, { csv });
+    toast(`${setLabel(setId)} set replaced with ${count} questions.`, 'success', '#toast-root');
+    play('success');
+    importUi = null;
+  } catch (error) {
+    toast(error.message, 'error', '#toast-root');
+    importUi = null;
+  }
+  modalSig = '';
+  render();
+}
+
+async function resetSet(id) {
+  try {
+    await api(`/api/questions/${encodeURIComponent(id)}/reset`, {
+      method: 'POST',
+      headers: { 'x-control-key': controlKey() },
+    });
+    toast(`${setLabel(id)} set restored to the built-in questions.`, 'success', '#toast-root');
+  } catch (error) {
+    toast(error.message, 'error', '#toast-root');
+  }
+}
+
+document.addEventListener('click', (event) => {
+  unlockAudio();
+  const target = event.target;
+
+  if (target.closest('[data-backdrop]') && target === target.closest('[data-backdrop]')) {
+    settingsOpen = false;
+    menuOpen = false;
+    importUi = null;
+    chromeSig = '';
+    render();
+    return;
+  }
+
+  const modalClose = target.closest('[data-modal="close"]');
+  if (modalClose) {
+    settingsOpen = false;
+    menuOpen = false;
+    importUi = null;
+    chromeSig = '';
+    render();
+    return;
+  }
+
+  const setting = target.closest('[data-key]');
+  if (setting) {
+    patchSettings({ [setting.dataset.key]: parseValue(setting.dataset.value) });
+    return;
+  }
+
+  const exportButton = target.closest('[data-export]');
+  if (exportButton) {
+    exportSet(exportButton.dataset.export);
+    return;
+  }
+
+  const importButton = target.closest('[data-import]');
+  if (importButton) {
+    importTarget = importButton.dataset.import;
+    fileInput.click();
+    return;
+  }
+
+  if (target.closest('[data-import-confirm]')) {
+    confirmImport();
+    return;
+  }
+  if (target.closest('[data-import-cancel]')) {
+    importUi = null;
+    modalSig = '';
+    render();
+    return;
+  }
+
+  const reset = target.closest('[data-reset]');
+  if (reset) {
+    const key = `reset:${reset.dataset.reset}`;
+    if (armed?.action === key) {
+      disarm();
+      resetSet(reset.dataset.reset);
+    } else {
+      arm(key);
+    }
+    return;
+  }
+
+  const remove = target.closest('[data-remove]');
+  if (remove) {
+    const key = `remove:${remove.dataset.remove}`;
+    if (armed?.action === key) {
+      disarm();
+      send(EVENTS.DISPLAY_REMOVE, { playerId: remove.dataset.remove });
+    } else {
+      arm(key);
+    }
+    return;
+  }
+
+  const actionNode = target.closest('[data-action]');
+  if (!actionNode) return;
+  const action = actionNode.dataset.action;
+
+  switch (action) {
+    case 'audio':
+      toggleMute();
+      chromeSig = '';
+      render();
+      return;
+    case 'fullscreen':
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+      else document.documentElement.requestFullscreen?.().catch(() => {});
+      return;
+    case 'settings':
+      settingsOpen = true;
+      modalSig = '';
+      chromeSig = '';
+      render();
+      return;
+    case 'menu':
+      menuOpen = true;
+      modalSig = '';
+      chromeSig = '';
+      render();
+      return;
+    case 'reload':
+      window.location.reload();
+      return;
+    default:
+      break;
+  }
+
+  if (actionNode.hasAttribute('data-confirm') && armed?.action !== action) {
+    arm(action);
+    return;
+  }
+  disarm();
+  runAction(action, actionNode);
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && (settingsOpen || menuOpen)) {
+    settingsOpen = false;
+    menuOpen = false;
+    importUi = null;
+    chromeSig = '';
+    render();
   }
 });
 
-app.addEventListener('submit', (event) => {
-  const form = event.target.closest('#display-form');
-  if (!form) return;
-  event.preventDefault();
-  const next = normaliseCode(new FormData(form).get('code') || '');
-  if (next.length !== 6) {
-    lastError = 'Enter the six-character join code.';
-    renderCodeEntry(lastError);
-    return;
-  }
-  code = next;
-  lastError = '';
-  window.history.replaceState({}, '', `/display?code=${encodeURIComponent(code)}`);
-  subscribe();
-});
+// ---------------------------------------------------------------- countdown
 
 function updateCountdowns() {
   for (const node of document.querySelectorAll('[data-countdown]')) {
     const value = formatCountdown(node.dataset.countdown);
     if (node.textContent !== value) node.textContent = value;
-    node.classList.toggle('is-low', value !== '0:00' && /^0:0?[0-9]$/.test(value));
+    const [minutes, seconds] = value.split(':').map(Number);
+    node.classList.toggle('is-low', minutes === 0 && seconds <= 10 && node.dataset.countdown !== '');
   }
 }
 
 setInterval(updateCountdowns, 250);
 
-setInterval(() => {
-  const clock = document.querySelector('#display-clock');
-  if (clock) clock.textContent = formatClock(Date.now());
-}, 15_000);
-
-if (code) {
-  ensureSocket();
-} else {
-  renderCodeEntry();
-}
+ensureSocket();

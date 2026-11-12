@@ -10,9 +10,9 @@ import {
   bootTestServer,
   collectStates,
   connect,
-  createSession,
   emitAck,
-  loginHost,
+  joinPlayer,
+  startGameScreen,
   waitFor,
 } from './helpers.js';
 
@@ -26,7 +26,12 @@ function closeAll(sockets) {
   }
 }
 
-test('20 devices join, sync, switch teams, reconnect, lock and reach the first question', async (t) => {
+function latestPhase(collector, phase) {
+  const state = collector.latest();
+  return state?.session?.phase === phase ? state : null;
+}
+
+test('the game screen creates one game and phones join it by code', async (t) => {
   const h = await bootTestServer();
   const sockets = [];
   t.after(async () => {
@@ -34,243 +39,298 @@ test('20 devices join, sync, switch teams, reconnect, lock and reach the first q
     await h.close();
   });
 
-  const cookie = await loginHost(h.baseUrl);
-  const summary = await createSession(h.baseUrl, cookie, { maxPlayersPerTeam: 15, allowLateJoin: false });
+  const screen = await startGameScreen(h.baseUrl, EVENTS);
+  sockets.push(screen.socket);
+  const code = screen.game.joinCode;
+  assert.match(code, /^[A-Z0-9]{6}$/);
+  assert.ok(screen.key.length >= 20);
 
-  const host = await connect(h.baseUrl, cookie);
-  sockets.push(host);
-  const hostStates = collectStates(host);
-  const subscribed = await emitAck(host, EVENTS.HOST_SUBSCRIBE, { sessionId: summary.id });
-  assert.equal(subscribed.ok, true);
-
-  const display = await connect(h.baseUrl);
-  sockets.push(display);
-  const displayStates = collectStates(display);
-  const displaySubscribed = await emitAck(display, EVENTS.DISPLAY_SUBSCRIBE, {
-    code: summary.joinCode,
+  const lobby = await waitFor(() => latestPhase(screen.states, PHASES.LOBBY), {
+    label: 'game screen lobby',
   });
-  assert.equal(displaySubscribed.ok, true);
+  assert.equal(lobby.viewer.control, true);
+  assert.equal(lobby.session.mode, 'squad');
+  assert.equal(lobby.join.url, `${h.config.publicUrl}/${code}`);
 
-  // 20 independent devices enlist; automatic balancing fills ALPHA and BRAVO.
+  const summary = await fetch(`${h.baseUrl}/api/sessions/${code}`).then((response) => response.json());
+  assert.equal(summary.counts.players, 0);
+  assert.equal(summary.teams.length, 2);
+  assert.ok(!JSON.stringify(summary).includes('controlKey'));
+
+  const qr = await fetch(`${h.baseUrl}/api/sessions/${code}/qr.svg`);
+  assert.equal(qr.status, 200);
+  assert.match(qr.headers.get('content-type'), /image\/svg\+xml/);
+  const short = await fetch(`${h.baseUrl}/${code}`, { redirect: 'manual' });
+  assert.equal(short.status, 302);
+  assert.equal(short.headers.get('location'), `/play?code=${code}`);
+  const unknown = await fetch(`${h.baseUrl}/ZZZZZZ`, { redirect: 'manual' });
+  assert.notEqual(unknown.status, 302);
+
   const players = [];
-  for (let index = 1; index <= 20; index += 1) {
-    const socket = await connect(h.baseUrl);
-    sockets.push(socket);
-    const states = collectStates(socket);
-    const result = await emitAck(socket, EVENTS.PLAYER_JOIN, {
-      code: summary.joinCode,
-      name: `Operative ${String(index).padStart(2, '0')}`,
-      teamId: null,
-      asSpectator: false,
-    });
-    assert.equal(result.ok, true, `join ${index} failed: ${JSON.stringify(result)}`);
-    assert.ok(result.token);
-    players.push({ socket, states, result });
+  for (const name of ['Nova', 'Vector', 'Echo', 'Pixel']) {
+    const player = await joinPlayer(h.baseUrl, EVENTS, code, name);
+    assert.equal(player.result.ok, true, JSON.stringify(player.result));
+    sockets.push(player.socket);
+    players.push(player);
   }
 
-  const fullLobby = await waitFor(
+  const full = await waitFor(
     () => {
-      const state = hostStates.latest();
-      return state?.counts?.players === 20 && state.counts.connected === 20 ? state : null;
+      const state = screen.states.latest();
+      return state?.counts?.players === 4 && state.counts.connected === 4 ? state : null;
     },
-    { label: 'host lobby with 20 connected players' },
+    { label: 'four players on the game screen' },
   );
-  assert.equal(fullLobby.teams.length, 2);
-  assert.deepEqual(
-    fullLobby.teams.map((team) => team.playerCount),
-    [10, 10],
-  );
+  assert.deepEqual(full.teams.map((team) => team.playerCount), [2, 2]);
 
-  const displayLobby = await waitFor(
-    () => {
-      const state = displayStates.latest();
-      return state?.counts?.players === 20 ? state : null;
-    },
-    { label: 'public display state with 20 players' },
-  );
-  assert.ok(!JSON.stringify(displayLobby).includes('tokenHash'));
-
-  // A player sees its own projected identity and no private token material.
-  const firstPlayerState = await waitFor(
-    () => {
-      const state = players[0].states.latest();
-      return state?.me?.name === 'Operative 01' ? state : null;
-    },
-    { label: 'first player own projection' },
-  );
-  assert.equal(firstPlayerState.me.id, players[0].result.playerId);
-  assert.ok(!JSON.stringify(firstPlayerState).includes('tokenHash'));
-
-  // Public HTTP summary is safe and consistent with the socket projection.
-  const publicSummary = await fetch(
-    `${h.baseUrl}/api/sessions/${encodeURIComponent(summary.joinCode)}`,
-  ).then((response) => response.json());
-  assert.equal(publicSummary.counts.players, 20);
-  assert.equal(publicSummary.counts.connected, 20);
-  assert.equal(
-    publicSummary.teams.reduce((total, team) => total + team.playerCount, 0),
-    20,
-  );
-  const publicJson = JSON.stringify(publicSummary);
-  assert.ok(!publicJson.includes('tokenHash'));
-  assert.ok(!publicJson.includes('nameKey'));
-  assert.equal(publicSummary.join.url, `${h.config.publicUrl}/${summary.joinCode}`);
-
-  // The QR payload is the short URL, and /<CODE> redirects to the player app.
-  const qrResponse = await fetch(
-    `${h.baseUrl}/api/sessions/${encodeURIComponent(summary.joinCode)}/qr.svg`,
-  );
-  assert.equal(qrResponse.status, 200);
-  assert.match(qrResponse.headers.get('content-type'), /image\/svg\+xml/);
-  const shortResponse = await fetch(`${h.baseUrl}/${summary.joinCode}`, {
-    redirect: 'manual',
+  const mine = await waitFor(() => players[0].states.latest()?.me?.name === 'Nova' && players[0].states.latest(), {
+    label: 'player projection',
   });
-  assert.equal(shortResponse.status, 302);
-  assert.equal(shortResponse.headers.get('location'), `/play?code=${summary.joinCode}`);
-  const unknownShortResponse = await fetch(`${h.baseUrl}/ZZZZZZ`, { redirect: 'manual' });
-  assert.notEqual(unknownShortResponse.status, 302);
-
-  // Player-initiated team switch is reflected on the host console.
-  const currentTeamId = firstPlayerState.me.teamId;
-  const targetTeam = fullLobby.teams.find((team) => team.id !== currentTeamId);
-  const switched = await emitAck(players[0].socket, EVENTS.PLAYER_CHOOSE_TEAM, {
-    teamId: targetTeam.id,
-  });
-  assert.equal(switched.ok, true);
-
-  const switchedLobby = await waitFor(
-    () => {
-      const state = hostStates.latest();
-      const team = state?.teams?.find((entry) => entry.id === targetTeam.id);
-      return team?.playerCount === 11 ? state : null;
-    },
-    { label: 'host state reflecting the team switch' },
-  );
-  assert.equal(
-    switchedLobby.teams.find((team) => team.id === currentTeamId).playerCount,
-    9,
-  );
-
-  // Locking closes enlistment for new devices.
-  await emitAck(host, EVENTS.HOST_LOCK_LOBBY, { sessionId: summary.id, locked: true });
-  const lateSocket = await connect(h.baseUrl);
-  sockets.push(lateSocket);
-  const lateJoin = await emitAck(lateSocket, EVENTS.PLAYER_JOIN, {
-    code: summary.joinCode,
-    name: 'Late Arrival',
-    teamId: null,
-    asSpectator: false,
-  });
-  assert.equal(lateJoin.ok, false);
-  assert.equal(lateJoin.error.code, 'LOBBY_LOCKED');
-  lateSocket.close();
-
-  // Reconnecting with the stored token resumes the same player.
-  const original = players[0];
-  original.socket.disconnect();
-  const resumedSocket = await connect(h.baseUrl);
-  sockets.push(resumedSocket);
-  const resumedStates = collectStates(resumedSocket);
-  const resumed = await emitAck(resumedSocket, EVENTS.PLAYER_RESUME, {
-    code: summary.joinCode,
-    token: original.result.token,
-  });
-  assert.equal(resumed.ok, true);
-  assert.equal(resumed.resumed, true);
-  assert.equal(resumed.playerId, original.result.playerId);
-  assert.equal(resumed.name, 'Operative 01');
-  await waitFor(() => resumedStates.latest()?.me?.id === original.result.playerId, {
-    label: 'resumed player projection',
-  });
-
-  await emitAck(host, EVENTS.HOST_LOCK_LOBBY, { sessionId: summary.id, locked: false });
-
-  const started = await emitAck(host, EVENTS.HOST_START, { sessionId: summary.id });
-  assert.equal(started.ok, true, JSON.stringify(started));
-
-  const hostRound = await waitFor(
-    () => {
-      const state = hostStates.latest();
-      return state?.session?.phase === PHASES.QUESTION ? state : null;
-    },
-    { label: 'host question state' },
-  );
-  assert.equal(hostRound.counts.players, 20);
-  assert.equal(hostRound.session.config.lobbyLocked, true);
-  assert.equal(hostRound.round.number, 1);
-  assert.ok(hostRound.round.question);
-  assert.equal(typeof hostRound.round.question.answerIndex, 'number');
-
-  const displayRound = await waitFor(
-    () => {
-      const state = displayStates.latest();
-      return state?.session?.phase === PHASES.QUESTION ? state : null;
-    },
-    { label: 'display question state' },
-  );
-  assert.equal(displayRound.counts.players, 20);
-  assert.equal(displayRound.round.question.answerIndex, undefined);
-  assert.equal(displayRound.round.question.explanation, undefined);
-
-  const playerRoundState = await waitFor(
-    () => {
-      const state = resumedStates.latest();
-      return state?.session?.phase === PHASES.QUESTION ? state : null;
-    },
-    { label: 'player question state' },
-  );
-  assert.equal(playerRoundState.me.name, 'Operative 01');
-  assert.equal(playerRoundState.round.question.answerIndex, undefined);
-
-  for (const state of [hostRound, displayRound, playerRoundState]) {
-    const serialised = JSON.stringify(state);
-    assert.ok(!serialised.includes('tokenHash'), 'round state leaked tokenHash');
-    assert.ok(!serialised.includes('nameKey'), 'round state leaked nameKey');
-  }
-
-  // Joining after the mission starts is rejected by phase, not just the lock.
-  const afterStart = await connect(h.baseUrl);
-  sockets.push(afterStart);
-  const closed = await emitAck(afterStart, EVENTS.PLAYER_JOIN, {
-    code: summary.joinCode,
-    name: 'Too Late',
-    teamId: null,
-    asSpectator: false,
-  });
-  assert.equal(closed.ok, false);
-  assert.equal(closed.error.code, 'JOIN_CLOSED');
-  afterStart.close();
+  assert.ok(mine.me.teamName);
+  assert.ok(!JSON.stringify(mine).includes('tokenHash'));
 });
 
-test('a lobby and its players survive a full server restart', async (t) => {
+test('only the game screen holding the key can control the game', async (t) => {
+  const h = await bootTestServer();
+  const sockets = [];
+  t.after(async () => {
+    closeAll(sockets);
+    await h.close();
+  });
+
+  const screen = await startGameScreen(h.baseUrl, EVENTS);
+  sockets.push(screen.socket);
+  const code = screen.game.joinCode;
+  const player = await joinPlayer(h.baseUrl, EVENTS, code, 'Curious');
+  sockets.push(player.socket);
+
+  // A player cannot start the game or change settings.
+  const playerStart = await emitAck(player.socket, EVENTS.DISPLAY_ADVANCE, {});
+  assert.equal(playerStart.ok, false);
+  assert.equal(playerStart.error.code, 'UNAUTHORIZED');
+  const playerSettings = await emitAck(player.socket, EVENTS.DISPLAY_SETTINGS, { patch: { quizMinutes: 1 } });
+  assert.equal(playerSettings.ok, false);
+
+  // A second screen without the key sees the game but cannot control it.
+  const mirror = await connect(h.baseUrl);
+  sockets.push(mirror);
+  const mirrorStates = collectStates(mirror);
+  const mirrorSub = await emitAck(mirror, EVENTS.DISPLAY_SUBSCRIBE, {});
+  assert.equal(mirrorSub.ok, true);
+  assert.equal(mirrorSub.control, false);
+  assert.equal(mirrorSub.game.joinCode, code);
+  const mirrored = await waitFor(() => mirrorStates.latest(), { label: 'mirror state' });
+  assert.equal(mirrored.viewer.control, false);
+  const mirrorStart = await emitAck(mirror, EVENTS.DISPLAY_ADVANCE, {});
+  assert.equal(mirrorStart.ok, false);
+
+  // A wrong key is no better than no key.
+  const wrong = await connect(h.baseUrl);
+  sockets.push(wrong);
+  const wrongSub = await emitAck(wrong, EVENTS.DISPLAY_SUBSCRIBE, { key: 'x'.repeat(24) });
+  assert.equal(wrongSub.control, false);
+  const wrongStart = await emitAck(wrong, EVENTS.DISPLAY_ADVANCE, {});
+  assert.equal(wrongStart.ok, false);
+
+  // A new game cannot be created over the live one without the key.
+  const intruder = await connect(h.baseUrl);
+  sockets.push(intruder);
+  const hijack = await emitAck(intruder, EVENTS.DISPLAY_CREATE, {});
+  assert.equal(hijack.ok, false);
+  assert.equal(hijack.error.code, 'GAME_EXISTS');
+  assert.equal(h.manager.current().joinCode, code);
+
+  // The real screen can resume with its key after a reload.
+  const reloaded = await connect(h.baseUrl);
+  sockets.push(reloaded);
+  const reloadSub = await emitAck(reloaded, EVENTS.DISPLAY_SUBSCRIBE, { key: screen.key });
+  assert.equal(reloadSub.control, true);
+  assert.equal((await emitAck(reloaded, EVENTS.DISPLAY_ADVANCE, {})).ok, true);
+  await waitFor(() => player.states.latest()?.session?.phase === PHASES.QUIZ, {
+    label: 'player enters the quiz',
+  });
+});
+
+test('a full game: quiz, briefing, battle and result over real sockets', async (t) => {
+  const h = await bootTestServer();
+  const sockets = [];
+  t.after(async () => {
+    closeAll(sockets);
+    await h.close();
+  });
+
+  const screen = await startGameScreen(h.baseUrl, EVENTS);
+  sockets.push(screen.socket);
+  const code = screen.game.joinCode;
+  const ready = await emitAck(screen.socket, EVENTS.DISPLAY_SETTINGS, {
+    patch: { mode: 'duel', quizMinutes: 1, battleSeconds: 30 },
+  });
+  assert.equal(ready.ok, true, JSON.stringify(ready));
+
+  const alpha = await joinPlayer(h.baseUrl, EVENTS, code, 'Alpha One');
+  const bravo = await joinPlayer(h.baseUrl, EVENTS, code, 'Bravo One');
+  sockets.push(alpha.socket, bravo.socket);
+  const sides = [alpha, bravo];
+
+  await waitFor(() => screen.states.latest()?.counts?.players === 2, { label: 'two players' });
+  assert.equal((await emitAck(screen.socket, EVENTS.DISPLAY_ADVANCE, {})).ok, true);
+
+  const quiz = [];
+  for (const side of sides) {
+    quiz.push(
+      await waitFor(
+        () => {
+          const state = side.states.latest();
+          return state?.session?.phase === PHASES.QUIZ && state.round?.me?.question ? state : null;
+        },
+        { label: 'player question' },
+      ),
+    );
+  }
+  assert.equal(quiz[0].round.me.question.options.length, 4);
+  assert.ok(!JSON.stringify(quiz[0]).includes('answerIndex'));
+
+  // The projector shows progress but never a question or an answer key.
+  const projector = await waitFor(() => latestPhase(screen.states, PHASES.QUIZ), { label: 'projector quiz' });
+  assert.ok(projector.round.quizEndsAt);
+  assert.equal(projector.round.teams.length, 2);
+  assert.ok(!JSON.stringify(projector).includes('prompt'));
+  assert.ok(!JSON.stringify(projector).includes('answerIndex'));
+
+  // Alpha answers correctly using the server-side key; Bravo answers wrongly.
+  const session = h.manager.current();
+  const alphaPlayerId = alpha.result.playerId;
+  const current = session.state.round.quiz[alphaPlayerId].current;
+  const right = await emitAck(alpha.socket, EVENTS.PLAYER_ANSWER, {
+    questionNumber: current.number,
+    optionIndex: current.answerIndex,
+  });
+  assert.equal(right.ok, true, JSON.stringify(right));
+  assert.equal(right.correct, true);
+  assert.equal(right.missiles, 1);
+  assert.equal(right.correctIndex, current.answerIndex);
+
+  const bravoCurrent = session.state.round.quiz[bravo.result.playerId].current;
+  const wrong = await emitAck(bravo.socket, EVENTS.PLAYER_ANSWER, {
+    questionNumber: bravoCurrent.number,
+    optionIndex: (bravoCurrent.answerIndex + 1) % 4,
+  });
+  assert.equal(wrong.correct, false);
+
+  const next = await waitFor(
+    () => {
+      const state = alpha.states.latest();
+      return state?.round?.me?.question?.number === 2 ? state : null;
+    },
+    { label: 'next question arrives straight away' },
+  );
+  assert.equal(next.round.me.correct, 1);
+
+  // Skip the timer: the briefing summarises each side.
+  assert.equal((await emitAck(screen.socket, EVENTS.DISPLAY_ADVANCE, {})).ok, true);
+  const briefing = await waitFor(() => latestPhase(screen.states, PHASES.REVIEW), { label: 'briefing' });
+  const alphaRow = briefing.round.teams.find((team) => team.name === 'ALPHA');
+  assert.equal(alphaRow.correct, 1);
+  assert.equal(alphaRow.missiles, 1);
+
+  assert.equal((await emitAck(screen.socket, EVENTS.DISPLAY_ADVANCE, {})).ok, true);
+  const battle = await waitFor(
+    () => {
+      const state = alpha.states.latest();
+      return state?.session?.phase === PHASES.BATTLE && state.round?.me?.targetBoard ? state : null;
+    },
+    { label: 'player battle' },
+  );
+  assert.equal(battle.round.me.missiles, 1);
+  assert.ok(battle.round.me.targetBoard.ships === undefined, 'no ship positions during battle');
+
+  const targetFleet = session.state.fleets[battle.round.me.targetId];
+  const cell = targetFleet.ships[0].cells[0];
+  const shot = await emitAck(alpha.socket, EVENTS.PLAYER_ATTACK, { x: cell.x, y: cell.y });
+  assert.equal(shot.ok, true, JSON.stringify(shot));
+  assert.equal(shot.hit, true);
+  const noAmmo = await emitAck(alpha.socket, EVENTS.PLAYER_ATTACK, { x: 0, y: 0 });
+  assert.equal(noAmmo.ok, false);
+  assert.equal(noAmmo.error.code, 'NO_MISSILES');
+
+  assert.equal((await emitAck(screen.socket, EVENTS.DISPLAY_ADVANCE, {})).ok, true);
+  const result = await waitFor(() => latestPhase(screen.states, PHASES.RESULT), { label: 'result' });
+  assert.equal(result.round.outcome.winnerName, 'ALPHA');
+  assert.ok(result.round.boards.every((board) => Array.isArray(board.ships)));
+
+  // Play again, then back to the lobby.
+  assert.equal((await emitAck(screen.socket, EVENTS.DISPLAY_ADVANCE, {})).ok, true);
+  await waitFor(() => latestPhase(screen.states, PHASES.QUIZ)?.round?.number === 2, { label: 'round two' });
+  assert.equal((await emitAck(screen.socket, EVENTS.DISPLAY_LOBBY, {})).ok, true);
+  const lobby = await waitFor(() => latestPhase(alpha.states, PHASES.LOBBY), { label: 'back to lobby' });
+  assert.equal(lobby.round, null);
+});
+
+test('removing a player from the game screen disconnects their phone', async (t) => {
+  const h = await bootTestServer();
+  const sockets = [];
+  t.after(async () => {
+    closeAll(sockets);
+    await h.close();
+  });
+
+  const screen = await startGameScreen(h.baseUrl, EVENTS);
+  sockets.push(screen.socket);
+  const player = await joinPlayer(h.baseUrl, EVENTS, screen.game.joinCode, 'Kickable');
+  sockets.push(player.socket);
+  let removed = false;
+  player.socket.on(EVENTS.PLAYER_REMOVED, () => {
+    removed = true;
+  });
+
+  const result = await emitAck(screen.socket, EVENTS.DISPLAY_REMOVE, { playerId: player.result.playerId });
+  assert.equal(result.ok, true);
+  await waitFor(() => removed, { label: 'player removed notice' });
+  await waitFor(() => screen.states.latest()?.counts?.players === 0, { label: 'roster updated' });
+});
+
+test('a new game replaces the old one and closes it for everyone', async (t) => {
+  const h = await bootTestServer();
+  const sockets = [];
+  t.after(async () => {
+    closeAll(sockets);
+    await h.close();
+  });
+
+  const first = await startGameScreen(h.baseUrl, EVENTS);
+  sockets.push(first.socket);
+  const player = await joinPlayer(h.baseUrl, EVENTS, first.game.joinCode, 'Leaver');
+  sockets.push(player.socket);
+  let closed = false;
+  player.socket.on(EVENTS.SESSION_CLOSED, () => {
+    closed = true;
+  });
+
+  const second = await emitAck(first.socket, EVENTS.DISPLAY_CREATE, { key: first.key });
+  assert.equal(second.ok, true, JSON.stringify(second));
+  assert.notEqual(second.game.joinCode, first.game.joinCode);
+  await waitFor(() => closed, { label: 'old players told the game closed' });
+  assert.equal(h.manager.sessions.size, 1);
+  assert.equal(h.manager.getByCode(first.game.joinCode), null);
+
+  const stale = await fetch(`${h.baseUrl}/api/sessions/${first.game.joinCode}`);
+  assert.equal(stale.status, 404);
+});
+
+test('a game and its players survive a full server restart', async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cb-restart-'));
   const pgliteDir = path.join(root, 'pglite');
 
   let h = await bootTestServer({ pgliteDir });
-  const cookie = await loginHost(h.baseUrl);
-  const summary = await createSession(h.baseUrl, cookie, { maxPlayersPerTeam: 4 });
+  const screen = await startGameScreen(h.baseUrl, EVENTS);
+  const code = screen.game.joinCode;
+  const first = await joinPlayer(h.baseUrl, EVENTS, code, 'Restart One');
+  await joinPlayer(h.baseUrl, EVENTS, code, 'Restart Two').then((p) => p.socket.close());
+  assert.equal(first.result.ok, true);
 
-  const first = await connect(h.baseUrl);
-  const firstJoin = await emitAck(first, EVENTS.PLAYER_JOIN, {
-    code: summary.joinCode,
-    name: 'Restart One',
-    teamId: null,
-    asSpectator: false,
-  });
-  assert.equal(firstJoin.ok, true);
-
-  const second = await connect(h.baseUrl);
-  const secondJoin = await emitAck(second, EVENTS.PLAYER_JOIN, {
-    code: summary.joinCode,
-    name: 'Restart Two',
-    teamId: null,
-    asSpectator: false,
-  });
-  assert.equal(secondJoin.ok, true);
-
-  await h.manager.get(summary.id).flush();
-  first.close();
-  second.close();
+  await h.manager.current().flush();
+  screen.socket.close();
+  first.socket.close();
   await h.close();
 
   h = await bootTestServer({ pgliteDir });
@@ -279,368 +339,57 @@ test('a lobby and its players survive a full server restart', async (t) => {
     await fs.rm(root, { recursive: true, force: true });
   });
 
-  const restored = h.manager.getByCode(summary.joinCode);
-  assert.ok(restored, 'session was not restored after restart');
-  assert.equal(restored.id, summary.id);
+  const restored = h.manager.getByCode(code);
+  assert.ok(restored, 'game was not restored after restart');
   assert.equal(restored.state.players.length, 2);
   assert.equal(restored.summary().connectedCount, 0);
 
   const resumedSocket = await connect(h.baseUrl);
   t.after(() => resumedSocket.close());
-  const resumedStates = collectStates(resumedSocket);
+  const states = collectStates(resumedSocket);
   const resumed = await emitAck(resumedSocket, EVENTS.PLAYER_RESUME, {
-    code: summary.joinCode,
-    token: firstJoin.token,
+    code,
+    token: first.result.token,
   });
   assert.equal(resumed.ok, true);
-  assert.equal(resumed.playerId, firstJoin.playerId);
-  assert.equal(resumed.resumed, true);
-
-  const state = await waitFor(
-    () => {
-      const latest = resumedStates.latest();
-      return latest?.me?.id === firstJoin.playerId ? latest : null;
-    },
-    { label: 'restored player projection' },
-  );
-  assert.equal(state.me.name, 'Restart One');
+  assert.equal(resumed.playerId, first.result.playerId);
+  const state = await waitFor(() => states.latest()?.me?.name === 'Restart One' && states.latest(), {
+    label: 'restored player projection',
+  });
   assert.equal(state.counts.players, 2);
-  assert.equal(state.counts.connected, 1);
+
+  // The original control key still works, so the facilitator can carry on.
+  const screenBack = await connect(h.baseUrl);
+  t.after(() => screenBack.close());
+  const sub = await emitAck(screenBack, EVENTS.DISPLAY_SUBSCRIBE, { key: screen.key });
+  assert.equal(sub.control, true);
 });
 
-test('facilitator can force-start a round with no players', async (t) => {
-  const h = await bootTestServer();
-  const cookie = await loginHost(h.baseUrl);
-  const host = await connect(h.baseUrl, cookie);
+test('a game restored mid-quiz keeps its timer and questions', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cb-restart-quiz-'));
+  const pgliteDir = path.join(root, 'pglite');
+
+  let h = await bootTestServer({ pgliteDir });
+  const screen = await startGameScreen(h.baseUrl, EVENTS);
+  const code = screen.game.joinCode;
+  await emitAck(screen.socket, EVENTS.DISPLAY_SETTINGS, { patch: { mode: 'duel' } });
+  const player = await joinPlayer(h.baseUrl, EVENTS, code, 'Mid Quiz');
+  await emitAck(screen.socket, EVENTS.DISPLAY_ADVANCE, {});
+  const endsAt = h.manager.current().state.round.quizEndsAt;
+  const promptBefore = h.manager.current().state.round.quiz[player.result.playerId].current.prompt;
+
+  await h.manager.current().flush();
+  screen.socket.close();
+  player.socket.close();
+  await h.close();
+
+  h = await bootTestServer({ pgliteDir });
   t.after(async () => {
-    host.close();
     await h.close();
+    await fs.rm(root, { recursive: true, force: true });
   });
-
-  const summary = await createSession(h.baseUrl, cookie);
-  const states = collectStates(host);
-  const subscribed = await emitAck(host, EVENTS.HOST_SUBSCRIBE, { sessionId: summary.id });
-  assert.equal(subscribed.ok, true);
-
-  const started = await emitAck(host, EVENTS.HOST_START, { sessionId: summary.id });
-  assert.equal(started.ok, true);
-
-  const state = await waitFor(
-    () => {
-      const latest = states.latest();
-      return latest?.session?.phase === PHASES.QUESTION ? latest : null;
-    },
-    { label: 'facilitator forced start' },
-  );
-  assert.equal(state.counts.players, 0);
-  assert.equal(state.session.config.lobbyLocked, true);
-  assert.equal(state.round.number, 1);
-  assert.ok(state.round.question);
-});
-
-test('battle command display can start a round with no players', async (t) => {
-  const h = await bootTestServer();
-  const display = await connect(h.baseUrl);
-  t.after(async () => {
-    display.close();
-    await h.close();
-  });
-
-  const cookie = await loginHost(h.baseUrl);
-  const summary = await createSession(h.baseUrl, cookie);
-  const states = collectStates(display);
-  const subscribed = await emitAck(display, EVENTS.DISPLAY_SUBSCRIBE, {
-    code: summary.joinCode,
-  });
-  assert.equal(subscribed.ok, true);
-
-  const started = await emitAck(display, EVENTS.DISPLAY_START, { code: summary.joinCode });
-  assert.equal(started.ok, true);
-
-  const state = await waitFor(
-    () => {
-      const latest = states.latest();
-      return latest?.session?.phase === PHASES.QUESTION ? latest : null;
-    },
-    { label: 'display forced start' },
-  );
-  assert.equal(state.counts.players, 0);
-  assert.equal(state.session.config.lobbyLocked, true);
-  assert.equal(state.round.number, 1);
-  assert.ok(state.round.question);
-});
-
-test('a full round runs questions, rewards missiles, resolves attacks and starts the next round', async (t) => {
-  const h = await bootTestServer();
-  const sockets = [];
-  t.after(async () => {
-    closeAll(sockets);
-    await h.close();
-  });
-
-  const cookie = await loginHost(h.baseUrl);
-  const summary = await createSession(h.baseUrl, cookie, { maxPlayersPerTeam: 2, roundMinutes: 2 });
-
-  const host = await connect(h.baseUrl, cookie);
-  sockets.push(host);
-  const hostStates = collectStates(host);
-  assert.equal(
-    (await emitAck(host, EVENTS.HOST_SUBSCRIBE, { sessionId: summary.id })).ok,
-    true,
-  );
-
-  const display = await connect(h.baseUrl);
-  sockets.push(display);
-  const displayStates = collectStates(display);
-  assert.equal(
-    (await emitAck(display, EVENTS.DISPLAY_SUBSCRIBE, { code: summary.joinCode })).ok,
-    true,
-  );
-
-  const players = [];
-  for (const name of ['Nova', 'Vector']) {
-    const socket = await connect(h.baseUrl);
-    sockets.push(socket);
-    const states = collectStates(socket);
-    const joined = await emitAck(socket, EVENTS.PLAYER_JOIN, {
-      code: summary.joinCode,
-      name,
-      teamId: null,
-      asSpectator: false,
-    });
-    assert.equal(joined.ok, true, JSON.stringify(joined));
-    players.push({ socket, states, playerId: joined.playerId, token: joined.token });
-  }
-
-  await waitFor(
-    () => {
-      const state = hostStates.latest();
-      return state?.counts?.players === 2 && state.counts.connected === 2 ? state : null;
-    },
-    { label: 'host roster with two players' },
-  );
-
-  assert.equal((await emitAck(host, EVENTS.HOST_START, { sessionId: summary.id })).ok, true);
-
-  const questionStates = [];
-  for (const player of players) {
-    questionStates.push(
-      await waitFor(
-        () => {
-          const state = player.states.latest();
-          return state?.session?.phase === PHASES.QUESTION && state.round?.question ? state : null;
-        },
-        { label: 'player question state' },
-      ),
-    );
-  }
-  assert.equal(questionStates[0].round.question.answerIndex, undefined);
-
-  const hostQuestion = await waitFor(
-    () => {
-      const state = hostStates.latest();
-      return state?.round?.question ? state : null;
-    },
-    { label: 'host question with answer key' },
-  );
-  const question = hostQuestion.round.question;
-  const answerIndex = question.answerIndex;
-  assert.equal(typeof answerIndex, 'number');
-
-  const correctAnswer = await emitAck(players[0].socket, EVENTS.PLAYER_ANSWER, {
-    questionNumber: question.number,
-    optionIndex: answerIndex,
-  });
-  assert.equal(correctAnswer.ok, true, JSON.stringify(correctAnswer));
-  assert.equal(correctAnswer.correct, true);
-  assert.ok([1, 2, 3].includes(correctAnswer.reward));
-  assert.equal(correctAnswer.missiles, correctAnswer.reward);
-
-  const wrongAnswer = await emitAck(players[1].socket, EVENTS.PLAYER_ANSWER, {
-    questionNumber: question.number,
-    optionIndex: (answerIndex + 1) % question.options.length,
-  });
-  assert.equal(wrongAnswer.ok, true, JSON.stringify(wrongAnswer));
-  assert.equal(wrongAnswer.correct, false);
-  assert.equal(wrongAnswer.reward, 0);
-
-  const revealed = await waitFor(
-    () => {
-      const state = displayStates.latest();
-      return state?.round?.question?.revealed ? state : null;
-    },
-    { label: 'display answer reveal' },
-  );
-  assert.equal(revealed.round.question.answerIndex, answerIndex);
-  assert.equal(revealed.round.answered, 2);
-
-  assert.equal((await emitAck(host, EVENTS.HOST_ADVANCE, { sessionId: summary.id })).ok, true);
-
-  const attacker = await waitFor(
-    () => {
-      const state = players[0].states.latest();
-      return state?.session?.phase === PHASES.ATTACK && state.round?.me?.targetBoard
-        ? state
-        : null;
-    },
-    { label: 'player attack phase' },
-  );
-  assert.equal(attacker.round.me.missiles, correctAnswer.reward);
-  assert.ok(attacker.round.me.attacksLimit >= 1);
-
-  const hostAttack = await waitFor(
-    () => {
-      const state = hostStates.latest();
-      return state?.session?.phase === PHASES.ATTACK ? state : null;
-    },
-    { label: 'host attack phase' },
-  );
-  assert.ok(hostAttack.round.attackEndsAt);
-
-  const ownerId = attacker.round.me.ownerId;
-  const targetBoard = hostAttack.round.boards.find(
-    (board) => board.id === attacker.round.me.targetId,
-  );
-  assert.ok(targetBoard, 'target board is present on the host projection');
-  const shipCell = targetBoard.ships[0].cells[0];
-
-  const shot = await emitAck(players[0].socket, EVENTS.PLAYER_ATTACK, {
-    x: shipCell.x,
-    y: shipCell.y,
-  });
-  assert.equal(shot.ok, true, JSON.stringify(shot));
-  assert.equal(shot.hit, true);
-  assert.equal(shot.missiles, correctAnswer.reward - 1);
-
-  const hitState = await waitFor(
-    () => {
-      const state = hostStates.latest();
-      const score = state?.round?.scores?.find((entry) => entry.id === ownerId);
-      return score?.hits === 1 ? state : null;
-    },
-    { label: 'host state with a registered hit' },
-  );
-  const score = hitState.round.scores.find((entry) => entry.id === ownerId);
-  assert.ok(score.points >= 35);
-  assert.equal(hitState.round.attacks.length, 1);
-
-  assert.equal((await emitAck(host, EVENTS.HOST_ADVANCE, { sessionId: summary.id })).ok, true);
-
-  const over = await waitFor(
-    () => {
-      const state = displayStates.latest();
-      return state?.session?.phase === PHASES.ROUND_OVER && state.round?.outcome ? state : null;
-    },
-    { label: 'round over display state' },
-  );
-  assert.ok(over.round.outcome.winnerName);
-  assert.ok(over.round.boards.every((board) => Array.isArray(board.ships)));
-
-  // The next round starts immediately from the round-over screen.
-  assert.equal((await emitAck(host, EVENTS.HOST_ADVANCE, { sessionId: summary.id })).ok, true);
-  const nextRound = await waitFor(
-    () => {
-      const state = players[1].states.latest();
-      return state?.session?.phase === PHASES.QUESTION && state.round?.number === 2
-        ? state
-        : null;
-    },
-    { label: 'second round question state' },
-  );
-  assert.equal(nextRound.round.number, 2);
-  assert.ok(nextRound.round.question);
-
-  // Facilitator can close the round and return everyone to the lobby.
-  assert.equal((await emitAck(host, EVENTS.HOST_END_ROUND, { sessionId: summary.id })).ok, true);
-  assert.equal(
-    (await emitAck(host, EVENTS.HOST_RETURN_TO_LOBBY, { sessionId: summary.id })).ok,
-    true,
-  );
-  const lobby = await waitFor(
-    () => {
-      const state = players[0].states.latest();
-      return state?.session?.phase === PHASES.LOBBY ? state : null;
-    },
-    { label: 'player returned to lobby' },
-  );
-  assert.equal(lobby.round, null);
-  assert.equal(lobby.session.config.lobbyLocked, false);
-});
-
-test('a late joiner can enlist and answer during a live round', async (t) => {
-  const h = await bootTestServer();
-  const sockets = [];
-  t.after(async () => {
-    closeAll(sockets);
-    await h.close();
-  });
-
-  const cookie = await loginHost(h.baseUrl);
-  const summary = await createSession(h.baseUrl, cookie, {
-    maxPlayersPerTeam: 2,
-    allowLateJoin: true,
-  });
-
-  const host = await connect(h.baseUrl, cookie);
-  sockets.push(host);
-  const hostStates = collectStates(host);
-  assert.equal(
-    (await emitAck(host, EVENTS.HOST_SUBSCRIBE, { sessionId: summary.id })).ok,
-    true,
-  );
-
-  const early = await connect(h.baseUrl);
-  sockets.push(early);
-  const earlyStates = collectStates(early);
-  assert.equal(
-    (
-      await emitAck(early, EVENTS.PLAYER_JOIN, {
-        code: summary.joinCode,
-        name: 'Early Bird',
-        teamId: null,
-        asSpectator: false,
-      })
-    ).ok,
-    true,
-  );
-
-  assert.equal((await emitAck(host, EVENTS.HOST_START, { sessionId: summary.id })).ok, true);
-  await waitFor(
-    () => {
-      const state = earlyStates.latest();
-      return state?.session?.phase === PHASES.QUESTION && state.round?.question ? state : null;
-    },
-    { label: 'early player question state' },
-  );
-
-  const late = await connect(h.baseUrl);
-  sockets.push(late);
-  const lateStates = collectStates(late);
-  const joined = await emitAck(late, EVENTS.PLAYER_JOIN, {
-    code: summary.joinCode,
-    name: 'Latecomer',
-    teamId: null,
-    asSpectator: false,
-  });
-  assert.equal(joined.ok, true, JSON.stringify(joined));
-
-  const lateState = await waitFor(
-    () => {
-      const state = lateStates.latest();
-      return state?.session?.phase === PHASES.QUESTION && state.round?.me ? state : null;
-    },
-    { label: 'late joiner question state' },
-  );
-  assert.equal(lateState.me.name, 'Latecomer');
-  assert.ok(lateState.round.me.ownerId);
-  assert.ok(lateState.round.me.targetBoard);
-
-  const hostQuestion = hostStates.latest().round.question;
-  const answer = await emitAck(late, EVENTS.PLAYER_ANSWER, {
-    questionNumber: hostQuestion.number,
-    optionIndex: hostQuestion.answerIndex,
-  });
-  assert.equal(answer.ok, true, JSON.stringify(answer));
-  assert.equal(answer.correct, true);
-  assert.ok(answer.reward >= 1);
+  const restored = h.manager.getByCode(code);
+  assert.equal(restored.phase, PHASES.QUIZ);
+  assert.equal(restored.state.round.quizEndsAt, endsAt);
+  assert.equal(restored.state.round.quiz[player.result.playerId].current.prompt, promptBefore);
 });

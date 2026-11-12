@@ -4,31 +4,26 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#050b18" />
-    <meta name="description" content="Cyber Battleships — a live multiplayer cyber security training game." />
-    <title>Cyber Battleships // Live Operations</title>
+    <title>Cyber Battleships</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="preload" href="/fonts/press-start-2p-latin.woff2" as="font" type="font/woff2" crossorigin />
-    <link rel="preload" href="/fonts/share-tech-mono-latin.woff2" as="font" type="font/woff2" crossorigin />
   </head>
   <body class="landing-page">
     <div class="scanlines" aria-hidden="true"></div>
     <div id="app">
       <main class="landing">
-        <section class="landing__hero">
+        <header class="landing__hero">
           <p class="eyebrow"><span class="status-dot"></span> Live cyber defence training</p>
-          <h1 class="hero-title">
+          <h1 class="landing__title">
             <span>CYBER</span>
-            <span class="hero-title--accent">BATTLESHIPS</span>
+            <span class="landing__title-accent">BATTLESHIPS</span>
           </h1>
-          <p class="hero-copy">
-            Answer. Earn missiles. Sink the opposition. A real-time cyber security
-            competition for classrooms, workshops and teams.
-          </p>
-        </section>
+          <p class="landing__copy">Answer questions. Earn missiles. Sink the other fleet.</p>
+        </header>
 
-        <section class="landing__panel panel">
-          <h2 class="panel__title">JOIN AN OPERATION</h2>
-          <form id="join-form" class="stack" novalidate>
+        <section class="landing__card panel hud">
+          <h2 class="landing__card-title">JOIN THE GAME</h2>
+          <form id="join-form" class="landing__form" novalidate>
             <label class="field">
               <span class="field__label">Join code</span>
               <input
@@ -44,17 +39,11 @@
                 required
               />
             </label>
-            <button class="btn btn--primary btn--wide" type="submit">ENTER THE BATTLE</button>
+            <button class="btn btn--primary btn--wide" type="submit">JOIN</button>
             <p id="join-error" class="form-error" role="alert"></p>
           </form>
-          <p class="landing__hint">Scan the QR code on the projector, or enter the six-character code.</p>
+          <p class="landing__hint">Or scan the QR code on the big screen.</p>
         </section>
-
-        <footer class="landing__footer">
-          <a href="/host">Facilitator console</a>
-          <span>//</span>
-          <a href="/display">Projector display</a>
-        </footer>
       </main>
     </div>
     <script type="module" src="/src/landing/main.js"></script>

@@ -6,7 +6,6 @@ import { Server as SocketServer } from 'socket.io';
 import { io } from 'socket.io-client';
 
 import { createApp } from '../server/app.js';
-import { createAuth } from '../server/auth.js';
 import { loadConfig } from '../server/config.js';
 import { createDatabase } from '../server/db/index.js';
 import { attachSocketServer } from '../server/realtime/socket.js';
@@ -20,8 +19,6 @@ export async function bootTestServer({ pgliteDir = 'memory://' } = {}) {
   const config = loadConfig({
     nodeEnv: 'test',
     port: 0,
-    adminPin: '123456',
-    cookieSecret: 'test-cookie-secret-0123456789abcdef',
     pgliteDir,
     clientDist: '/nonexistent-cyber-battleships-client',
     publicUrl: 'http://127.0.0.1',
@@ -35,14 +32,13 @@ export async function bootTestServer({ pgliteDir = 'memory://' } = {}) {
   const manager = new SessionManager({ db, config, logger });
   await manager.init();
 
-  const auth = createAuth(config);
-  const app = createApp({ config, manager, db, auth, logger });
+  const app = createApp({ config, manager, db, logger });
   const server = http.createServer(app);
   const ioServer = new SocketServer(server, {
     cors: { origin: true, credentials: true },
     allowRequest: (req, callback) => callback(null, true),
   });
-  attachSocketServer(ioServer, { manager, config, auth, logger });
+  attachSocketServer(ioServer, { manager, config, logger });
 
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const port = server.address().port;
@@ -52,7 +48,6 @@ export async function bootTestServer({ pgliteDir = 'memory://' } = {}) {
     config,
     db,
     manager,
-    auth,
     server,
     io: ioServer,
     port,
@@ -70,39 +65,13 @@ export async function bootTestServer({ pgliteDir = 'memory://' } = {}) {
   };
 }
 
-/** Log in as facilitator and return the cookie header value. */
-export async function loginHost(baseUrl, pin = '123456') {
-  const response = await fetch(`${baseUrl}/api/host/login`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ pin }),
-  });
-  if (!response.ok) throw new Error(`Host login failed: HTTP ${response.status}`);
-  const setCookie = response.headers.get('set-cookie');
-  if (!setCookie) throw new Error('Host login did not set a cookie');
-  return setCookie.split(';')[0];
-}
-
-/** Create a live session through the facilitator HTTP API. */
-export async function createSession(baseUrl, cookie, config = {}) {
-  const response = await fetch(`${baseUrl}/api/host/sessions`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', cookie },
-    body: JSON.stringify({ config }),
-  });
-  const body = await response.json();
-  if (!response.ok) throw new Error(`Create session failed: ${JSON.stringify(body)}`);
-  return body.session;
-}
-
-/** Connect a socket.io client, optionally with the facilitator cookie. */
-export function connect(baseUrl, cookie = null) {
+/** Connect a socket.io client. */
+export function connect(baseUrl) {
   return new Promise((resolve, reject) => {
     const socket = io(baseUrl, {
       transports: ['websocket'],
       forceNew: true,
       reconnection: false,
-      extraHeaders: cookie ? { cookie } : {},
     });
     const timer = setTimeout(() => {
       socket.close();
@@ -165,4 +134,21 @@ export function collectStates(socket) {
       return null;
     },
   };
+}
+
+/** Start a game as a control-capable game screen. Returns the socket, states and key. */
+export async function startGameScreen(baseUrl, EVENTS) {
+  const socket = await connect(baseUrl);
+  const states = collectStates(socket);
+  const created = await emitAck(socket, EVENTS.DISPLAY_CREATE, {});
+  if (!created.ok) throw new Error(`Create game failed: ${JSON.stringify(created)}`);
+  return { socket, states, key: created.key, game: created.game };
+}
+
+/** Enlist a player over a real socket. */
+export async function joinPlayer(baseUrl, EVENTS, code, name, teamId = null) {
+  const socket = await connect(baseUrl);
+  const states = collectStates(socket);
+  const result = await emitAck(socket, EVENTS.PLAYER_JOIN, { code, name, teamId });
+  return { socket, states, result };
 }
