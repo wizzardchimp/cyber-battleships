@@ -266,7 +266,8 @@ function render() {
 function renderChrome() {
   const phase = state.session.phase;
   const control = hasControl();
-  const sig = [phase, control, isMuted(), settingsOpen, menuOpen].join('|');
+  const battleEnds = phase === PHASES.BATTLE ? state.round?.battleEndsAt || '' : '';
+  const sig = [phase, control, isMuted(), settingsOpen, menuOpen, battleEnds].join('|');
   if (sig === chromeSig) return;
   chromeSig = sig;
   const gear = control
@@ -282,6 +283,7 @@ function renderChrome() {
     </div>
     <span class="badge badge--live chrome__phase">${escapeHtml(phaseLabel(phase))}</span>
     ${control ? '' : '<span class="badge badge--warn">VIEW ONLY</span>'}
+    ${battleEnds ? `<div class="chrome__timer">${timerBlock('TIME LEFT', battleEnds)}</div>` : ''}
     <div class="chrome__spacer"></div>
     <div id="link" class="chrome__link"></div>
     <div class="chrome__tools">
@@ -622,14 +624,7 @@ function afloatBlock(round) {
 function battleScreen() {
   const round = state.round;
   return `
-    <section class="screen battle">
-      <header class="screen-head">
-        <div>
-          <h1 class="screen-title">BATTLE</h1>
-          <p class="screen-sub">Fire from your phone. One missile per shot. Sink every ship to win.</p>
-        </div>
-        ${timerBlock('TIME LEFT', round.battleEndsAt)}
-      </header>
+    <section class="screen battle" style="grid-template-rows:minmax(0,1fr)">
       <div class="battle-body">
         ${rosterPanel(round, { detailed: false, afloat: true })}
         <div class="boards boards--battle">${targetBoards(round).map((board) => boardMarkup(round, board, { revealed: false, legend: true })).join('')}</div>

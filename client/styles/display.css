@@ -61,6 +61,29 @@ body.display-page {
   flex: 1;
 }
 
+/* The battle timer sits in the middle of the top banner. */
+.chrome {
+  position: relative;
+}
+
+.chrome__timer {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.chrome__timer .timer {
+  grid-auto-flow: column;
+  align-items: center;
+  justify-items: center;
+  gap: 1rem;
+}
+
+.chrome__timer .timer__value {
+  font-size: 2.6rem;
+}
+
 .chrome__link {
   display: flex;
   align-items: center;
