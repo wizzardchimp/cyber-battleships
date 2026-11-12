@@ -568,7 +568,7 @@ function shipLegend(board) {
     </div>`;
 }
 
-function rosterPanel(round, { detailed }) {
+function rosterPanel(round, { detailed, afloat = false }) {
   const scores = new Map(round.scores.map((score) => [score.id, score]));
   const dense = round.teams.some((team) => team.players.length > 6);
   return `
@@ -600,6 +600,7 @@ function rosterPanel(round, { detailed }) {
         })
         .join('')}
       <p class="roster-panel__key">PLAYER HITS / SHOTS</p>
+      ${afloat ? afloatBlock(round) : ''}
     </aside>`;
 }
 
@@ -630,7 +631,7 @@ function battleScreen() {
         ${timerBlock('TIME LEFT', round.battleEndsAt)}
       </header>
       <div class="battle-body">
-        ${rosterPanel(round, { detailed: false })}
+        ${rosterPanel(round, { detailed: false, afloat: true })}
         <div class="boards boards--battle">${targetBoards(round).map((board) => boardMarkup(round, board, { revealed: false, legend: true })).join('')}</div>
       </div>
     </section>`;
@@ -658,10 +659,9 @@ function resupplyScreen() {
           <p class="screen-sub">${lead} ${next}</p>
           <p class="screen-sub">The game ends only when every ship on a fleet is sunk.</p>
         </div>
-        ${afloatBlock(round)}
       </header>
       <div class="battle-body">
-        ${rosterPanel(round, { detailed: false })}
+        ${rosterPanel(round, { detailed: false, afloat: true })}
         <div class="boards boards--battle">${targetBoards(round).map((board) => boardMarkup(round, board, { revealed: false, legend: true })).join('')}</div>
       </div>
     </section>`;
