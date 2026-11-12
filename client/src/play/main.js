@@ -13,13 +13,14 @@ import {
   preloadBattleSounds,
   setBattleSoundsEnabled,
 } from '../shared/battleSounds.js';
-import { formatCountdown, syncClock } from '../shared/clock.js';
+import { formatCountdown, msRemaining, syncClock } from '../shared/clock.js';
 import { $, escapeHtml, toast } from '../shared/dom.js';
 import { coordLabel, renderGrid } from '../shared/grid.js';
 import { createSocket, request } from '../shared/socket.js';
 
 const app = $('#app');
 const LETTERS = 'ABC';
+const BEEP_SECONDS = 10;
 
 let code = normaliseCode(new URLSearchParams(window.location.search).get('code') || '');
 let sessionInfo = null;
@@ -41,6 +42,7 @@ let answering = false;
 let firing = false;
 let shotMsg = null;
 let lastSig = '';
+let lastBeep = null;
 
 // ------------------------------------------------------------------ storage
 
@@ -256,6 +258,7 @@ function renderQuiz() {
         : '';
     body = `
       <section class="feedback ${right ? '' : 'feedback--wrong'}" aria-live="assertive">
+        ${!right && feedback.correctText ? `<div class="feedback__answer"><span>CORRECT ANSWER</span><strong>${escapeHtml(feedback.correctKey)}. ${escapeHtml(feedback.correctText)}</strong></div>` : ''}
         <svg class="feedback__mark" viewBox="0 0 100 100" role="img" aria-label="${right ? 'Correct' : 'Incorrect'}">${mark}</svg>
         ${right ? `<p class="feedback__reward">+${feedback.reward} missile${feedback.reward === 1 ? '' : 's'}</p>` : ''}
         ${bonus}
@@ -708,6 +711,8 @@ async function submitAnswer(optionIndex) {
     feedback = {
       ...snapshot,
       correct: result.correct,
+      correctText: snapshot.options[result.correctIndex] ?? '',
+      correctKey: LETTERS[result.correctIndex] ?? '',
       reward: result.reward,
       bonus: result.bonus || 0,
       streak: result.streak || 0,
@@ -729,6 +734,29 @@ async function submitAnswer(optionIndex) {
   }
 }
 
+/** Briefly flash the whole screen, and pop up a banner when a ship goes down. */
+function flashHit({ hit, sunk, shipName }, elapsed = 0) {
+  if (!hit && !sunk) return;
+  window.setTimeout(
+    () => {
+      const flash = document.createElement('div');
+      flash.className = `hit-flash ${sunk ? 'hit-flash--sunk' : ''}`;
+      flash.setAttribute('aria-hidden', 'true');
+      document.body.append(flash);
+      window.setTimeout(() => flash.remove(), sunk ? 900 : 450);
+      if (sunk) {
+        const popup = document.createElement('div');
+        popup.className = 'sunk-popup';
+        popup.setAttribute('role', 'alert');
+        popup.innerHTML = `<span>SHIP SUNK!</span><strong>You sank the ${escapeHtml(shipName || 'ship')}!</strong>`;
+        document.body.append(popup);
+        window.setTimeout(() => popup.remove(), 2600);
+      }
+    },
+    Math.max(0, (RESULT_DELAY - elapsed) * 1000),
+  );
+}
+
 async function fire(x, y) {
   if (firing) return;
   firing = true;
@@ -742,6 +770,7 @@ async function fire(x, y) {
     const elapsed = (performance.now() - firedAt) / 1000;
     playShotResult(result, { delay: RESULT_DELAY - elapsed });
     const where = coordLabel(x, y);
+    flashHit(result, elapsed);
     if (result.sunk) {
       shotMsg = { id: Date.now(), kind: 'sunk', text: `${where}: HIT! You sank the ${result.shipName}!` };
     } else if (result.hit) {
@@ -856,6 +885,22 @@ function updateCountdowns() {
     const [minutes, seconds] = value.split(':').map(Number);
     node.classList.toggle('is-low', minutes === 0 && seconds <= 10 && node.dataset.countdown !== '');
   }
+  beepCountdown();
+}
+
+/** One beep per second for the last ten seconds of the question round. */
+function beepCountdown() {
+  if (playerState?.session?.phase !== PHASES.QUIZ || playerState.session.config?.soundEnabled === false) {
+    lastBeep = null;
+    return;
+  }
+  const endsAt = playerState.round?.quizEndsAt;
+  if (!endsAt) return;
+  const left = Math.ceil(msRemaining(endsAt) / 1000);
+  if (left < 1 || left > BEEP_SECONDS) return;
+  if (lastBeep === left) return;
+  lastBeep = left;
+  sfx.tick();
 }
 
 setInterval(updateCountdowns, 250);

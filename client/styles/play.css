@@ -622,3 +622,99 @@ body.play-page {
   font-size: 0.75rem;
   letter-spacing: 0.16em;
 }
+
+/* ------------------------------------------------- wrong-answer reveal */
+
+.feedback__answer {
+  display: grid;
+  gap: 0.3rem;
+  max-width: 100%;
+  padding: 0.7rem 1rem;
+  background: color-mix(in srgb, var(--green) 12%, transparent);
+  border: 1px solid var(--green);
+}
+
+.feedback__answer span {
+  color: var(--green);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.2em;
+}
+
+.feedback__answer strong {
+  color: var(--ink);
+  font-size: 1.1rem;
+  overflow-wrap: anywhere;
+}
+
+/* -------------------------------------------------------- hit flashes */
+
+.hit-flash {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: radial-gradient(circle, rgba(255, 194, 71, 0.55), rgba(255, 77, 109, 0.5));
+  pointer-events: none;
+  animation: hit-flash 0.45s ease-out both;
+}
+
+.hit-flash--sunk {
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.85), rgba(255, 77, 109, 0.65));
+  animation: hit-flash-sunk 0.9s ease-out both;
+}
+
+@keyframes hit-flash {
+  0% { opacity: 0.9; }
+  100% { opacity: 0; }
+}
+
+@keyframes hit-flash-sunk {
+  0% { opacity: 1; }
+  25% { opacity: 0.2; }
+  45% { opacity: 0.9; }
+  100% { opacity: 0; }
+}
+
+.sunk-popup {
+  position: fixed;
+  left: 50%;
+  top: 38%;
+  z-index: 81;
+  display: grid;
+  gap: 0.5rem;
+  width: min(88vw, 22rem);
+  padding: 1.2rem;
+  background: rgba(2, 5, 12, 0.95);
+  border: 2px solid var(--red);
+  box-shadow: 0 0 40px rgba(255, 77, 109, 0.6);
+  text-align: center;
+  pointer-events: none;
+  transform: translateX(-50%);
+  animation: sunk-popup 2.6s ease both;
+}
+
+.sunk-popup span {
+  color: var(--red);
+  font-family: var(--font-pixel);
+  font-size: 1rem;
+}
+
+.sunk-popup strong {
+  color: var(--ink);
+  font-size: 1.2rem;
+}
+
+@keyframes sunk-popup {
+  0% { opacity: 0; transform: translateX(-50%) scale(0.7); }
+  10% { opacity: 1; transform: translateX(-50%) scale(1.05); }
+  16% { transform: translateX(-50%) scale(1); }
+  85% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hit-flash,
+  .hit-flash--sunk {
+    animation-duration: 0.3s;
+  }
+}

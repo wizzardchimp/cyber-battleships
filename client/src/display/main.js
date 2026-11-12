@@ -1,7 +1,7 @@
 import '../../styles/theme.css';
 import '../../styles/display.css';
 
-import { LIMITS, MODE_LIST, MODE_PRESETS, PHASES, phaseLabel, setLabel } from '@shared/constants.js';
+import { FLEET_TEMPLATE, LIMITS, MODE_LIST, MODE_PRESETS, PHASES, phaseLabel, setLabel } from '@shared/constants.js';
 import { EVENTS } from '@shared/events.js';
 import { api } from '../shared/api.js';
 import { isMuted, sfx, toggleMute, unlockAudio } from '../shared/audio.js';
@@ -12,7 +12,7 @@ import {
   setBattleSoundsEnabled,
 } from '../shared/battleSounds.js';
 import { setMusic, setMusicEnabled } from '../shared/music.js';
-import { formatCountdown, syncClock } from '../shared/clock.js';
+import { formatCountdown, msRemaining, syncClock } from '../shared/clock.js';
 import { $, escapeHtml, toast } from '../shared/dom.js';
 import { renderGrid } from '../shared/grid.js';
 import { createSocket, request } from '../shared/socket.js';
@@ -40,6 +40,8 @@ let menuOpen = false;
 let importUi = null;
 let armed = null; // { action, timer } for two-step confirmations
 let lastPhase = null;
+let lastBeep = null;
+let sunkTimer = null;
 let stageSig = '';
 let chromeSig = '';
 let controlsSig = '';
@@ -170,8 +172,38 @@ function battleSoundsFor(before, after) {
     sunk += Math.max(0, board.shipsSunk - old.shipsSunk);
   }
   if (shots === 0) return;
+  showSunkPopups(previous, after);
   playBattle('fire');
   playShotResult({ hit: hits > 0, sunk: sunk > 0 });
+}
+
+/** Pop up a banner on the big screen for each ship sunk in this update. */
+function showSunkPopups(previous, after) {
+  const names = [];
+  for (const board of after.round.boards) {
+    const old = previous.get(board.id);
+    const before = new Set(old?.sunkShips || []);
+    for (const ship of board.sunkShips || []) {
+      if (!before.has(ship)) names.push({ ship, board: board.kind === 'cpu' ? board.name : `${board.name} fleet`, color: board.color });
+    }
+  }
+  if (names.length === 0) return;
+  let root = $('#sunk-root');
+  if (!root) {
+    root = document.createElement('div');
+    root.id = 'sunk-root';
+    root.className = 'sunk-root';
+    document.body.append(root);
+  }
+  for (const entry of names) {
+    const node = document.createElement('div');
+    node.className = 'sunk-banner';
+    node.style.setProperty('--side', entry.color);
+    node.setAttribute('role', 'alert');
+    node.innerHTML = `<span>SHIP SUNK</span><strong>${escapeHtml(entry.ship.toUpperCase())}</strong><small>${escapeHtml(entry.board)}</small>`;
+    root.append(node);
+    window.setTimeout(() => node.remove(), 4200);
+  }
 }
 
 function applyState(next) {
@@ -501,7 +533,21 @@ function boardMarkup(round, board, { revealed }) {
     </article>`;
 }
 
-function rosterPanel(round, { detailed }) {
+function shipLegend() {
+  return `
+    <div class="ship-legend" aria-label="Ship shapes">
+      <h3 class="ship-legend__title">FLEET KEY</h3>
+      ${FLEET_TEMPLATE.map(
+        (ship) => `
+        <div class="ship-legend__row">
+          <span class="ship-legend__shape">${'<i></i>'.repeat(ship.length)}</span>
+          <span class="ship-legend__name">${escapeHtml(ship.name)}<small>${ship.length}</small></span>
+        </div>`,
+      ).join('')}
+    </div>`;
+}
+
+function rosterPanel(round, { detailed, legend = false }) {
   const scores = new Map(round.scores.map((score) => [score.id, score]));
   const dense = round.teams.some((team) => team.players.length > 6);
   return `
@@ -533,6 +579,7 @@ function rosterPanel(round, { detailed }) {
         })
         .join('')}
       <p class="roster-panel__key">PLAYER HITS / SHOTS</p>
+      ${legend ? shipLegend() : ''}
     </aside>`;
 }
 
@@ -563,7 +610,7 @@ function battleScreen() {
         ${timerBlock('TIME LEFT', round.battleEndsAt)}
       </header>
       <div class="battle-body">
-        ${rosterPanel(round, { detailed: false })}
+        ${rosterPanel(round, { detailed: false, legend: true })}
         <div class="boards">${targetBoards(round).map((board) => boardMarkup(round, board, { revealed: false })).join('')}</div>
       </div>
     </section>`;
@@ -1191,6 +1238,20 @@ function updateCountdowns() {
     const [minutes, seconds] = value.split(':').map(Number);
     node.classList.toggle('is-low', minutes === 0 && seconds <= 10 && node.dataset.countdown !== '');
   }
+  beepCountdown();
+}
+
+/** One beep per second for the last ten seconds of the question round. */
+function beepCountdown() {
+  const round = state?.round;
+  if (state?.session?.phase !== PHASES.QUIZ || !round?.quizEndsAt) {
+    lastBeep = null;
+    return;
+  }
+  const left = Math.ceil(msRemaining(round.quizEndsAt) / 1000);
+  if (left < 1 || left > 10 || lastBeep === left) return;
+  lastBeep = left;
+  play('tick');
 }
 
 setInterval(updateCountdowns, 250);
