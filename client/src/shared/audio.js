@@ -65,7 +65,7 @@ export const sfx = {
     tone(784, 0.18, 'triangle', 0.035, 0.16);
   },
   tick() {
-    tone(1000, 0.09, 'square', 0.03);
+    tone(1000, 0.12, 'square', 0.16);
   },
   error() {
     tone(160, 0.14, 'square', 0.025);
