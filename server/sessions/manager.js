@@ -42,6 +42,11 @@ export class SessionManager extends EventEmitter {
           await this.repository.delete(row.id);
           continue;
         }
+        if (this.config.publicUrl) {
+          // The public address may have changed since the game was saved.
+          state.joinBaseUrl = joinUrlFor(this.config.publicUrl, state.joinCode);
+          state.displayBaseUrl = displayUrlFor(this.config.publicUrl, state.joinCode);
+        }
         const session = this.wrap(state);
         this.sessions.set(session.id, session);
         this.byCode.set(session.joinCode, session);

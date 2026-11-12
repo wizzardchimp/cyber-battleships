@@ -124,10 +124,10 @@ function renderGate() {
 function renderJoin() {
   const session = sessionInfo.session;
   const teams = sessionInfo.teams || [];
-  if (session.phase !== PHASES.LOBBY) {
+  if (session.phase !== PHASES.LOBBY && session.phase !== PHASES.QUIZ) {
     renderMessage(
-      'GAME ALREADY STARTED',
-      'This game is under way. Ask the facilitator to return to the lobby, or wait for the next game.',
+      'JOINING IS CLOSED',
+      'The battle is under way. You can join during the next question round, or ask the facilitator to return to the lobby.',
       { button: { action: 'reload', label: 'CHECK AGAIN' } },
     );
     return;
