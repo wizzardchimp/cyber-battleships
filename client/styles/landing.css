@@ -65,3 +65,24 @@
   font-size: 1rem;
   text-align: center;
 }
+
+.landing__hint--lead {
+  font-size: 1.15rem;
+  color: var(--ink-soft);
+}
+
+.landing__player {
+  width: min(26rem, 100%);
+  color: var(--muted);
+}
+
+.landing__player summary {
+  cursor: pointer;
+  text-align: center;
+  font-size: 1rem;
+  padding: 0.5rem;
+}
+
+.landing__player .landing__form {
+  margin-top: 0.8rem;
+}

@@ -57,11 +57,11 @@ npm start
 | --- | --- | --- |
 | Game screen | `/display` | The room's big screen (facilitator) |
 | Players | `/<CODE>` or `/play?code=<CODE>` | Phones, reached by the QR code |
-| Landing | `/` | Optional: type a join code by hand |
+| Welcome | `/` | Facilitator start page (START GAME opens `/display`); players can type a join code here |
 
 ## Facilitator guide
 
-Open `/display` on the room screen. The first time, it creates a game and shows
+Open `/` on the room screen and press **START GAME**. It opens `/display`, creates a game and shows
 the QR code. That browser remembers the game, so a refresh keeps control.
 
 - **SETTINGS** (lobby only): game mode, quiz time (1–3 min), battle time
