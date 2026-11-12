@@ -1174,3 +1174,109 @@ body.display-page {
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
+/* ------------------------------------------------------------ ship legend */
+
+.ship-legend {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.7rem 1rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+}
+
+.ship-legend__title {
+  margin: 0;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 400;
+  letter-spacing: 0.2em;
+}
+
+.ship-legend__row {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.ship-legend__shape {
+  display: flex;
+  gap: 2px;
+  flex: 0 0 auto;
+  width: 5.6rem;
+}
+
+.ship-legend__shape i {
+  width: 1rem;
+  height: 1rem;
+  background: color-mix(in srgb, var(--cyan) 55%, transparent);
+  border: 1px solid var(--cyan);
+}
+
+.ship-legend__name {
+  display: flex;
+  justify-content: space-between;
+  flex: 1;
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+
+.ship-legend__name small {
+  color: var(--muted);
+}
+
+/* ------------------------------------------------------------ sunk banners */
+
+.sunk-root {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 1rem;
+  pointer-events: none;
+}
+
+.sunk-banner {
+  --side: var(--red);
+  display: grid;
+  justify-items: center;
+  gap: 0.4rem;
+  padding: 1.6rem 4rem;
+  background: rgba(2, 5, 12, 0.92);
+  border: 2px solid var(--side);
+  box-shadow: 0 0 60px color-mix(in srgb, var(--side) 55%, transparent);
+  text-align: center;
+  animation: sunk-banner 4.2s ease both;
+}
+
+.sunk-banner span {
+  color: var(--red);
+  font-family: var(--font-pixel);
+  font-size: 1.1rem;
+  letter-spacing: 0.2em;
+}
+
+.sunk-banner strong {
+  color: var(--ink);
+  font-family: var(--font-pixel);
+  font-size: clamp(1.8rem, 4vw, 3.4rem);
+}
+
+.sunk-banner small {
+  color: var(--side);
+  font-family: var(--font-mono);
+  font-size: 1.1rem;
+  letter-spacing: 0.2em;
+}
+
+@keyframes sunk-banner {
+  0% { opacity: 0; transform: scale(0.7); }
+  8% { opacity: 1; transform: scale(1.05); }
+  14% { transform: scale(1); }
+  85% { opacity: 1; }
+  100% { opacity: 0; transform: scale(1); }
+}

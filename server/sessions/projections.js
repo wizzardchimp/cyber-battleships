@@ -61,6 +61,7 @@ function boardFor(session, combatant, { revealShips }) {
     shots: (fleet?.shots || []).map((shot) => ({ x: shot.x, y: shot.y, hit: Boolean(shot.hit) })),
     shipsTotal: fleet?.ships?.length || 0,
     shipsSunk: fleet?.ships?.filter((ship) => ship.sunk).length || 0,
+    sunkShips: (fleet?.ships || []).filter((ship) => ship.sunk).map((ship) => ship.name),
   };
   if (!revealShips || !fleet) return base;
   return {
