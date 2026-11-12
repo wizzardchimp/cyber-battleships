@@ -247,15 +247,18 @@ function renderQuiz() {
   let body;
   if (feedback && Date.now() < feedback.until) {
     const right = feedback.correct;
-    const rightText = feedback.options?.[feedback.correctIndex] ?? '';
+    const mark = right
+      ? '<path d="M14 54 L40 80 L86 20" />'
+      : '<path d="M20 20 L80 80 M80 20 L20 80" />';
+    const bonus =
+      right && feedback.bonus > 0
+        ? `<div class="feedback__bonus"><strong>BONUS AMMUNITION!</strong><span>+${feedback.bonus} extra missile${feedback.bonus === 1 ? '' : 's'} · ${feedback.streak} in a row</span></div>`
+        : '';
     body = `
-      <section class="feedback ${right ? '' : 'feedback--wrong'}" style="--feedback-ms:${TIMING.feedbackMs}ms">
-        <h2 class="feedback__title">${right ? 'CORRECT!' : 'NOT QUITE'}</h2>
+      <section class="feedback ${right ? '' : 'feedback--wrong'}" aria-live="assertive">
+        <svg class="feedback__mark" viewBox="0 0 100 100" role="img" aria-label="${right ? 'Correct' : 'Incorrect'}">${mark}</svg>
         ${right ? `<p class="feedback__reward">+${feedback.reward} missile${feedback.reward === 1 ? '' : 's'}</p>` : ''}
-        <p class="feedback__answer">${right ? 'Right answer' : 'The answer was'}: <b>${LETTERS[feedback.correctIndex]}</b> ${escapeHtml(rightText)}</p>
-        ${feedback.explanation ? `<p class="feedback__why">${escapeHtml(feedback.explanation)}</p>` : ''}
-        <div class="feedback__bar"><span></span></div>
-        <button class="btn btn--primary btn--wide" type="button" data-action="skip-feedback">NEXT QUESTION</button>
+        ${bonus}
       </section>`;
   } else if (!question) {
     body = `<div class="waiting"><img class="waiting__pulse" src="/brand/mark-128.png" alt="" /><p>Loading your next question…</p></div>`;
@@ -305,7 +308,7 @@ function renderBriefing() {
     </section>
     <div class="waiting">
       <img class="waiting__pulse" src="/brand/mark-128.png" alt="" />
-      <p>Get ready.<br />The battle starts when the facilitator is ready.</p>
+      <p>${me.isCaptain ? 'You are the captain. You will fire the missiles.' : `${escapeHtml(me.captainName || 'Your captain')} is the captain and will fire the missiles.`}<br />The battle starts when the facilitator is ready.</p>
     </div>`,
     { side: color },
   );
@@ -323,26 +326,31 @@ function renderBattle() {
     return;
   }
 
-  const canFire = me.missiles > 0;
+  const captain = me.isCaptain;
+  const canFire = captain && me.missiles > 0;
   let message = '';
-  if (shotMsg) {
+  if (shotMsg && captain) {
     message = `<div class="shot-msg shot-msg--${shotMsg.kind}">${escapeHtml(shotMsg.text)}</div>`;
   } else if (canFire) {
     message = '<div class="shot-msg">Tap a square to fire.</div>';
   }
-  if (!canFire) {
+  if (me.missiles === 0) {
     message = `<div class="shot-msg shot-msg--out">Out of missiles. Another round of questions is coming so you can earn more.</div>`;
   }
+  const role = captain
+    ? '<div class="captain-tag">YOU ARE THE CAPTAIN · YOU FIRE THE MISSILES</div>'
+    : `<div class="captain-tag captain-tag--watch">${escapeHtml(me.captainName || 'Your captain')} is the captain and fires the missiles. You are watching.</div>`;
 
   shell(
     `
     ${topBar(round.battleEndsAt, me.missiles)}
+    ${role}
     <div class="target" style="--side:${targetColor}">
       <span class="target__label">FIRE AT</span>
       <span class="target__name">${escapeHtml(me.targetName || board.name)}</span>
     </div>
-    <div class="fire-grid">
-      ${renderGrid({ size: board.gridSize, shots: board.shots, interactive: true, disabled: !canFire || firing, axes: false, label: 'Target grid' })}
+    <div class="fire-grid ${captain ? '' : 'fire-grid--watch'}">
+      ${renderGrid({ size: board.gridSize, shots: board.shots, interactive: captain, disabled: !canFire || firing, axes: false, label: 'Target grid' })}
     </div>
     ${message}
     <p class="p-foot">Ships sunk <b>${board.shipsSunk} / ${board.shipsTotal}</b> · ${escapeHtml(playerState.me.teamName || '')} <b>${round.scores.find((score) => score.id === playerState.me.teamId)?.points ?? 0} pts</b></p>`,
@@ -466,10 +474,12 @@ function signature() {
         answering,
       ]);
     case PHASES.REVIEW:
-      return JSON.stringify([phase, me?.missiles, me?.correct, round?.teams]);
+      return JSON.stringify([phase, me?.isCaptain, me?.captainName, me?.missiles, me?.correct, round?.teams]);
     case PHASES.BATTLE:
       return JSON.stringify([
         phase,
+        me?.isCaptain,
+        me?.captainName,
         me?.missiles,
         me?.targetBoard?.shots?.length,
         me?.targetBoard?.shipsSunk,
@@ -699,8 +709,8 @@ async function submitAnswer(optionIndex) {
       ...snapshot,
       correct: result.correct,
       reward: result.reward,
-      correctIndex: result.correctIndex,
-      explanation: result.explanation,
+      bonus: result.bonus || 0,
+      streak: result.streak || 0,
       until: Date.now() + TIMING.feedbackMs,
     };
     if (result.correct) sfx.success();

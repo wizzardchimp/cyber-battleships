@@ -218,6 +218,19 @@ docs/architecture.md     # design notes
   screen, or press **TAKE CONTROL** to start over.
 - **Postgres TLS errors locally**: set `PGSSL=false`.
 
+## Captains and bonus missiles
+
+- Everyone on a side answers questions and earns missiles for the shared pool, but
+  only one player per side, the **captain**, fires them. The rest watch the
+  captain's shots on their phones. A captain is picked at random at the start of
+  every question round, and a different player is chosen each time, so everyone
+  gets a turn before anyone repeats. If the captain goes offline during a battle,
+  a teammate takes over.
+- Three correct answers in a row earn a bonus missile, and so do the fourth and
+  fifth. The bonus is shown on the player's phone. From the sixth in a row, and
+  after any wrong answer, there is no further bonus until a new streak of three.
+  Streaks start again with each question round.
+
 ## Background music
 
 The facilitator screens loop music from `client/public/music/`: `welcome-menu.mp3` on the welcome page, lobby and results, `questionround.mp3` during quiz, briefing and resupply, and `battle.mp3` during battle. Phones stay silent. It follows the SND button and the sound setting, and browsers only start it after the first click or key press.

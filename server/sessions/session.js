@@ -270,6 +270,7 @@ export class GameSession extends EventEmitter {
     if (!player || player.connected === connected) return;
     player.connected = connected;
     player.lastSeenAt = new Date().toISOString();
+    if (!connected && this.state.phase === PHASES.BATTLE) this.ensureCaptains();
     this.bump();
     await this.commit();
   }
@@ -388,7 +389,11 @@ export class GameSession extends EventEmitter {
     this.state.scores = {};
     this.state.fleets = {};
     this.state.arsenal = {};
-    for (const team of this.state.teams) team.missiles = 0;
+    for (const team of this.state.teams) {
+      team.missiles = 0;
+      team.captainPlayerId = null;
+      team.captainHistory = [];
+    }
     for (const combatant of combatants) {
       this.state.fleets[combatant.id] = makeFleet(this.config.gridSize);
       ensureScore(this.state, combatant.id);
@@ -407,7 +412,7 @@ export class GameSession extends EventEmitter {
 
     for (const player of this.state.players) {
       player.stats = emptyStats();
-      this.state.round.quiz[player.id] = { answered: 0, correct: 0, seen: [], current: null };
+      this.state.round.quiz[player.id] = { answered: 0, correct: 0, bonus: 0, seen: [], current: null };
     }
 
     this.startQuizCycle(now);
@@ -441,14 +446,72 @@ export class GameSession extends EventEmitter {
       round.quiz[player.id] = entry;
       entry.answered = 0;
       entry.correct = 0;
+      entry.bonus = 0;
+      player.streak = 0;
       this.issueQuestion(player.id, now);
     }
+
+    this.assignCaptains();
 
     this.state.phase = PHASES.QUIZ;
     if (round.cycle > 1) {
       this.recordEvent('more_questions', { round: round.number, cycle: round.cycle });
     }
     this.bump();
+  }
+
+  // ---------------------------------------------------------------- captains
+
+  /**
+   * Each side has exactly one captain, who is the only player that fires its
+   * missiles; everyone else watches. A new captain is chosen for every question
+   * round, favouring players who have not had a turn yet and never repeating
+   * the previous captain while the side has anyone else.
+   */
+  pickCaptain(team) {
+    const players = this.playersOnTeam(team.id);
+    if (players.length === 0) return null;
+    team.captainHistory = Array.isArray(team.captainHistory) ? team.captainHistory : [];
+    const online = players.filter((player) => player.connected);
+    let pool = online.length > 0 ? online : players;
+    if (pool.length > 1) pool = pool.filter((player) => player.id !== team.captainPlayerId);
+    let fresh = pool.filter((player) => !team.captainHistory.includes(player.id));
+    if (fresh.length === 0) {
+      team.captainHistory = [];
+      fresh = pool;
+    }
+    const chosen = fresh[crypto.randomInt(0, fresh.length)];
+    team.captainHistory.push(chosen.id);
+    return chosen;
+  }
+
+  assignCaptain(team) {
+    const chosen = this.pickCaptain(team);
+    team.captainPlayerId = chosen?.id || null;
+    if (chosen) {
+      this.recordEvent('captain_chosen', {
+        playerId: chosen.id,
+        name: chosen.displayName,
+        teamId: team.id,
+        teamName: team.name,
+      });
+    }
+    return chosen;
+  }
+
+  assignCaptains() {
+    for (const team of this.state.teams) this.assignCaptain(team);
+  }
+
+  /** Keep a firing captain in place: replace one who has left the game or gone offline. */
+  ensureCaptains() {
+    for (const team of this.state.teams) {
+      const captain = this.playerById(team.captainPlayerId);
+      const usable = captain && captain.teamId === team.id && captain.connected;
+      if (usable) continue;
+      const others = this.playersOnTeam(team.id).filter((player) => player.connected);
+      if (!captain || captain.teamId !== team.id || others.length > 0) this.assignCaptain(team);
+    }
   }
 
   issueQuestion(playerId, now = Date.now()) {
@@ -516,7 +579,12 @@ export class GameSession extends EventEmitter {
     assert(ownerId && this.teamById(ownerId), 'NO_TEAM', 'Join a side first.');
 
     const correct = index === current.answerIndex;
-    const reward = correct ? SCORING.missilesPerCorrect : 0;
+    player.streak = correct ? (Number(player.streak) || 0) + 1 : 0;
+    const bonus =
+      correct && player.streak >= SCORING.streakBonusFrom && player.streak <= SCORING.streakBonusThrough
+        ? SCORING.streakBonusMissiles
+        : 0;
+    const reward = correct ? SCORING.missilesPerCorrect + bonus : 0;
     const score = ensureScore(this.state, ownerId);
     score.answered += 1;
     entry.answered += 1;
@@ -527,6 +595,7 @@ export class GameSession extends EventEmitter {
       score.points += SCORING.correct;
       score.missilesEarned += reward;
       entry.correct += 1;
+      entry.bonus = (entry.bonus || 0) + bonus;
       player.stats.correct += 1;
       this.addArsenal(ownerId, reward);
     }
@@ -538,6 +607,8 @@ export class GameSession extends EventEmitter {
       chosenIndex: index,
       explanation: current.explanation,
       reward,
+      bonus,
+      streak: player.streak,
       missiles: this.arsenalFor(ownerId),
     };
 
@@ -565,6 +636,7 @@ export class GameSession extends EventEmitter {
     round.battleStartedAt = new Date(now).toISOString();
     round.battleEndsAt = new Date(now + this.config.battleSeconds * 1000).toISOString();
     round.battleEndReason = null;
+    this.ensureCaptains();
     this.state.phase = PHASES.BATTLE;
     this.recordEvent('battle_started', { round: round.number });
     this.bump();
@@ -599,6 +671,13 @@ export class GameSession extends EventEmitter {
     const ownerId = player.teamId;
     const combatant = round.combatants.find((entry) => entry.id === ownerId);
     assert(combatant?.targetId, 'NO_TARGET', 'No target is assigned.');
+    const side = this.teamById(ownerId);
+    if (side && !this.playerById(side.captainPlayerId)) this.assignCaptain(side);
+    assert(
+      side?.captainPlayerId === player.id,
+      'NOT_CAPTAIN',
+      'Only your captain can fire missiles this round.',
+    );
 
     const targetFleet = this.state.fleets[combatant.targetId];
     assert(targetFleet, 'NO_TARGET', 'That target is unavailable.');
@@ -847,6 +926,8 @@ export class GameSession extends EventEmitter {
     for (const team of this.state.teams) {
       team.missiles = 0;
       team.eliminated = false;
+      team.captainPlayerId = null;
+      team.captainHistory = [];
     }
     for (const player of this.state.players) {
       player.streak = 0;
@@ -874,6 +955,7 @@ export class GameSession extends EventEmitter {
               name: player.displayName,
               answered: entry.answered || 0,
               correct: entry.correct || 0,
+              bonus: entry.bonus || 0,
               shots: Number(player.stats?.attacks) || 0,
               hits: Number(player.stats?.hits) || 0,
               connected: Boolean(player.connected),
@@ -882,6 +964,7 @@ export class GameSession extends EventEmitter {
           .sort((a, b) => b.correct - a.correct || a.name.localeCompare(b.name));
         const answered = players.reduce((total, player) => total + player.answered, 0);
         const correct = players.reduce((total, player) => total + player.correct, 0);
+        const bonus = players.reduce((total, player) => total + player.bonus, 0);
         return {
           id: team.id,
           name: team.name,
@@ -889,7 +972,7 @@ export class GameSession extends EventEmitter {
           answered,
           correct,
           accuracy: answered > 0 ? Math.round((correct / answered) * 100) : 0,
-          won: correct * SCORING.missilesPerCorrect,
+          won: correct * SCORING.missilesPerCorrect + bonus,
           missiles: this.arsenalFor(team.id),
           points: Number(this.state.scores[team.id]?.points) || 0,
           players,

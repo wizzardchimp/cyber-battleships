@@ -14,11 +14,13 @@ function safeConfig(config) {
 }
 
 function rosterFor(session, teamId) {
+  const captainId = session.teamById(teamId)?.captainPlayerId || null;
   return session.playersOnTeam(teamId)
     .map((player) => ({
       id: player.id,
       name: player.displayName,
       connected: Boolean(player.connected),
+      captain: player.id === captainId && session.state.phase !== PHASES.LOBBY,
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -176,7 +178,10 @@ export function playerProjection(session, playerId) {
     const targetCombatant = state.round.combatants.find((item) => item.id === targetId) || null;
     const revealShips = state.phase === PHASES.RESULT;
 
+    const captain = team ? session.playerById(team.captainPlayerId) : null;
     round.me = {
+      isCaptain: Boolean(captain && captain.id === player.id),
+      captainName: captain?.displayName || null,
       missiles: team ? session.arsenalFor(team.id) : 0,
       answered: entry.answered || 0,
       correct: entry.correct || 0,

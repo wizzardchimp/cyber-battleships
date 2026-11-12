@@ -587,7 +587,7 @@ test('older four-answer questions are trimmed to three when they are served', as
 test('everyone vs CPU: the crew wins by breaching the firewall', async () => {
   const { session, repository } = makeSession({ mode: MODES.CPU });
   const [crew] = session.state.teams;
-  const one = session.join({ name: 'Ace' });
+  session.join({ name: 'Ace' });
   session.join({ name: 'Bee' });
   await session.advance();
 
@@ -601,7 +601,7 @@ test('everyone vs CPU: the crew wins by breaching the firewall', async () => {
   for (const ship of session.state.fleets[CPU_ID].ships) {
     for (const cell of ship.cells) {
       if (session.phase !== PHASES.BATTLE) break;
-      await session.attack(one.player.id, cell.x, cell.y);
+      await session.attack(crew.captainPlayerId, cell.x, cell.y);
     }
   }
   assert.equal(session.phase, PHASES.RESULT);
@@ -711,4 +711,118 @@ test('commits persist a serialised snapshot of the game', async () => {
   const last = repository.saves[repository.saves.length - 1];
   assert.equal(last.players[0].displayName, 'Persisted');
   assert.equal(last.schemaVersion, 3);
+});
+
+// ------------------------------------------------------------ streak bonus
+
+test('three correct answers in a row earn bonus missiles, which stop after five', async () => {
+  const { session, a } = await startedDuel();
+  const rewards = [];
+  for (let index = 0; index < 7; index += 1) {
+    const result = await answerCorrectly(session, a);
+    rewards.push([result.streak, result.bonus, result.reward]);
+  }
+  assert.deepEqual(rewards, [
+    [1, 0, 1],
+    [2, 0, 1],
+    [3, 1, 2],
+    [4, 1, 2],
+    [5, 1, 2],
+    [6, 0, 1],
+    [7, 0, 1],
+  ]);
+  assert.equal(session.arsenalFor(session.state.teams[0].id), 1 + 1 + 2 + 2 + 2 + 1 + 1);
+});
+
+test('a wrong answer breaks the streak and the bonus needs three in a row again', async () => {
+  const { session, a } = await startedDuel();
+  await answerCorrectly(session, a);
+  await answerCorrectly(session, a);
+  const wrong = await answerWrongly(session, a);
+  assert.equal(wrong.streak, 0);
+  assert.equal(wrong.bonus, 0);
+  assert.equal((await answerCorrectly(session, a)).bonus, 0);
+  assert.equal((await answerCorrectly(session, a)).bonus, 0);
+  assert.equal((await answerCorrectly(session, a)).bonus, 1);
+});
+
+test('the briefing counts bonus missiles in what a side won', async () => {
+  const { session, a } = await startedDuel();
+  for (let index = 0; index < 3; index += 1) await answerCorrectly(session, a);
+  const alpha = session.teamProgress().find((team) => team.players.some((player) => player.id === a.id));
+  assert.equal(alpha.won, 4);
+});
+
+// ------------------------------------------------------------------ captains
+
+async function startedSquad() {
+  const { session } = makeSession({ mode: MODES.SQUAD });
+  const [alpha, bravo] = session.state.teams;
+  const alphaPlayers = ['A One', 'A Two', 'A Three'].map(
+    (name) => session.join({ name, teamId: alpha.id }).player,
+  );
+  const bravoPlayers = ['B One', 'B Two', 'B Three'].map(
+    (name) => session.join({ name, teamId: bravo.id }).player,
+  );
+  await session.advance();
+  return { session, alpha, bravo, alphaPlayers, bravoPlayers };
+}
+
+test('each side gets exactly one captain, and only the captain can fire', async () => {
+  const { session, alpha, alphaPlayers } = await startedSquad();
+  for (const player of alphaPlayers) await answerCorrectly(session, player);
+  await session.advance(); // briefing
+  await session.advance(); // battle
+
+  const captain = alphaPlayers.find((player) => player.id === alpha.captainPlayerId);
+  assert.ok(captain, 'a captain from the side was chosen');
+  for (const player of alphaPlayers.filter((entry) => entry.id !== captain.id)) {
+    await expectReject(() => session.attack(player.id, 0, 0), 'NOT_CAPTAIN');
+  }
+  assert.equal((await session.attack(captain.id, 0, 0)).missiles, 2);
+
+  const view = playerProjection(session, alphaPlayers[0].id);
+  assert.equal(view.round.me.isCaptain, alphaPlayers[0].id === captain.id);
+  assert.equal(view.round.me.captainName, captain.displayName);
+  const roster = publicProjection(session).teams[0].players;
+  assert.equal(roster.filter((entry) => entry.captain).length, 1);
+});
+
+test('a new captain is chosen for each question round', async () => {
+  const { session, alpha, alphaPlayers } = await startedSquad();
+  const seen = [alpha.captainPlayerId];
+  for (let cycle = 0; cycle < 2; cycle += 1) {
+    await session.advance(); // briefing
+    await session.advance(); // battle
+    await session.advance(); // paused
+    await session.advance(); // next question round
+    seen.push(alpha.captainPlayerId);
+  }
+  assert.notEqual(seen[0], seen[1]);
+  assert.notEqual(seen[1], seen[2]);
+  assert.equal(new Set(seen).size, 3, 'everyone gets a turn before anyone repeats');
+  assert.ok(seen.every((id) => alphaPlayers.some((player) => player.id === id)));
+});
+
+test('a lone player is always the captain', async () => {
+  const { session, alpha, a } = await startedDuel();
+  assert.equal(alpha.captainPlayerId, a.id);
+});
+
+test('an offline captain is replaced during battle', async () => {
+  const { session, alpha, alphaPlayers } = await startedSquad();
+  await session.advance();
+  await session.advance();
+  const before = alpha.captainPlayerId;
+  await session.setConnected(before, false);
+  assert.notEqual(alpha.captainPlayerId, before);
+  assert.ok(alphaPlayers.some((player) => player.id === alpha.captainPlayerId));
+});
+
+test('in a crew game against the CPU one player fires for everybody', async () => {
+  const { session } = makeSession({ mode: MODES.CPU });
+  const players = ['One', 'Two', 'Three', 'Four'].map((name) => session.join({ name }).player);
+  await session.advance();
+  const crew = session.state.teams[0];
+  assert.ok(players.some((player) => player.id === crew.captainPlayerId));
 });

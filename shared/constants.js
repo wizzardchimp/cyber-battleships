@@ -104,6 +104,11 @@ export const SCORING = Object.freeze({
   hit: 25,
   sunk: 50,
   missilesPerCorrect: 1,
+  // Answering this many in a row earns bonus missiles, up to and including the
+  // answer that makes the streak this long. Longer streaks earn nothing extra.
+  streakBonusFrom: 3,
+  streakBonusThrough: 5,
+  streakBonusMissiles: 1,
 });
 
 export const TIMING = Object.freeze({
