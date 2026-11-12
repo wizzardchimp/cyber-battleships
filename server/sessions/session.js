@@ -503,6 +503,40 @@ export class GameSession extends EventEmitter {
     for (const team of this.state.teams) this.assignCaptain(team);
   }
 
+  /** The captain hands the attack controls to another connected member of their side. */
+  async passCaptain(fromId, toId) {
+    const phase = this.state.phase;
+    assert(
+      phase === PHASES.BATTLE || phase === PHASES.RESUPPLY || phase === PHASES.REVIEW,
+      'NOT_BATTLE',
+      'Controls can be passed once the battle is near.',
+    );
+    const from = this.playerById(fromId);
+    assert(from, 'PLAYER_NOT_FOUND', 'Player not found.');
+    const team = this.teamById(from.teamId);
+    assert(team && team.captainPlayerId === from.id, 'NOT_CAPTAIN', 'Only the captain can pass the controls.');
+    const to = this.playerById(toId);
+    assert(
+      to && to.id !== from.id && to.teamId === team.id,
+      'INVALID_PLAYER',
+      'Choose another member of your side.',
+    );
+    assert(to.connected, 'PLAYER_OFFLINE', `${to.displayName} is offline.`);
+    team.captainPlayerId = to.id;
+    team.captainHistory = Array.isArray(team.captainHistory) ? team.captainHistory : [];
+    if (!team.captainHistory.includes(to.id)) team.captainHistory.push(to.id);
+    this.recordEvent('captain_passed', {
+      fromId: from.id,
+      playerId: to.id,
+      name: to.displayName,
+      teamId: team.id,
+      teamName: team.name,
+    });
+    this.bump();
+    await this.commit();
+    return { captainName: to.displayName };
+  }
+
   /** Keep a firing captain in place: replace one who has left the game or gone offline. */
   ensureCaptains() {
     for (const team of this.state.teams) {

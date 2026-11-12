@@ -718,3 +718,83 @@ body.play-page {
     animation-duration: 0.3s;
   }
 }
+
+/* -------------------------------------------------------- pass controls */
+
+.pass-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.pass-btn {
+  margin-top: 0.4rem;
+}
+
+.captain-draw {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 1.4rem;
+  background: rgba(2, 5, 12, 0.94);
+  text-align: center;
+  pointer-events: none;
+}
+
+.captain-draw.is-leaving {
+  opacity: 0;
+  transition: opacity 0.35s ease;
+}
+
+.captain-draw__title {
+  color: var(--cyan);
+  font-family: var(--font-pixel);
+  font-size: 0.9rem;
+  letter-spacing: 0.15em;
+}
+
+.captain-draw__teams {
+  display: grid;
+  gap: 1rem;
+  width: min(88vw, 22rem);
+}
+
+.captain-draw__team {
+  --side: var(--cyan);
+  display: grid;
+  gap: 0.6rem;
+  justify-items: center;
+  padding: 1.4rem 1rem;
+  border: 2px solid var(--side);
+  background: color-mix(in srgb, var(--side) 10%, transparent);
+}
+
+.captain-draw__side {
+  color: var(--side);
+  font-family: var(--font-pixel);
+  font-size: 0.8rem;
+}
+
+.captain-draw__name {
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 1.8rem;
+  overflow-wrap: anywhere;
+}
+
+.captain-draw__tag {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  letter-spacing: 0.3em;
+}
+
+.captain-draw__team.is-locked {
+  box-shadow: 0 0 40px color-mix(in srgb, var(--side) 60%, transparent);
+}
+
+.captain-draw__team.is-locked .captain-draw__name,
+.captain-draw__team.is-locked .captain-draw__tag {
+  color: var(--green);
+}

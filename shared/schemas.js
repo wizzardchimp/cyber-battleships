@@ -69,6 +69,10 @@ export const playerAttackSchema = z.object({
   y: z.coerce.number().int().min(0).max(31),
 });
 
+export const passCaptainSchema = z.object({
+  playerId: z.string().trim().min(8).max(80),
+});
+
 export const displaySubscribeSchema = z.object({
   key: controlKeySchema.nullable().optional(),
 });

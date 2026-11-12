@@ -11,6 +11,7 @@ import {
   preloadBattleSounds,
   setBattleSoundsEnabled,
 } from '../shared/battleSounds.js';
+import { runCaptainDraw } from '../shared/captainDraw.js';
 import { setMusic, setMusicEnabled } from '../shared/music.js';
 import { formatCountdown, msRemaining, syncClock } from '../shared/clock.js';
 import { $, escapeHtml, toast } from '../shared/dom.js';
@@ -206,11 +207,28 @@ function showSunkPopups(previous, after) {
   }
 }
 
+/** Show the captain draw whenever a question round begins. */
+function maybeDrawCaptains(before, after) {
+  if (!before || !after?.round || after.session.phase !== PHASES.QUIZ) return;
+  const fresh = before.session.phase !== PHASES.QUIZ || before.round?.cycle !== after.round.cycle;
+  if (!fresh) return;
+  runCaptainDraw(
+    after.teams.map((team) => ({
+      name: team.name,
+      color: team.color,
+      players: team.players.map((player) => player.name),
+      captain: team.players.find((player) => player.captain)?.name || '',
+    })),
+    { sound: configOf().soundEnabled !== false && !isMuted() },
+  );
+}
+
 function applyState(next) {
   const previous = state?.session?.phase ?? null;
   setBattleSoundsEnabled(next.session?.config?.soundEnabled !== false);
   preloadBattleSounds();
   battleSoundsFor(state, next);
+  maybeDrawCaptains(state, next);
   state = next;
   const phase = next.session.phase;
   setMusicEnabled(next.session?.config?.soundEnabled !== false);
@@ -523,31 +541,35 @@ function attackersOf(round, boardId) {
     .join(' + ');
 }
 
-function boardMarkup(round, board, { revealed }) {
+function boardMarkup(round, board, { revealed, legend = false }) {
   const title = board.kind === 'cpu' ? board.name : `${board.name} FLEET`;
   return `
     <article class="board" style="--side:${board.color};--board-size:${revealed ? '36vh' : '50vh'}">
       <h2 class="board__title">${escapeHtml(title)}<small>ATTACKED BY ${escapeHtml(attackersOf(round, board.id))}</small></h2>
       <div class="board__grid">${renderGrid({ size: board.gridSize, shots: board.shots, ships: board.ships || [], label: title })}</div>
+      ${legend ? shipLegend(board) : ''}
       <div class="board__foot"><span>SUNK <b>${board.shipsSunk}/${board.shipsTotal}</b></span><span>SHOTS <b>${board.shots.length}</b></span></div>
     </article>`;
 }
 
-function shipLegend() {
+function shipLegend(board) {
+  const sunk = new Set(board.sunkShips || []);
   return `
-    <div class="ship-legend" aria-label="Ship shapes">
+    <div class="ship-legend" aria-label="Fleet key">
       <h3 class="ship-legend__title">FLEET KEY</h3>
-      ${FLEET_TEMPLATE.map(
-        (ship) => `
-        <div class="ship-legend__row">
-          <span class="ship-legend__shape">${'<i></i>'.repeat(ship.length)}</span>
-          <span class="ship-legend__name">${escapeHtml(ship.name)}<small>${ship.length}</small></span>
-        </div>`,
-      ).join('')}
+      <div class="ship-legend__list">
+        ${FLEET_TEMPLATE.map(
+          (ship) => `
+          <div class="ship-legend__row ${sunk.has(ship.name) ? 'is-sunk' : ''}">
+            <span class="ship-legend__shape">${'<i></i>'.repeat(ship.length)}</span>
+            <span class="ship-legend__name">${escapeHtml(ship.name)}<small>${sunk.has(ship.name) ? 'SUNK' : ship.length}</small></span>
+          </div>`,
+        ).join('')}
+      </div>
     </div>`;
 }
 
-function rosterPanel(round, { detailed, legend = false }) {
+function rosterPanel(round, { detailed }) {
   const scores = new Map(round.scores.map((score) => [score.id, score]));
   const dense = round.teams.some((team) => team.players.length > 6);
   return `
@@ -579,7 +601,6 @@ function rosterPanel(round, { detailed, legend = false }) {
         })
         .join('')}
       <p class="roster-panel__key">PLAYER HITS / SHOTS</p>
-      ${legend ? shipLegend() : ''}
     </aside>`;
 }
 
@@ -610,8 +631,8 @@ function battleScreen() {
         ${timerBlock('TIME LEFT', round.battleEndsAt)}
       </header>
       <div class="battle-body">
-        ${rosterPanel(round, { detailed: false, legend: true })}
-        <div class="boards">${targetBoards(round).map((board) => boardMarkup(round, board, { revealed: false })).join('')}</div>
+        ${rosterPanel(round, { detailed: false })}
+        <div class="boards boards--battle">${targetBoards(round).map((board) => boardMarkup(round, board, { revealed: false, legend: true })).join('')}</div>
       </div>
     </section>`;
 }
@@ -642,7 +663,7 @@ function resupplyScreen() {
       </header>
       <div class="battle-body">
         ${rosterPanel(round, { detailed: false })}
-        <div class="boards">${targetBoards(round).map((board) => boardMarkup(round, board, { revealed: false })).join('')}</div>
+        <div class="boards boards--battle">${targetBoards(round).map((board) => boardMarkup(round, board, { revealed: false, legend: true })).join('')}</div>
       </div>
     </section>`;
 }
