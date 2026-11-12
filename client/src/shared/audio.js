@@ -1,5 +1,11 @@
 let context = null;
 let muted = localStorage.getItem('cb.muted') === '1';
+const muteListeners = new Set();
+
+/** Be told when the mute switch changes. */
+export function onMuteChange(listener) {
+  muteListeners.add(listener);
+}
 
 function ensureContext() {
   if (context) return context;
@@ -71,6 +77,7 @@ export function isMuted() {
 export function setMuted(value) {
   muted = Boolean(value);
   localStorage.setItem('cb.muted', muted ? '1' : '0');
+  muteListeners.forEach((listener) => listener(muted));
   if (!muted) tone(700, 0.05, 'sine', 0.02);
   return muted;
 }

@@ -217,3 +217,7 @@ docs/architecture.md     # design notes
 - **The screen says VIEW ONLY**: it did not start this game. Use the original
   screen, or press **TAKE CONTROL** to start over.
 - **Postgres TLS errors locally**: set `PGSSL=false`.
+
+## Background music
+
+The facilitator screens loop music from `client/public/music/`: `welcome-menu.mp3` on the welcome page, lobby and results, `questionround.mp3` during quiz, briefing and resupply, and `battle.mp3` during battle. Phones stay silent. It follows the SND button and the sound setting, and browsers only start it after the first click or key press.

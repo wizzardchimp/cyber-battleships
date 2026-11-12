@@ -11,12 +11,21 @@ import {
   preloadBattleSounds,
   setBattleSoundsEnabled,
 } from '../shared/battleSounds.js';
+import { setMusic, setMusicEnabled } from '../shared/music.js';
 import { formatCountdown, syncClock } from '../shared/clock.js';
 import { $, escapeHtml, toast } from '../shared/dom.js';
 import { renderGrid } from '../shared/grid.js';
 import { createSocket, request } from '../shared/socket.js';
 
 const KEY_STORAGE = 'cb.display.key';
+const MUSIC_BY_PHASE = {
+  [PHASES.LOBBY]: 'menu',
+  [PHASES.RESULT]: 'menu',
+  [PHASES.QUIZ]: 'quiz',
+  [PHASES.REVIEW]: 'quiz',
+  [PHASES.RESUPPLY]: 'quiz',
+  [PHASES.BATTLE]: 'battle',
+};
 const app = $('#app');
 const modalRoot = $('#modal-root');
 
@@ -172,6 +181,8 @@ function applyState(next) {
   battleSoundsFor(state, next);
   state = next;
   const phase = next.session.phase;
+  setMusicEnabled(next.session?.config?.soundEnabled !== false);
+  setMusic(MUSIC_BY_PHASE[phase] ?? 'menu');
   if (previous !== null && previous !== phase) {
     if (phase !== PHASES.LOBBY) settingsOpen = false;
     if (phase === PHASES.QUIZ || phase === PHASES.BATTLE) play('alert');
