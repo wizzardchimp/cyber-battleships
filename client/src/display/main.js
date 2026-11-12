@@ -38,6 +38,7 @@ let fatal = '';
 
 let settingsOpen = false;
 let menuOpen = false;
+let joinOpen = false;
 let importUi = null;
 let armed = null; // { action, timer } for two-step confirmations
 let lastPhase = null;
@@ -134,6 +135,7 @@ async function createGame({ force = false } = {}) {
     localStorage.setItem(KEY_STORAGE, result.key);
     settingsOpen = false;
     menuOpen = false;
+    joinOpen = false;
     importUi = null;
     fatal = '';
   } finally {
@@ -287,6 +289,7 @@ function renderChrome() {
     <div class="chrome__spacer"></div>
     <div id="link" class="chrome__link"></div>
     <div class="chrome__tools">
+      ${phase === PHASES.QUIZ ? '<button class="btn btn--small btn--go" type="button" data-action="join">JOIN</button>' : ''}
       ${gear}
       <button class="icon-btn" type="button" data-action="audio" title="Sound">${isMuted() ? 'OFF' : 'SND'}</button>
       <button class="icon-btn" type="button" data-action="fullscreen" title="Full screen">FS</button>
@@ -904,7 +907,35 @@ function range(from, to) {
   return Array.from({ length: to - from + 1 }, (_, index) => from + index);
 }
 
+function joinModal() {
+  const { join } = state;
+  return `
+    <div class="modal-backdrop" data-backdrop>
+      <section class="modal hud join-modal" role="dialog" aria-modal="true" aria-label="Join the game">
+        <header class="modal__head"><h2 class="modal__title">JOIN THE GAME</h2></header>
+        <div class="modal__body join-modal__body">
+          <div class="join-card__qr"><img src="${escapeHtml(join.qrUrl)}" alt="QR code to join the game" /></div>
+          <div>
+            <div class="join-card__label">JOIN CODE</div>
+            <div class="join-card__code">${escapeHtml(join.code)}</div>
+          </div>
+          <div class="join-card__url">${escapeHtml(join.url.replace(/^https?:\/\//, ''))}</div>
+        </div>
+        <footer class="modal__foot"><button class="btn btn--primary" type="button" data-modal="close">CLOSE</button></footer>
+      </section>
+    </div>`;
+}
+
 function renderModal() {
+  if (joinOpen && state.session.phase !== PHASES.QUIZ) joinOpen = false;
+  if (joinOpen) {
+    const sig = `join|${state.join.qrUrl}|${state.join.code}`;
+    if (sig !== modalSig) {
+      modalSig = sig;
+      modalRoot.innerHTML = joinModal();
+    }
+    return;
+  }
   const open = (settingsOpen || menuOpen) && hasControl();
   if (!open) {
     if (modalSig !== '') {
@@ -1123,6 +1154,7 @@ document.addEventListener('click', (event) => {
   if (target.closest('[data-backdrop]') && target === target.closest('[data-backdrop]')) {
     settingsOpen = false;
     menuOpen = false;
+    joinOpen = false;
     importUi = null;
     chromeSig = '';
     render();
@@ -1133,6 +1165,7 @@ document.addEventListener('click', (event) => {
   if (modalClose) {
     settingsOpen = false;
     menuOpen = false;
+    joinOpen = false;
     importUi = null;
     chromeSig = '';
     render();
@@ -1213,6 +1246,11 @@ document.addEventListener('click', (event) => {
       chromeSig = '';
       render();
       return;
+    case 'join':
+      joinOpen = true;
+      modalSig = '';
+      render();
+      return;
     case 'menu':
       menuOpen = true;
       modalSig = '';
@@ -1235,9 +1273,10 @@ document.addEventListener('click', (event) => {
 });
 
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape' && (settingsOpen || menuOpen)) {
+  if (event.key === 'Escape' && (settingsOpen || menuOpen || joinOpen)) {
     settingsOpen = false;
     menuOpen = false;
+    joinOpen = false;
     importUi = null;
     chromeSig = '';
     render();

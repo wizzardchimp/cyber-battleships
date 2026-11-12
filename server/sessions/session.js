@@ -203,7 +203,12 @@ export class GameSession extends EventEmitter {
   // ---------------------------------------------------------------- lobby
 
   join({ name, teamId = null }) {
-    assert(this.state.phase === PHASES.LOBBY, 'JOIN_CLOSED', 'This game has already started.');
+    const phase = this.state.phase;
+    assert(
+      phase === PHASES.LOBBY || phase === PHASES.QUIZ,
+      'JOIN_CLOSED',
+      'Joining is closed right now. Try again when the next question round starts.',
+    );
     const clean = cleanText(name, LIMITS.maxNameLength);
     assert(clean.length >= LIMITS.minNameLength, 'INVALID_NAME', 'That name is too short.');
     const key = nameKey(clean);
@@ -249,6 +254,11 @@ export class GameSession extends EventEmitter {
       stats: emptyStats(),
     };
     this.state.players.push(player);
+    // Someone joining while questions are running gets a question straight away.
+    if (this.state.phase === PHASES.QUIZ && this.state.round) {
+      this.state.round.quiz[player.id] = { answered: 0, correct: 0, bonus: 0, seen: [], current: null };
+      this.issueQuestion(player.id, Date.now());
+    }
     const team = this.teamById(teamId);
     this.recordEvent('player_joined', {
       playerId: player.id,

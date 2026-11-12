@@ -1491,3 +1491,20 @@ body.display-page {
   85% { opacity: 1; }
   100% { opacity: 0; transform: scale(1); }
 }
+
+/* ------------------------------------------------------------- join modal */
+
+.join-modal {
+  width: min(34rem, 100%);
+}
+
+.join-modal__body {
+  display: grid;
+  justify-items: center;
+  gap: 1rem;
+  text-align: center;
+}
+
+.join-modal__body .join-card__qr {
+  width: min(70vh, 100%);
+}

@@ -171,6 +171,7 @@ test('settings are validated and locked once a game starts', async () => {
   session.join({ name: 'Solo' });
   await session.advance();
   await expectReject(() => session.updateConfig({ quizMinutes: 1 }), 'NOT_IN_LOBBY');
+  await session.advance(); // briefing
   expectCode(() => session.join({ name: 'Late' }), 'JOIN_CLOSED');
 });
 
@@ -844,4 +845,16 @@ test('the captain can pass the controls to a teammate, and nobody else can', asy
   assert.notEqual(bravo.captainPlayerId, other.id);
   await expectReject(() => session.attack(captain.id, 0, 0), 'NOT_CAPTAIN');
   assert.equal((await session.attack(other.id, 0, 0)).missiles, 2);
+});
+
+test('players can join while questions are running, but not during the battle', async () => {
+  const { session } = makeSession({ mode: MODES.SQUAD });
+  const alpha = session.state.teams[0];
+  session.join({ name: 'First', teamId: alpha.id });
+  await session.advance();
+  const late = session.join({ name: 'Late Joiner', teamId: alpha.id }).player;
+  const view = playerProjection(session, late.id);
+  assert.ok(view.round.me.question, 'a late joiner gets a question straight away');
+  await session.advance(); // briefing
+  expectCode(() => session.join({ name: 'Too Late', teamId: alpha.id }), 'JOIN_CLOSED');
 });
