@@ -6,6 +6,13 @@ import { EVENTS } from '@shared/events.js';
 import { normaliseCode } from '@shared/util.js';
 import { api } from '../shared/api.js';
 import { sfx, unlockAudio } from '../shared/audio.js';
+import {
+  RESULT_DELAY,
+  playBattle,
+  playShotResult,
+  preloadBattleSounds,
+  setBattleSoundsEnabled,
+} from '../shared/battleSounds.js';
 import { formatCountdown, syncClock } from '../shared/clock.js';
 import { $, escapeHtml, toast } from '../shared/dom.js';
 import { coordLabel, renderGrid } from '../shared/grid.js';
@@ -60,7 +67,7 @@ function clearToken() {
 function shell(inner, { side = null } = {}) {
   app.innerHTML = `
     <div class="p-bar">
-      <span class="p-brand">CYBER BATTLESHIPS</span>
+      <span class="p-brand"><img class="p-brand__mark" src="/brand/mark-128.png" alt="" />CYBER BATTLESHIPS</span>
       <span id="p-link" class="p-link"></span>
     </div>
     <main class="p-main" ${side ? `style="--side:${escapeHtml(side)}"` : ''}>${inner}</main>`;
@@ -79,6 +86,7 @@ function renderLoading(message = 'Loading…') {
   lastSig = '';
   app.innerHTML = `
     <div class="boot-screen">
+      <img class="boot-screen__mark" src="/brand/mark-256.png" alt="" />
       <div class="boot-screen__logo">CYBER BATTLESHIPS</div>
       <div class="boot-screen__bar"><span></span></div>
       <p>${escapeHtml(message)}</p>
@@ -215,7 +223,7 @@ function renderLobby() {
       )
       .join('')}
     <div class="waiting">
-      <div class="waiting__pulse">CB</div>
+      <img class="waiting__pulse" src="/brand/mark-128.png" alt="" />
       <p>Waiting for the facilitator to start the game.<br />Keep this page open.</p>
     </div>`,
     { side: color },
@@ -250,7 +258,7 @@ function renderQuiz() {
         <button class="btn btn--primary btn--wide" type="button" data-action="skip-feedback">NEXT QUESTION</button>
       </section>`;
   } else if (!question) {
-    body = `<div class="waiting"><div class="waiting__pulse">CB</div><p>Loading your next question…</p></div>`;
+    body = `<div class="waiting"><img class="waiting__pulse" src="/brand/mark-128.png" alt="" /><p>Loading your next question…</p></div>`;
   } else {
     body = `
       <div class="q-meta">${(round.cycle || 1) > 1 ? `Round ${round.cycle} · ` : ''}Question ${question.number} · ${escapeHtml(question.category)}</div>
@@ -296,7 +304,7 @@ function renderBriefing() {
       </div>
     </section>
     <div class="waiting">
-      <div class="waiting__pulse">CB</div>
+      <img class="waiting__pulse" src="/brand/mark-128.png" alt="" />
       <p>Get ready.<br />The battle starts when the facilitator is ready.</p>
     </div>`,
     { side: color },
@@ -368,7 +376,7 @@ function renderResupply() {
       </div>
     </section>
     <div class="waiting">
-      <div class="waiting__pulse">CB</div>
+      <img class="waiting__pulse" src="/brand/mark-128.png" alt="" />
       <p>The game ends when every ship on a fleet is sunk.<br />Keep this page open.</p>
     </div>`,
     { side: color },
@@ -414,7 +422,7 @@ function renderResult() {
         .join('')}
     </section>
     <div class="waiting">
-      <div class="waiting__pulse">CB</div>
+      <img class="waiting__pulse" src="/brand/mark-128.png" alt="" />
       <p>Waiting for the facilitator to start the next game.</p>
     </div>`,
     { side: playerState.me.teamColor || '#19e3ff' },
@@ -556,6 +564,10 @@ function ensureSocket() {
     syncClock(next.meta?.serverNow);
     const previous = playerState?.session?.phase;
     playerState = next;
+    setBattleSoundsEnabled(next.session?.config?.soundEnabled !== false);
+    if ([PHASES.REVIEW, PHASES.BATTLE, PHASES.RESUPPLY].includes(next.session.phase)) {
+      preloadBattleSounds();
+    }
     if (previous && previous !== next.session.phase) {
       feedback = null;
       shotMsg = null;
@@ -712,18 +724,20 @@ async function fire(x, y) {
   firing = true;
   const cells = app.querySelectorAll('[data-fire-x]');
   for (const node of cells) node.disabled = true;
+  // Start the launch sound straight away, inside the tap, so phones allow it.
+  playBattle('fire');
+  const firedAt = performance.now();
   try {
     const result = await request(socket, EVENTS.PLAYER_ATTACK, { x, y });
+    const elapsed = (performance.now() - firedAt) / 1000;
+    playShotResult(result, { delay: RESULT_DELAY - elapsed });
     const where = coordLabel(x, y);
     if (result.sunk) {
       shotMsg = { id: Date.now(), kind: 'sunk', text: `${where}: HIT! You sank the ${result.shipName}!` };
-      sfx.alert();
     } else if (result.hit) {
       shotMsg = { id: Date.now(), kind: 'hit', text: `${where}: DIRECT HIT!` };
-      sfx.success();
     } else {
       shotMsg = { id: Date.now(), kind: 'miss', text: `${where}: miss` };
-      sfx.click();
     }
   } catch (error) {
     toast(error.message, 'error', '#toast-root');

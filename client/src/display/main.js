@@ -5,6 +5,12 @@ import { LIMITS, MODE_LIST, MODE_PRESETS, PHASES, phaseLabel, setLabel } from '@
 import { EVENTS } from '@shared/events.js';
 import { api } from '../shared/api.js';
 import { isMuted, sfx, toggleMute, unlockAudio } from '../shared/audio.js';
+import {
+  playBattle,
+  playShotResult,
+  preloadBattleSounds,
+  setBattleSoundsEnabled,
+} from '../shared/battleSounds.js';
 import { formatCountdown, syncClock } from '../shared/clock.js';
 import { $, escapeHtml, toast } from '../shared/dom.js';
 import { renderGrid } from '../shared/grid.js';
@@ -127,14 +133,43 @@ function renderFatal() {
   if (state) return;
   app.innerHTML = `
     <div class="boot-screen">
+      <img class="boot-screen__mark" src="/brand/mark-256.png" alt="" />
       <div class="boot-screen__logo">CYBER BATTLESHIPS</div>
       <p class="form-error">${escapeHtml(fatal)}</p>
       <button class="btn btn--primary" type="button" data-action="reload">TRY AGAIN</button>
     </div>`;
 }
 
+/**
+ * Play the room's battle sounds for any shots that arrived in this update.
+ * Several shots landing together play as one volley so the speakers stay clear.
+ */
+function battleSoundsFor(before, after) {
+  const phase = after?.session?.phase;
+  if (phase !== PHASES.BATTLE && phase !== PHASES.RESULT) return;
+  if (!before?.round || !after?.round || before.round.number !== after.round.number) return;
+  const previous = new Map(before.round.boards.map((board) => [board.id, board]));
+  let shots = 0;
+  let hits = 0;
+  let sunk = 0;
+  for (const board of after.round.boards) {
+    const old = previous.get(board.id);
+    if (!old) continue;
+    const added = board.shots.slice(old.shots.length);
+    shots += added.length;
+    hits += added.filter((shot) => shot.hit).length;
+    sunk += Math.max(0, board.shipsSunk - old.shipsSunk);
+  }
+  if (shots === 0) return;
+  playBattle('fire');
+  playShotResult({ hit: hits > 0, sunk: sunk > 0 });
+}
+
 function applyState(next) {
   const previous = state?.session?.phase ?? null;
+  setBattleSoundsEnabled(next.session?.config?.soundEnabled !== false);
+  preloadBattleSounds();
+  battleSoundsFor(state, next);
   state = next;
   const phase = next.session.phase;
   if (previous !== null && previous !== phase) {
@@ -178,7 +213,7 @@ function renderChrome() {
     : '';
   $('#chrome').innerHTML = `
     <div class="brand">
-      <div class="brand__mark">CB</div>
+      <img class="brand__mark" src="/brand/mark-128.png" alt="Cyber Battleships logo" />
       <div>
         <div class="brand__name">CYBER BATTLESHIPS</div>
         <div class="brand__tag">LIVE CYBER DEFENCE</div>

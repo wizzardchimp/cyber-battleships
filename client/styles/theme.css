@@ -575,6 +575,18 @@ button {
   text-align: center;
 }
 
+.boot-screen__mark {
+  width: min(11rem, 40vw);
+  height: auto;
+  animation: glow 2.4s ease-in-out infinite;
+}
+
+@keyframes glow {
+  50% {
+    filter: brightness(1.25) drop-shadow(0 0 18px rgba(40, 150, 255, 0.55));
+  }
+}
+
 .boot-screen__logo {
   color: var(--cyan);
   font-family: var(--font-pixel);
@@ -702,6 +714,7 @@ button.battle-cell:disabled {
 @media (prefers-reduced-motion: reduce) {
   body::after,
   .status-dot,
+  .boot-screen__mark,
   .boot-screen__bar span {
     animation: none;
   }

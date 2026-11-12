@@ -35,15 +35,9 @@ body.display-page {
 }
 
 .brand__mark {
-  display: grid;
-  place-items: center;
-  width: 2.6rem;
-  height: 2.6rem;
-  color: var(--cyan);
-  font-family: var(--font-pixel);
-  font-size: 0.8rem;
-  border: 2px solid var(--cyan);
-  box-shadow: 0 0 16px rgba(25, 227, 255, 0.35);
+  display: block;
+  width: 3.8rem;
+  height: auto;
 }
 
 .brand__name {

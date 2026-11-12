@@ -9,6 +9,11 @@ function ensureContext() {
   return context;
 }
 
+/** The shared AudioContext, created on first use. */
+export function getAudioContext() {
+  return ensureContext();
+}
+
 export function unlockAudio() {
   const ctx = ensureContext();
   if (ctx?.state === 'suspended') ctx.resume().catch(() => {});

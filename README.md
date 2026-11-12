@@ -85,6 +85,20 @@ and stores it in its own browser. Starting, skipping, settings, removing players
 and the question import/export all require that key. Phones never receive it, so
 players cannot start or end the game even by sending messages directly.
 
+## Logo and sounds
+
+- The ship logo lives in `client/public/brand/`. `mark-*.png` are transparent
+  versions used inside the game; `logo-64.png` and `logo-180.png` are the browser
+  tab and home-screen icons. The original artwork is `CBlogo.png` in the project
+  root (not committed).
+- Battle sounds live in `client/public/sounds/`: `fire1-5`, `hit1-3`, `miss1-3`
+  and `sink1-3`. Every shot plays a random fire sound, then a hit, miss or sink
+  sound. Each group is shuffled so the same clip is not heard twice in a row.
+  Long clips fade out (fire after 3.5 s, hits 4 s, misses 3 s, sinks 7 s).
+- The big screen plays a sound for every shot in the room; each phone plays its
+  own shots. The **Sound effects** setting and the **SND** button turn them off.
+- To swap a sound, replace the file with one of the same name and redeploy.
+
 ## Editing the questions
 
 There are two question sets, **Easy** and **Complex**, stored in the database.

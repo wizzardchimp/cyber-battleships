@@ -15,6 +15,11 @@
   text-align: center;
 }
 
+.landing__logo {
+  width: min(12rem, 45vw);
+  height: auto;
+}
+
 .landing__title {
   display: grid;
   gap: 0.7rem;
