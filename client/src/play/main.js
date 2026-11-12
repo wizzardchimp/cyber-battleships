@@ -13,6 +13,7 @@ import {
   preloadBattleSounds,
   setBattleSoundsEnabled,
 } from '../shared/battleSounds.js';
+import { runCaptainDraw } from '../shared/captainDraw.js';
 import { formatCountdown, msRemaining, syncClock } from '../shared/clock.js';
 import { $, escapeHtml, toast } from '../shared/dom.js';
 import { coordLabel, renderGrid } from '../shared/grid.js';
@@ -43,6 +44,7 @@ let firing = false;
 let shotMsg = null;
 let lastSig = '';
 let lastBeep = null;
+let passOpen = false;
 
 // ------------------------------------------------------------------ storage
 
@@ -317,6 +319,25 @@ function renderBriefing() {
   );
 }
 
+function passControlsMarkup() {
+  const mates = (myTeam()?.players || []).filter((player) => player.id !== playerState.me.id);
+  if (mates.length === 0) return '';
+  if (!passOpen) {
+    return '<button class="btn btn--ghost btn--wide pass-btn" type="button" data-action="pass-open">PASS CONTROLS TO A TEAMMATE</button>';
+  }
+  return `
+    <div class="pass-list">
+      <div class="field__label">Who takes the controls?</div>
+      ${mates
+        .map(
+          (player) =>
+            `<button class="btn btn--ghost btn--wide" type="button" data-pass="${escapeHtml(player.id)}" ${player.connected ? '' : 'disabled'}>${escapeHtml(player.name)}${player.connected ? '' : ' (offline)'}</button>`,
+        )
+        .join('')}
+      <button class="btn btn--small btn--ghost" type="button" data-action="pass-cancel">CANCEL</button>
+    </div>`;
+}
+
 function renderBattle() {
   const round = playerState.round;
   const me = round.me;
@@ -341,7 +362,7 @@ function renderBattle() {
     message = `<div class="shot-msg shot-msg--out">Out of missiles. Another round of questions is coming so you can earn more.</div>`;
   }
   const role = captain
-    ? '<div class="captain-tag">YOU ARE THE CAPTAIN · YOU FIRE THE MISSILES</div>'
+    ? `<div class="captain-tag">YOU ARE THE CAPTAIN · YOU FIRE THE MISSILES</div>${passControlsMarkup()}`
     : `<div class="captain-tag captain-tag--watch">${escapeHtml(me.captainName || 'Your captain')} is the captain and fires the missiles. You are watching.</div>`;
 
   shell(
@@ -488,6 +509,8 @@ function signature() {
         me?.targetBoard?.shipsSunk,
         shotMsg?.id,
         firing,
+        passOpen,
+        JSON.stringify(me?.isCaptain ? myTeam()?.players?.map((player) => [player.id, player.connected]) : null),
         round?.scores?.map((score) => score.points),
       ]);
     case PHASES.RESUPPLY:
@@ -576,7 +599,9 @@ function ensureSocket() {
   socket.on(EVENTS.STATE, (next) => {
     syncClock(next.meta?.serverNow);
     const previous = playerState?.session?.phase;
+    const before = playerState;
     playerState = next;
+    maybeDrawCaptain(before, next);
     setBattleSoundsEnabled(next.session?.config?.soundEnabled !== false);
     if ([PHASES.REVIEW, PHASES.BATTLE, PHASES.RESUPPLY].includes(next.session.phase)) {
       preloadBattleSounds();
@@ -584,6 +609,7 @@ function ensureSocket() {
     if (previous && previous !== next.session.phase) {
       feedback = null;
       shotMsg = null;
+      passOpen = false;
       if ([PHASES.QUIZ, PHASES.BATTLE, PHASES.RESUPPLY].includes(next.session.phase)) sfx.alert();
       if (next.session.phase === PHASES.RESULT) sfx.success();
     }
@@ -757,6 +783,38 @@ function flashHit({ hit, sunk, shipName }, elapsed = 0) {
   );
 }
 
+/** A short reveal of who the captain is when a question round begins. */
+function maybeDrawCaptain(before, after) {
+  if (!before || !after?.round || !after.me || after.session.phase !== PHASES.QUIZ) return;
+  if (before.session.phase === PHASES.QUIZ && before.round?.cycle === after.round.cycle) return;
+  const team = after.teams?.find((entry) => entry.id === after.me.teamId);
+  if (!team) return;
+  runCaptainDraw(
+    [
+      {
+        name: team.name,
+        color: team.color,
+        players: team.players.map((player) => player.name),
+        captain: team.players.find((player) => player.captain)?.name || '',
+      },
+    ],
+    { compact: true, sound: after.session?.config?.soundEnabled !== false },
+  );
+}
+
+async function passControls(playerId) {
+  try {
+    await request(socket, EVENTS.PLAYER_PASS_CAPTAIN, { playerId });
+    sfx.success();
+  } catch (error) {
+    toast(error.message, 'error', '#toast-root');
+    sfx.error();
+  } finally {
+    passOpen = false;
+    render(true);
+  }
+}
+
 async function fire(x, y) {
   if (firing) return;
   firing = true;
@@ -811,6 +869,12 @@ app.addEventListener('click', (event) => {
     return;
   }
 
+  const pass = event.target.closest('[data-pass]');
+  if (pass) {
+    passControls(pass.dataset.pass);
+    return;
+  }
+
   const switcher = event.target.closest('[data-switch]');
   if (switcher) {
     switchTeam(switcher.dataset.switch);
@@ -821,6 +885,9 @@ app.addEventListener('click', (event) => {
   if (action === 'skip-feedback') {
     clearTimeout(feedbackTimer);
     feedback = null;
+    render(true);
+  } else if (action === 'pass-open' || action === 'pass-cancel') {
+    passOpen = action === 'pass-open';
     render(true);
   } else if (action === 'reload') {
     window.location.reload();

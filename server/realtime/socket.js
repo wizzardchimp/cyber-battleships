@@ -9,6 +9,7 @@ import {
   displaySettingsSchema,
   displaySubscribeSchema,
   playerAnswerSchema,
+  passCaptainSchema,
   playerAttackSchema,
   playerJoinSchema,
   playerResumeSchema,
@@ -464,6 +465,18 @@ export function attachSocketServer(io, { manager, config, logger }) {
         }
         const data = playerAttackSchema.parse(payload);
         const result = await sessionFromSocket(socket).attack(socket.data.playerId, data.x, data.y);
+        reply(ack, { ok: true, ...result });
+      });
+    });
+
+    socket.on(EVENTS.PLAYER_PASS_CAPTAIN, (payload, ack) => {
+      run(socket, ack, async () => {
+        if (!guard(socket, 'passCaptain', 10, 10_000)) return;
+        if (socket.data.role !== 'player' || !socket.data.playerId) {
+          throw new AppError('UNAUTHORIZED', 'Join the game to pass control.', 401);
+        }
+        const data = passCaptainSchema.parse(payload);
+        const result = await sessionFromSocket(socket).passCaptain(socket.data.playerId, data.playerId);
         reply(ack, { ok: true, ...result });
       });
     });

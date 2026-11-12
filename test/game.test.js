@@ -826,3 +826,22 @@ test('in a crew game against the CPU one player fires for everybody', async () =
   const crew = session.state.teams[0];
   assert.ok(players.some((player) => player.id === crew.captainPlayerId));
 });
+
+test('the captain can pass the controls to a teammate, and nobody else can', async () => {
+  const { session, alpha, bravo, alphaPlayers, bravoPlayers } = await startedSquad();
+  for (const player of alphaPlayers) await answerCorrectly(session, player);
+  await session.advance(); // briefing
+  await session.advance(); // battle
+
+  const captain = alphaPlayers.find((player) => player.id === alpha.captainPlayerId);
+  const [other, third] = alphaPlayers.filter((player) => player.id !== captain.id);
+  await expectReject(() => session.passCaptain(other.id, third.id), 'NOT_CAPTAIN');
+  await expectReject(() => session.passCaptain(captain.id, captain.id), 'INVALID_PLAYER');
+  await expectReject(() => session.passCaptain(captain.id, bravoPlayers[0].id), 'INVALID_PLAYER');
+
+  await session.passCaptain(captain.id, other.id);
+  assert.equal(alpha.captainPlayerId, other.id);
+  assert.notEqual(bravo.captainPlayerId, other.id);
+  await expectReject(() => session.attack(captain.id, 0, 0), 'NOT_CAPTAIN');
+  assert.equal((await session.attack(other.id, 0, 0)).missiles, 2);
+});

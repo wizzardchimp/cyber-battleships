@@ -1179,8 +1179,9 @@ body.display-page {
 
 .ship-legend {
   display: grid;
-  gap: 0.45rem;
-  padding: 0.7rem 1rem;
+  gap: 0.35rem;
+  width: 100%;
+  padding: 0.55rem 0.9rem;
   background: var(--panel);
   border: 1px solid var(--line);
 }
@@ -1189,42 +1190,195 @@ body.display-page {
   margin: 0;
   color: var(--muted);
   font-family: var(--font-mono);
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   font-weight: 400;
   letter-spacing: 0.2em;
 }
 
+.ship-legend__list {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
 .ship-legend__row {
-  display: flex;
-  align-items: center;
-  gap: 0.8rem;
+  display: grid;
+  justify-items: center;
+  gap: 0.2rem;
 }
 
 .ship-legend__shape {
   display: flex;
   gap: 2px;
-  flex: 0 0 auto;
-  width: 5.6rem;
 }
 
 .ship-legend__shape i {
-  width: 1rem;
-  height: 1rem;
+  width: 0.95rem;
+  height: 0.75rem;
   background: color-mix(in srgb, var(--cyan) 55%, transparent);
   border: 1px solid var(--cyan);
 }
 
 .ship-legend__name {
-  display: flex;
-  justify-content: space-between;
-  flex: 1;
+  display: grid;
+  justify-items: center;
   color: var(--ink-soft);
   font-family: var(--font-mono);
-  font-size: 0.85rem;
+  font-size: 0.72rem;
+  text-align: center;
+  line-height: 1.15;
 }
 
 .ship-legend__name small {
   color: var(--muted);
+  font-size: 0.7rem;
+}
+
+/* A sunk ship turns red: it is out of play. */
+.ship-legend__row.is-sunk .ship-legend__shape i {
+  background: rgba(255, 77, 109, 0.6);
+  border-color: var(--red);
+}
+
+.ship-legend__row.is-sunk .ship-legend__name,
+.ship-legend__row.is-sunk .ship-legend__name small {
+  color: var(--red);
+  text-decoration: line-through;
+}
+
+/* ------------------------------------------- full-height battle boards */
+
+.battle .screen-sub {
+  display: none;
+}
+
+.battle {
+  gap: 0.8rem;
+}
+
+.boards--battle {
+  gap: 1.6rem;
+}
+
+.boards--battle .board {
+  max-width: none;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  gap: 0.5rem;
+}
+
+.boards--battle .board__title small {
+  margin-top: 0.2rem;
+}
+
+.boards--battle .board__grid {
+  container-type: size;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+}
+
+.boards--battle .board__grid .battle-grid {
+  width: min(100cqw, 100cqh);
+}
+
+.battle .screen-head {
+  align-items: center;
+}
+
+.battle .screen-title {
+  font-size: 1.6rem;
+}
+
+.battle .timer__value {
+  font-size: 2.6rem;
+}
+
+/* ----------------------------------------------------------- captain draw */
+
+.captain-draw {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 2.4rem;
+  background: rgba(2, 5, 12, 0.94);
+  animation: draw-in 0.3s ease both;
+}
+
+.captain-draw.is-leaving {
+  opacity: 0;
+  transition: opacity 0.35s ease;
+}
+
+.captain-draw__title {
+  color: var(--cyan);
+  font-family: var(--font-pixel);
+  font-size: clamp(1.2rem, 2.6vw, 2.2rem);
+  letter-spacing: 0.2em;
+}
+
+.captain-draw__teams {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 2rem;
+  padding: 0 1.5rem;
+}
+
+.captain-draw__team {
+  --side: var(--cyan);
+  display: grid;
+  gap: 0.8rem;
+  justify-items: center;
+  min-width: 18rem;
+  padding: 1.6rem 2.2rem;
+  border: 2px solid var(--side);
+  background: color-mix(in srgb, var(--side) 10%, transparent);
+}
+
+.captain-draw__side {
+  color: var(--side);
+  font-family: var(--font-pixel);
+  font-size: 1rem;
+}
+
+.captain-draw__name {
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: clamp(1.6rem, 3.4vw, 3rem);
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
+.captain-draw__tag {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  letter-spacing: 0.3em;
+}
+
+.captain-draw__team.is-locked {
+  box-shadow: 0 0 50px color-mix(in srgb, var(--side) 60%, transparent);
+  animation: draw-lock 0.5s ease both;
+}
+
+.captain-draw__team.is-locked .captain-draw__name {
+  color: var(--green);
+}
+
+.captain-draw__team.is-locked .captain-draw__tag {
+  color: var(--green);
+}
+
+@keyframes draw-in {
+  from { opacity: 0; }
+}
+
+@keyframes draw-lock {
+  40% { transform: scale(1.06); }
 }
 
 /* ------------------------------------------------------------ sunk banners */
