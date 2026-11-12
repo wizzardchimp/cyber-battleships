@@ -187,7 +187,7 @@ test('a full game: quiz, briefing, battle and result over real sockets', async (
       ),
     );
   }
-  assert.equal(quiz[0].round.me.question.options.length, 4);
+  assert.equal(quiz[0].round.me.question.options.length, 3);
   assert.ok(!JSON.stringify(quiz[0]).includes('answerIndex'));
 
   // The projector shows progress but never a question or an answer key.
@@ -213,7 +213,7 @@ test('a full game: quiz, briefing, battle and result over real sockets', async (
   const bravoCurrent = session.state.round.quiz[bravo.result.playerId].current;
   const wrong = await emitAck(bravo.socket, EVENTS.PLAYER_ANSWER, {
     questionNumber: bravoCurrent.number,
-    optionIndex: (bravoCurrent.answerIndex + 1) % 4,
+    optionIndex: (bravoCurrent.answerIndex + 1) % 3,
   });
   assert.equal(wrong.correct, false);
 
@@ -253,7 +253,44 @@ test('a full game: quiz, briefing, battle and result over real sockets', async (
   assert.equal(noAmmo.ok, false);
   assert.equal(noAmmo.error.code, 'NO_MISSILES');
 
+  // The facilitator ends this battle round. Nobody has won, so the game offers
+  // another round of questions to earn more missiles.
   assert.equal((await emitAck(screen.socket, EVENTS.DISPLAY_ADVANCE, {})).ok, true);
+  const paused = await waitFor(() => latestPhase(screen.states, PHASES.RESUPPLY), { label: 'resupply' });
+  assert.equal(paused.round.battleEndReason, 'ended');
+  assert.equal(paused.round.outcome, null);
+  assert.ok(paused.round.boards.every((board) => board.ships === undefined), 'ships still hidden');
+  const pausedPhone = await waitFor(() => latestPhase(alpha.states, PHASES.RESUPPLY), { label: 'phone resupply' });
+  assert.equal(pausedPhone.round.me.missiles, 0);
+
+  // Another question round: same fleets and shots, fresh questions.
+  assert.equal((await emitAck(screen.socket, EVENTS.DISPLAY_ADVANCE, {})).ok, true);
+  const second = await waitFor(
+    () => {
+      const state = alpha.states.latest();
+      return state?.session?.phase === PHASES.QUIZ && state.round?.cycle === 2 && state.round.me.question
+        ? state
+        : null;
+    },
+    { label: 'second question round' },
+  );
+  assert.equal(second.round.number, 1, 'still the same game');
+  assert.equal(second.round.me.question.number, 1);
+  assert.equal(second.round.me.answered, 0, 'per-round counters restart');
+  const carried = second.round.boards.find((board) => board.id === second.round.me.targetId);
+  assert.equal(carried.shots.length, 1, 'the earlier shot is still on the board');
+
+  const tooEarly = await emitAck(screen.socket, EVENTS.DISPLAY_FINISH, {});
+  assert.equal(tooEarly.ok, false);
+  assert.equal(tooEarly.error.code, 'INVALID_PHASE');
+  const playerFinish = await emitAck(alpha.socket, EVENTS.DISPLAY_FINISH, {});
+  assert.equal(playerFinish.ok, false);
+  assert.equal(playerFinish.error.code, 'UNAUTHORIZED');
+
+  // Skip to the briefing and end the game on score.
+  assert.equal((await emitAck(screen.socket, EVENTS.DISPLAY_ADVANCE, {})).ok, true);
+  await waitFor(() => latestPhase(screen.states, PHASES.REVIEW), { label: 'second briefing' });
+  assert.equal((await emitAck(screen.socket, EVENTS.DISPLAY_FINISH, {})).ok, true);
   const result = await waitFor(() => latestPhase(screen.states, PHASES.RESULT), { label: 'result' });
   assert.equal(result.round.outcome.winnerName, 'ALPHA');
   assert.ok(result.round.boards.every((board) => Array.isArray(board.ships)));

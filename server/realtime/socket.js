@@ -335,6 +335,24 @@ export function attachSocketServer(io, { manager, config, logger }) {
       });
     });
 
+    socket.on(EVENTS.DISPLAY_RESUME, (payload, ack) => {
+      run(socket, ack, async () => {
+        controlOnly(socket);
+        if (!guard(socket, 'control', 20)) return;
+        await sessionFromSocket(socket).resumeFight();
+        reply(ack, { ok: true });
+      });
+    });
+
+    socket.on(EVENTS.DISPLAY_FINISH, (payload, ack) => {
+      run(socket, ack, async () => {
+        controlOnly(socket);
+        if (!guard(socket, 'control', 20)) return;
+        await sessionFromSocket(socket).finish();
+        reply(ack, { ok: true });
+      });
+    });
+
     socket.on(EVENTS.DISPLAY_LOBBY, (payload, ack) => {
       run(socket, ack, async () => {
         controlOnly(socket);

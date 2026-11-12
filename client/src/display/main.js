@@ -224,6 +224,9 @@ function renderStage() {
     case PHASES.BATTLE:
       html = battleScreen();
       break;
+    case PHASES.RESUPPLY:
+      html = resupplyScreen();
+      break;
     case PHASES.RESULT:
       html = resultScreen();
       break;
@@ -359,12 +362,13 @@ function quizScreen() {
   const teams = round.teams;
   const scale = maxCorrect(teams);
   const many = teams.some((team) => team.players.length > 8);
+  const later = (round.cycle || 1) > 1;
   return `
     <section class="screen quiz" style="grid-template-rows:auto minmax(0,1fr)">
       <header class="screen-head">
         <div>
-          <h1 class="screen-title">QUIZ UNDERWAY</h1>
-          <p class="screen-sub">Answer on your phone. Every correct answer earns a missile.</p>
+          <h1 class="screen-title">${later ? `QUESTION ROUND ${round.cycle}` : 'QUIZ UNDERWAY'}</h1>
+          <p class="screen-sub">${later ? 'Earn more missiles. The battle goes on until every ship on a fleet is sunk.' : 'Answer on your phone. Every correct answer earns a missile.'}</p>
         </div>
         ${timerBlock('TIME LEFT', round.quizEndsAt)}
       </header>
@@ -390,7 +394,7 @@ function briefingScreen() {
       <article class="brief hud" style="--side:${team.color};--bracket:${team.color}">
         <h2 class="brief__name">${escapeHtml(team.name)}</h2>
         <div>
-          <div class="brief__missiles">${team.missiles}</div>
+          <div class="brief__missiles">${team.won}</div>
           <div class="brief__missiles-label">MISSILES WON</div>
         </div>
         <div class="brief__facts">
@@ -399,6 +403,7 @@ function briefingScreen() {
           <div class="brief__fact"><strong>${team.answered}</strong><span>ANSWERED</span></div>
         </div>
         <p class="brief__top">${best ? `Top operative: <b>${escapeHtml(best.name)}</b> (${best.correct} correct)` : 'No correct answers'}</p>
+        <p class="brief__top">Ready to fire: <b>${team.missiles}</b> missile${team.missiles === 1 ? '' : 's'}</p>
       </article>`;
     })
     .join('');
@@ -450,23 +455,50 @@ function boardMarkup(round, board, { revealed }) {
     </article>`;
 }
 
-function scoreBar(round, { detailed }) {
-  const scores = round.scores.filter((score) => score.kind === 'team');
+function rosterPanel(round, { detailed }) {
+  const scores = new Map(round.scores.map((score) => [score.id, score]));
+  const dense = round.teams.some((team) => team.players.length > 6);
   return `
-    <div class="scorebar" style="--teams:${scores.length}">
-      ${scores
+    <aside class="roster-panel ${dense ? 'is-dense' : ''}">
+      ${round.teams
+        .map((team) => {
+          const score = scores.get(team.id) || {};
+          const rows = team.players
+            .map(
+              (player) => `
+            <div class="roster-row ${player.connected ? '' : 'is-offline'}">
+              <span class="roster-row__name">${escapeHtml(player.name)}</span>
+              <span class="roster-row__nums">${player.hits}<small>/${player.shots}</small></span>
+            </div>`,
+            )
+            .join('');
+          return `
+          <article class="roster-team" style="--side:${team.color}">
+            <header class="roster-team__head">
+              <h2 class="roster-team__name">${escapeHtml(team.name)}</h2>
+              <div class="roster-team__nums">
+                <span class="roster-team__pts">${team.points}<small>PTS</small></span>
+                <span class="roster-team__ammo">${team.missiles}<small>MISSILES</small></span>
+              </div>
+            </header>
+            ${detailed ? `<p class="roster-team__detail">${score.correct ?? 0} correct · ${score.hits ?? 0} hits · ${score.sunk ?? 0} sunk</p>` : ''}
+            <div class="roster-team__rows">${rows || '<p class="muted">No players</p>'}</div>
+          </article>`;
+        })
+        .join('')}
+      <p class="roster-panel__key">PLAYER HITS / SHOTS</p>
+    </aside>`;
+}
+
+function afloatBlock(round) {
+  return `
+    <div class="afloat">
+      ${targetBoards(round)
         .map(
-          (score) => `
-        <div class="score" style="--side:${score.color}">
-          <span class="score__name">${escapeHtml(score.name)}</span>
-          <span class="score__nums">
-            <span class="score__points">${score.points}<small>PTS</small></span>
-            ${
-              detailed
-                ? `<span class="muted">${score.correct} correct · ${score.hits} hits · ${score.sunk} sunk</span>`
-                : `<span class="score__ammo">${score.missiles}<small>MISSILES</small></span>`
-            }
-          </span>
+          (board) => `
+        <div class="afloat__item" style="--side:${board.color}">
+          <span class="afloat__name">${escapeHtml(board.name)}</span>
+          <strong>${board.shipsTotal - board.shipsSunk}<small>/${board.shipsTotal} AFLOAT</small></strong>
         </div>`,
         )
         .join('')}
@@ -480,12 +512,45 @@ function battleScreen() {
       <header class="screen-head">
         <div>
           <h1 class="screen-title">BATTLE</h1>
-          <p class="screen-sub">Fire from your phone. One missile per shot.</p>
+          <p class="screen-sub">Fire from your phone. One missile per shot. Sink every ship to win.</p>
         </div>
         ${timerBlock('TIME LEFT', round.battleEndsAt)}
       </header>
-      <div class="boards">${targetBoards(round).map((board) => boardMarkup(round, board, { revealed: false })).join('')}</div>
-      ${scoreBar(round, { detailed: false })}
+      <div class="battle-body">
+        ${rosterPanel(round, { detailed: false })}
+        <div class="boards">${targetBoards(round).map((board) => boardMarkup(round, board, { revealed: false })).join('')}</div>
+      </div>
+    </section>`;
+}
+
+function resupplyScreen() {
+  const round = state.round;
+  const reason = round.battleEndReason;
+  const anyAmmo = round.teams.some((team) => team.missiles > 0);
+  const title = reason === 'ammo' ? 'OUT OF MISSILES' : 'BATTLE PAUSED';
+  const lead =
+    reason === 'ammo'
+      ? 'Nobody has any missiles left.'
+      : reason === 'time'
+        ? 'The battle timer ran out.'
+        : 'The battle round was ended.';
+  const next = hasControl()
+    ? `Start another round of questions to earn more missiles${anyAmmo ? ', or resume with the missiles you have left' : ''}.`
+    : 'Waiting for the facilitator to start more questions.';
+  return `
+    <section class="screen battle resupply">
+      <header class="screen-head">
+        <div>
+          <h1 class="screen-title" style="color:var(--amber)">${title}</h1>
+          <p class="screen-sub">${lead} ${next}</p>
+          <p class="screen-sub">The game ends only when every ship on a fleet is sunk.</p>
+        </div>
+        ${afloatBlock(round)}
+      </header>
+      <div class="battle-body">
+        ${rosterPanel(round, { detailed: false })}
+        <div class="boards">${targetBoards(round).map((board) => boardMarkup(round, board, { revealed: false })).join('')}</div>
+      </div>
     </section>`;
 }
 
@@ -501,14 +566,16 @@ function resultScreen() {
       ? 'NO WINNER'
       : 'WINNER';
   return `
-    <section class="screen result">
+    <section class="screen battle result">
       <div class="winner" style="--win:${escapeHtml(outcome.winnerColor || '#19e3ff')}">
         <span class="winner__eyebrow">${eyebrow}</span>
         <h1 class="winner__name">${escapeHtml(outcome.winnerName || 'GAME OVER')}</h1>
         <span class="winner__reason">${escapeHtml(outcome.reason || '')}</span>
       </div>
-      <div class="boards">${targetBoards(round).map((board) => boardMarkup(round, board, { revealed: true })).join('')}</div>
-      ${scoreBar(round, { detailed: true })}
+      <div class="battle-body">
+        ${rosterPanel(round, { detailed: true })}
+        <div class="boards">${targetBoards(round).map((board) => boardMarkup(round, board, { revealed: true })).join('')}</div>
+      </div>
     </section>`;
 }
 
@@ -524,7 +591,15 @@ function renderControls() {
   const phase = state.session.phase;
   const control = hasControl();
   const players = state.counts.players;
-  const sig = [phase, control, phase === PHASES.LOBBY ? players : '', armed?.action, connected].join('|');
+  const anyAmmo = Boolean(state.round?.teams?.some((team) => team.missiles > 0));
+  const sig = [
+    phase,
+    control,
+    phase === PHASES.LOBBY ? players : '',
+    phase === PHASES.RESUPPLY ? anyAmmo : '',
+    armed?.action,
+    connected,
+  ].join('|');
   if (sig === controlsSig) return;
   controlsSig = sig;
 
@@ -550,13 +625,23 @@ function renderControls() {
         hint = 'Share the results, then launch the battle.';
         buttons =
           button('BACK TO LOBBY', { action: 'lobby', kind: 'btn--ghost', confirm: true }) +
+          button('END GAME', { action: 'finish', kind: 'btn--ghost', confirm: true }) +
           button('START BATTLE', { action: 'advance', kind: 'btn--go', main: true });
         break;
       case PHASES.BATTLE:
-        hint = 'The battle ends when the timer runs out or a fleet is sunk.';
+        hint = 'The game ends when every ship on a fleet is sunk.';
         buttons =
           button('BACK TO LOBBY', { action: 'lobby', kind: 'btn--ghost', confirm: true }) +
-          button('END BATTLE', { action: 'advance', kind: 'btn--primary', main: true });
+          button('END GAME', { action: 'finish', kind: 'btn--ghost', confirm: true }) +
+          button('END BATTLE ROUND', { action: 'advance', kind: 'btn--primary', main: true });
+        break;
+      case PHASES.RESUPPLY:
+        hint = 'Start more questions to earn missiles. Boards and scores carry over.';
+        buttons =
+          button('BACK TO LOBBY', { action: 'lobby', kind: 'btn--ghost', confirm: true }) +
+          button('END GAME', { action: 'finish', kind: 'btn--ghost', confirm: true }) +
+          (anyAmmo ? button('RESUME BATTLE', { action: 'resume', kind: 'btn--primary' }) : '') +
+          button('MORE QUESTIONS', { action: 'advance', kind: 'btn--go', main: true });
         break;
       case PHASES.RESULT:
         hint = 'Same players, fresh fleets. Or reset the room.';
@@ -677,8 +762,8 @@ function settingsModal() {
               ${state.questionSets.map((set) => setCardMarkup(set, set.id === config.questionSet)).join('')}
             </div>
             ${importPanelMarkup()}
-            <p class="setting__help">Export a set to get a CSV file, edit it in Excel or Google Sheets, then import it back. Each row is one question with the columns below. Import replaces only the set you choose.</p>
-            <div class="code-block">category, question, option_a, option_b, option_c, option_d, correct (A-D), explanation</div>
+            <p class="setting__help">Export a set to get a CSV file, edit it in Excel or Google Sheets, then import it back. Each row is one question with three answers and the columns below. Import replaces only the set you choose.</p>
+            <div class="code-block">category, question, option_a, option_b, option_c, correct (A, B or C), explanation</div>
           </div>
           <div class="setting">
             <span class="setting__label">SOUND EFFECTS</span>
@@ -780,6 +865,12 @@ async function runAction(action, node) {
   switch (action) {
     case 'advance':
       ok = await send(EVENTS.DISPLAY_ADVANCE);
+      break;
+    case 'resume':
+      ok = await send(EVENTS.DISPLAY_RESUME);
+      break;
+    case 'finish':
+      ok = await send(EVENTS.DISPLAY_FINISH);
       break;
     case 'lobby':
       ok = await send(EVENTS.DISPLAY_LOBBY);

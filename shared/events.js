@@ -11,6 +11,8 @@ export const EVENTS = Object.freeze({
   DISPLAY_SUBSCRIBE: 'display:subscribe',
   DISPLAY_CREATE: 'display:create',
   DISPLAY_ADVANCE: 'display:advance',
+  DISPLAY_RESUME: 'display:resume',
+  DISPLAY_FINISH: 'display:finish',
   DISPLAY_LOBBY: 'display:lobby',
   DISPLAY_SETTINGS: 'display:settings',
   DISPLAY_REMOVE: 'display:remove',

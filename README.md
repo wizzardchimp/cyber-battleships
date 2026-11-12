@@ -12,17 +12,23 @@ There is no facilitator dashboard. The big screen **is** the control surface.
    sides. Players scan, type a name and pick a side. The facilitator can open
    **SETTINGS** and press **START GAME**.
 2. **Quiz.** A 1, 2 or 3 minute timer runs. Every phone gets its own stream of
-   questions, one after another, at its own pace. Each correct answer earns the
-   team **1 missile** and 10 points. The big screen shows live progress for every
-   side and player. **SKIP TIMER** ends it early.
+   questions, one after another, at its own pace. Each question has **three
+   answers**. Each correct answer earns the team **1 missile** and 10 points. The
+   big screen shows live progress for every side and player. **SKIP TIMER** ends
+   it early.
 3. **Briefing.** The big screen shows what each side won: missiles, correct
    answers, accuracy and top player. The facilitator presses **START BATTLE**.
 4. **Battle.** Players tap a square on their phone to fire. Hits score 25 points
-   and sinking a ship adds 50. The battle ends when the timer runs out, a fleet is
-   sunk, or nobody has missiles left.
-5. **Result.** Winner, scores and revealed fleets. **PLAY AGAIN** keeps the same
-   players. **BACK TO LOBBY** reopens the room. **NEW GAME** makes a fresh join
-   code.
+   and sinking a ship adds 50. The player list sits on the left of the screen so
+   the boards stay clear.
+5. **Out of missiles.** When the missiles run out (or the battle timer ends) the
+   screen prompts for **MORE QUESTIONS**. Another question round starts, and the
+   fleets, shots, scores and any unspent missiles carry over. If missiles are
+   left over, **RESUME BATTLE** goes straight back to firing.
+6. **Result.** The game ends **when every ship on a fleet is sunk**. The result
+   shows the winner, scores and the revealed fleets. **END GAME** ends it early
+   and decides the winner on score. **PLAY AGAIN** keeps the same players,
+   **BACK TO LOBBY** reopens the room, and **NEW GAME** makes a fresh join code.
 
 ### Game modes
 
@@ -60,6 +66,10 @@ the QR code. That browser remembers the game, so a refresh keeps control.
 
 - **SETTINGS** (lobby only): game mode, quiz time (1–3 min), battle time
   (30–180 s), grid size, question set, sound, and question import/export.
+- **During a game** the bottom bar changes with the phase: **SKIP TIMER**,
+  **START BATTLE**, **END BATTLE ROUND**, **MORE QUESTIONS**, **RESUME BATTLE**,
+  **END GAME**, **PLAY AGAIN**, **BACK TO LOBBY**. Buttons that end or reset the
+  game ask you to tap twice.
 - **Removing a player:** tap the ✕ next to a name in the lobby, then tap again to
   confirm.
 - **Second screen:** opening `/display` on another device shows a **view only**
@@ -89,11 +99,14 @@ The game uses whichever is selected in Settings.
 The file has one row per question:
 
 ```
-category,question,option_a,option_b,option_c,option_d,correct,explanation
-Passwords,Which is strongest?,password1,Tr0ub4dor,a long random passphrase,qwerty,C,Length beats cleverness
+category,question,option_a,option_b,option_c,correct,explanation
+Passwords,Which is strongest?,password1,Tr0ub4dor,a long random passphrase,C,Length beats cleverness
 ```
 
-- `correct` is `A`, `B`, `C` or `D`. `category` and `explanation` may be blank.
+- Every question has **three answers**. `correct` is `A`, `B` or `C`. `category`
+  and `explanation` may be blank.
+- An older four-answer file still imports: the `option_d` column is ignored (with a
+  note), and any row whose `correct` is `D` is reported as a problem.
 - A set needs at least 8 and at most 500 questions.
 - Commas, semicolons and tabs are all accepted as separators, so files saved by
   Excel in other regions work.
@@ -104,6 +117,9 @@ Passwords,Which is strongest?,password1,Tr0ub4dor,a long random passphrase,qwert
 - Edited sets are stored in PostgreSQL. A redeploy never overwrites them.
 - Answer positions are shuffled for every player, so the right answer is not
   always in the same slot.
+- Question sets saved earlier with four answers are tidied automatically when the
+  server starts: the built-in sets are restored, and edited sets keep every
+  question with the correct answer plus two wrong ones.
 
 If Excel shows everything in one column, use **Data → From Text/CSV** and choose
 UTF-8.
@@ -114,8 +130,9 @@ UTF-8.
 npm test
 ```
 
-The suite covers the game engine (modes, scoring, timers, early finishes, late
-answers, projections never leaking answers or fleets), the question CSV parser
+The suite covers the game engine (modes, scoring, timers, repeated question and
+battle rounds, three-answer questions, late answers, projections never leaking
+answers or fleets), the question CSV parser
 and store, the protected import/export routes, and real Socket.IO games from
 lobby to result, including restart recovery.
 

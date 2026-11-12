@@ -6,14 +6,13 @@ export const QUESTION_CSV_HEADERS = Object.freeze([
   'option_a',
   'option_b',
   'option_c',
-  'option_d',
   'correct',
   'explanation',
 ]);
 
-const REQUIRED = ['question', 'option_a', 'option_b', 'option_c', 'option_d', 'correct'];
-const OPTION_COLUMNS = ['option_a', 'option_b', 'option_c', 'option_d'];
-const LETTERS = ['A', 'B', 'C', 'D'];
+const REQUIRED = ['question', 'option_a', 'option_b', 'option_c', 'correct'];
+const OPTION_COLUMNS = ['option_a', 'option_b', 'option_c'];
+const LETTERS = ['A', 'B', 'C'];
 const MAX_REPORTED = 25;
 
 const ALIASES = {
@@ -23,11 +22,9 @@ const ALIASES = {
   a: 'option_a',
   b: 'option_b',
   c: 'option_c',
-  d: 'option_d',
   option_1: 'option_a',
   option_2: 'option_b',
   option_3: 'option_c',
-  option_4: 'option_d',
   answer: 'correct',
   correct_answer: 'correct',
   right: 'correct',
@@ -126,7 +123,7 @@ function parseCorrect(value) {
   if (!text) return -1;
   const letter = LETTERS.indexOf(text[0]);
   if (letter >= 0 && text.length === 1) return letter;
-  if (/^[1-4]$/.test(text)) return Number(text) - 1;
+  if (/^[1-3]$/.test(text)) return Number(text) - 1;
   return -1;
 }
 
@@ -163,6 +160,13 @@ export function parseQuestionsCsv(input, { setId = 'set' } = {}) {
     return fail(
       `Missing column${missing.length === 1 ? '' : 's'}: ${missing.join(', ')}. Expected columns: ${QUESTION_CSV_HEADERS.join(', ')}.`,
     );
+  }
+
+  if (columns.has('option_d')) {
+    warnings.push({
+      row: null,
+      message: 'The option_d column was ignored. Questions now have three answers (A, B and C).',
+    });
   }
 
   const seen = new Map();
@@ -214,7 +218,7 @@ export function parseQuestionsCsv(input, { setId = 'set' } = {}) {
     });
 
     if (answerIndex < 0) {
-      addError(rowNumber, 'correct must be A, B, C or D.');
+      addError(rowNumber, 'correct must be A, B or C.');
       rowOk = false;
     }
     if (category.length > LIMITS.maxCategoryChars) {

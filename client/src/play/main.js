@@ -12,7 +12,7 @@ import { coordLabel, renderGrid } from '../shared/grid.js';
 import { createSocket, request } from '../shared/socket.js';
 
 const app = $('#app');
-const LETTERS = 'ABCD';
+const LETTERS = 'ABC';
 
 let code = normaliseCode(new URLSearchParams(window.location.search).get('code') || '');
 let sessionInfo = null;
@@ -253,7 +253,7 @@ function renderQuiz() {
     body = `<div class="waiting"><div class="waiting__pulse">CB</div><p>Loading your next question…</p></div>`;
   } else {
     body = `
-      <div class="q-meta">Question ${question.number} · ${escapeHtml(question.category)}</div>
+      <div class="q-meta">${(round.cycle || 1) > 1 ? `Round ${round.cycle} · ` : ''}Question ${question.number} · ${escapeHtml(question.category)}</div>
       <h1 class="q-text">${escapeHtml(question.prompt)}</h1>
       <div class="answers">
         ${question.options
@@ -288,8 +288,8 @@ function renderBriefing() {
       <h1 class="p-title p-title--accent">TIME'S UP!</h1>
       <p class="p-copy">Here is what <b style="color:${color}">${escapeHtml(playerState.me.teamName || 'your side')}</b> won.</p>
       <div class="stat-grid">
-        <div class="stat-box stat-box--missiles"><strong>${me.missiles}</strong><span>MISSILES WON</span></div>
-        <div class="stat-box"><strong>${progress?.correct ?? 0}</strong><span>TEAM CORRECT</span></div>
+        <div class="stat-box stat-box--missiles"><strong>${me.missiles}</strong><span>MISSILES READY TO FIRE</span></div>
+        <div class="stat-box"><strong>${progress?.won ?? 0}</strong><span>WON THIS ROUND</span></div>
         <div class="stat-box"><strong>${progress?.accuracy ?? 0}%</strong><span>ACCURACY</span></div>
         <div class="stat-box"><strong>${me.correct}</strong><span>YOUR CORRECT</span></div>
         <div class="stat-box"><strong>${me.answered}</strong><span>YOUR ANSWERS</span></div>
@@ -323,7 +323,7 @@ function renderBattle() {
     message = '<div class="shot-msg">Tap a square to fire.</div>';
   }
   if (!canFire) {
-    message = `<div class="shot-msg shot-msg--out">Out of missiles. Wait for the battle to end.</div>`;
+    message = `<div class="shot-msg shot-msg--out">Out of missiles. Another round of questions is coming so you can earn more.</div>`;
   }
 
   shell(
@@ -338,6 +338,39 @@ function renderBattle() {
     </div>
     ${message}
     <p class="p-foot">Ships sunk <b>${board.shipsSunk} / ${board.shipsTotal}</b> · ${escapeHtml(playerState.me.teamName || '')} <b>${round.scores.find((score) => score.id === playerState.me.teamId)?.points ?? 0} pts</b></p>`,
+    { side: color },
+  );
+}
+
+function renderResupply() {
+  const round = playerState.round;
+  const me = round.me;
+  const color = playerState.me.teamColor || '#19e3ff';
+  const board = me.targetBoard;
+  const reason = round.battleEndReason;
+  const title = me.missiles === 0 ? 'OUT OF MISSILES' : 'BATTLE PAUSED';
+  const lead =
+    me.missiles === 0
+      ? 'Your side has no missiles left.'
+      : reason === 'time'
+        ? 'The battle timer ran out.'
+        : 'The battle round was ended.';
+  const points = round.scores.find((score) => score.id === playerState.me.teamId)?.points ?? 0;
+  shell(
+    `
+    <section class="p-card panel hud" style="--bracket:var(--amber)">
+      <h1 class="p-title" style="color:var(--amber)">${title}</h1>
+      <p class="p-copy">${lead} The facilitator will start another round of questions so you can earn more.</p>
+      <div class="stat-grid">
+        <div class="stat-box stat-box--missiles"><strong>${me.missiles}</strong><span>MISSILES LEFT</span></div>
+        <div class="stat-box"><strong>${board ? `${board.shipsSunk}/${board.shipsTotal}` : '-'}</strong><span>SHIPS SUNK</span></div>
+        <div class="stat-box"><strong>${points}</strong><span>YOUR POINTS</span></div>
+      </div>
+    </section>
+    <div class="waiting">
+      <div class="waiting__pulse">CB</div>
+      <p>The game ends when every ship on a fleet is sunk.<br />Keep this page open.</p>
+    </div>`,
     { side: color },
   );
 }
@@ -416,6 +449,7 @@ function signature() {
     case PHASES.QUIZ:
       return JSON.stringify([
         phase,
+        round?.cycle,
         me?.question?.number,
         me?.missiles,
         me?.answered,
@@ -433,6 +467,14 @@ function signature() {
         me?.targetBoard?.shipsSunk,
         shotMsg?.id,
         firing,
+        round?.scores?.map((score) => score.points),
+      ]);
+    case PHASES.RESUPPLY:
+      return JSON.stringify([
+        phase,
+        round?.battleEndReason,
+        me?.missiles,
+        me?.targetBoard?.shipsSunk,
         round?.scores?.map((score) => score.points),
       ]);
     case PHASES.RESULT:
@@ -480,6 +522,9 @@ function render(force = false) {
     case PHASES.BATTLE:
       renderBattle();
       break;
+    case PHASES.RESUPPLY:
+      renderResupply();
+      break;
     case PHASES.RESULT:
       renderResult();
       break;
@@ -514,7 +559,7 @@ function ensureSocket() {
     if (previous && previous !== next.session.phase) {
       feedback = null;
       shotMsg = null;
-      if (next.session.phase === PHASES.QUIZ || next.session.phase === PHASES.BATTLE) sfx.alert();
+      if ([PHASES.QUIZ, PHASES.BATTLE, PHASES.RESUPPLY].includes(next.session.phase)) sfx.alert();
       if (next.session.phase === PHASES.RESULT) sfx.success();
     }
     if (joined) render();

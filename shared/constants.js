@@ -12,6 +12,7 @@ export const PHASES = Object.freeze({
   QUIZ: 'quiz',
   REVIEW: 'review',
   BATTLE: 'battle',
+  RESUPPLY: 'resupply',
   RESULT: 'result',
 });
 
@@ -95,6 +96,9 @@ export const LIMITS = Object.freeze({
   maxExplanationChars: 300,
 });
 
+/** Every question offers exactly this many answers. */
+export const OPTIONS_PER_QUESTION = 3;
+
 export const SCORING = Object.freeze({
   correct: 10,
   hit: 25,
@@ -124,6 +128,7 @@ export const PHASE_LABELS = Object.freeze({
   quiz: 'QUIZ',
   review: 'BRIEFING',
   battle: 'BATTLE',
+  resupply: 'RESUPPLY',
   result: 'RESULT',
 });
 

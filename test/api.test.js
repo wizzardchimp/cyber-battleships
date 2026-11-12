@@ -6,12 +6,12 @@ import { defaultQuestionsFor } from '../shared/questions.js';
 import { serializeQuestions } from '../server/questions/csv.js';
 import { bootTestServer, emitAck, joinPlayer, startGameScreen, waitFor } from './helpers.js';
 
-const HEADER = 'category,question,option_a,option_b,option_c,option_d,correct,explanation';
+const HEADER = 'category,question,option_a,option_b,option_c,correct,explanation';
 
 function customCsv(count = 10, prefix = 'Custom') {
   const lines = [HEADER];
   for (let index = 0; index < count; index += 1) {
-    lines.push(`Mine,${prefix} question ${index + 1}?,Red,Green,Blue,Yellow,${'ABCD'[index % 4]},Because ${index + 1}`);
+    lines.push(`Mine,${prefix} question ${index + 1}?,Red,Green,Blue,${'ABC'[index % 3]},Because ${index + 1}`);
   }
   return lines.join('\n');
 }
@@ -77,12 +77,12 @@ test('import previews first, refuses bad files, then replaces only that set', as
   const bad = await fetch(url, {
     method: 'POST',
     headers: control(screen.key),
-    body: JSON.stringify({ csv: `${customCsv(9)}\nMine,Broken?,A,B,C,D,Z,why`, dryRun: true }),
+    body: JSON.stringify({ csv: `${customCsv(9)}\nMine,Broken?,A,B,C,Z,why`, dryRun: true }),
   });
   assert.equal(bad.status, 422);
   const badBody = await bad.json();
   assert.equal(badBody.error.code, 'INVALID_CSV');
-  assert.match(badBody.errors[0].message, /correct must be A, B, C or D/);
+  assert.match(badBody.errors[0].message, /correct must be A, B or C/);
   assert.equal(badBody.errors[0].row, 11);
 
   const dry = await fetch(url, {
@@ -130,7 +130,7 @@ test('players are served questions from the selected set', async (t) => {
   });
   player.socket.close();
   assert.match(state.round.me.question.prompt, /^Hard question \d+\?$/);
-  assert.deepEqual([...state.round.me.question.options].sort(), ['Blue', 'Green', 'Red', 'Yellow']);
+  assert.deepEqual([...state.round.me.question.options].sort(), ['Blue', 'Green', 'Red']);
 });
 
 test('questions cannot be changed while a game is running', async (t) => {
@@ -194,4 +194,52 @@ test('edited sets survive a restart and defaults are never re-seeded over them',
   assert.equal(set.custom, true);
   assert.match(set.questions[0].prompt, /^Survivor question 1\?$/);
   assert.equal(h.manager.questions.questionsFor('easy').length, defaultQuestionsFor('easy').length);
+});
+
+test('sets saved with four answers are tidied to three when the server starts', async (t) => {
+  const fs = await import('node:fs/promises');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cb-legacy-'));
+  const pgliteDir = path.join(root, 'pglite');
+
+  const legacy = (prefix) =>
+    Array.from({ length: 10 }, (_, index) => ({
+      id: `old-${index}`,
+      category: 'Old',
+      prompt: `${prefix} ${index}?`,
+      options: ['Wrong A', 'Wrong B', 'Right', 'Wrong C'],
+      answerIndex: 2,
+      explanation: '',
+    }));
+
+  let h = await bootTestServer({ pgliteDir });
+  await h.db.query(
+    "UPDATE question_sets SET questions = $1::jsonb, is_custom = true WHERE id = 'easy'",
+    [JSON.stringify(legacy('Edited'))],
+  );
+  await h.db.query(
+    "UPDATE question_sets SET questions = $1::jsonb, is_custom = false WHERE id = 'complex'",
+    [JSON.stringify(legacy('Builtin'))],
+  );
+  await h.close();
+
+  h = await bootTestServer({ pgliteDir });
+  t.after(async () => {
+    await h.close();
+    await fs.rm(root, { recursive: true, force: true });
+  });
+
+  const easy = h.manager.questions.get('easy');
+  assert.equal(easy.custom, true, 'edited set stays marked as edited');
+  assert.equal(easy.questions.length, 10, 'edited questions are kept');
+  for (const question of easy.questions) {
+    assert.equal(question.options.length, 3);
+    assert.equal(question.options[question.answerIndex], 'Right', 'the correct answer survives');
+  }
+
+  const complex = h.manager.questions.get('complex');
+  assert.equal(complex.custom, false);
+  assert.equal(complex.questions.length, defaultQuestionsFor('complex').length, 'built-in set is restored');
+  assert.ok(complex.questions.every((question) => question.options.length === 3));
 });

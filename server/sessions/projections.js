@@ -80,8 +80,10 @@ function roundProjection(session) {
   const revealShips = state.phase === PHASES.RESULT;
   return {
     number: round.number,
+    cycle: round.cycle || 1,
     quizEndsAt: round.quizEndsAt,
     battleEndsAt: round.battleEndsAt,
+    battleEndReason: round.battleEndReason || null,
     teams: session.teamProgress(),
     combatants: round.combatants.map((combatant) => ({
       id: combatant.id,
@@ -182,7 +184,8 @@ export function playerProjection(session, playerId) {
       targetId,
       targetName: targetCombatant?.name || null,
       targetBoard:
-        targetCombatant && (state.phase === PHASES.BATTLE || revealShips)
+        targetCombatant &&
+        (state.phase === PHASES.BATTLE || state.phase === PHASES.RESUPPLY || revealShips)
           ? boardFor(session, targetCombatant, { revealShips })
           : null,
       isCpuTarget: targetId === CPU_ID,

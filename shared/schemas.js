@@ -61,7 +61,7 @@ export const chooseTeamSchema = z.object({
 
 export const playerAnswerSchema = z.object({
   questionNumber: z.coerce.number().int().min(1).max(10_000),
-  optionIndex: z.coerce.number().int().min(0).max(3),
+  optionIndex: z.coerce.number().int().min(0).max(2),
 });
 
 export const playerAttackSchema = z.object({

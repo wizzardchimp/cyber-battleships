@@ -5,6 +5,7 @@ import {
   DEFAULT_CONFIG,
   LIMITS,
   MODE_PRESETS,
+  OPTIONS_PER_QUESTION,
   PHASES,
   ROLES,
   SCORING,
@@ -378,6 +379,7 @@ export class GameSession extends EventEmitter {
 
   // ---------------------------------------------------------------- quiz
 
+  /** Start a fresh game: new fleets, scores and ammunition, first question round. */
   beginRound() {
     const now = Date.now();
     const number = (this.state.round?.number || 0) + 1;
@@ -399,17 +401,53 @@ export class GameSession extends EventEmitter {
       quizEndsAt: now + this.config.quizMinutes * 60_000,
       combatants,
     });
+    this.state.round.cycle = 0;
+    this.state.round.battleEndReason = null;
+    this.state.round.quizStartMissiles = {};
 
     for (const player of this.state.players) {
       player.stats = emptyStats();
       this.state.round.quiz[player.id] = { answered: 0, correct: 0, seen: [], current: null };
+    }
+
+    this.startQuizCycle(now);
+    this.state.startedAt = new Date(now).toISOString();
+    this.state.endedAt = null;
+    this.recordEvent('quiz_started', { round: number });
+    this.bump();
+  }
+
+  /**
+   * Begin a question round. The first one starts a game; later ones are started
+   * when the sides run out of missiles. Fleets, shots, scores and any missiles
+   * left over all carry on.
+   */
+  startQuizCycle(now = Date.now()) {
+    const round = this.state.round;
+    assert(round, 'NOT_IN_ROUND', 'No game is running.');
+    round.cycle = (round.cycle || 0) + 1;
+    round.quizStartedAt = new Date(now).toISOString();
+    round.quizEndsAt = new Date(now + this.config.quizMinutes * 60_000).toISOString();
+    round.battleStartedAt = null;
+    round.battleEndsAt = null;
+    round.battleEndReason = null;
+    round.quizStartMissiles = {};
+    for (const combatant of round.combatants) {
+      if (combatant.kind === 'team') round.quizStartMissiles[combatant.id] = this.arsenalFor(combatant.id);
+    }
+
+    for (const player of this.state.players) {
+      const entry = round.quiz[player.id] || { answered: 0, correct: 0, seen: [], current: null };
+      round.quiz[player.id] = entry;
+      entry.answered = 0;
+      entry.correct = 0;
       this.issueQuestion(player.id, now);
     }
 
     this.state.phase = PHASES.QUIZ;
-    this.state.startedAt = new Date(now).toISOString();
-    this.state.endedAt = null;
-    this.recordEvent('quiz_started', { round: number });
+    if (round.cycle > 1) {
+      this.recordEvent('more_questions', { round: round.number, cycle: round.cycle });
+    }
     this.bump();
   }
 
@@ -430,8 +468,10 @@ export class GameSession extends EventEmitter {
     const question = candidates[crypto.randomInt(0, candidates.length)];
     entry.seen.push(question.id);
 
-    // Shuffle so the correct answer is not always in the same slot.
-    const order = shuffle(question.options.map((_, index) => index));
+    // Offer the right answer plus two wrong ones, in a random order so the
+    // correct answer is not always in the same slot.
+    const wrong = shuffle(question.options.map((_, index) => index).filter((index) => index !== question.answerIndex));
+    const order = shuffle([question.answerIndex, ...wrong.slice(0, OPTIONS_PER_QUESTION - 1)]);
     entry.current = {
       number: entry.answered + 1,
       id: question.id,
@@ -524,9 +564,31 @@ export class GameSession extends EventEmitter {
     assert(round, 'NOT_IN_ROUND', 'No game is running.');
     round.battleStartedAt = new Date(now).toISOString();
     round.battleEndsAt = new Date(now + this.config.battleSeconds * 1000).toISOString();
+    round.battleEndReason = null;
     this.state.phase = PHASES.BATTLE;
     this.recordEvent('battle_started', { round: round.number });
     this.bump();
+  }
+
+  /**
+   * The battle stops without a winner: the timer ended, the sides ran out of
+   * missiles, or the facilitator ended the round. The facilitator can then start
+   * another question round to earn more missiles.
+   */
+  pauseBattle(reason = 'time') {
+    const round = this.state.round;
+    assert(round, 'NOT_IN_ROUND', 'No game is running.');
+    round.battleEndReason = reason;
+    this.state.phase = PHASES.RESUPPLY;
+    this.recordEvent('battle_paused', { round: round.number, reason });
+    this.bump();
+  }
+
+  /** Go back to firing with the missiles that are left. */
+  resumeBattle(now = Date.now()) {
+    assert(this.state.phase === PHASES.RESUPPLY, 'NOT_RESUPPLY', 'The battle is not paused.');
+    assert(!this.noMissilesLeft(), 'NO_MISSILES', 'Nobody has missiles left. Start more questions first.');
+    this.enterBattle(now);
   }
 
   async attack(playerId, x, y) {
@@ -709,13 +771,13 @@ export class GameSession extends EventEmitter {
           changed = true;
         }
       } else if (now >= Date.parse(round.battleEndsAt)) {
-        this.finishBattle(now, { reason: 'Time expired' });
+        this.pauseBattle('time');
         changed = true;
       } else if (
         now - Date.parse(round.battleStartedAt) >= TIMING.minBattleMs &&
         this.noMissilesLeft()
       ) {
-        this.finishBattle(now, { reason: 'Out of missiles' });
+        this.pauseBattle('ammo');
         changed = true;
       }
 
@@ -746,11 +808,31 @@ export class GameSession extends EventEmitter {
         this.enterBattle(now);
         break;
       case PHASES.BATTLE:
-        this.finishBattle(now, { reason: 'Ended by facilitator' });
+        this.pauseBattle('ended');
+        break;
+      case PHASES.RESUPPLY:
+        this.startQuizCycle(now);
         break;
       default:
         throw new GameError('INVALID_PHASE', 'Nothing to advance.');
     }
+    await this.commit();
+  }
+
+  /** Facilitator: pick up the missiles that are left and keep fighting. */
+  async resumeFight() {
+    this.resumeBattle(Date.now());
+    await this.commit();
+  }
+
+  /** Facilitator: stop here and decide the winner on score. */
+  async finish() {
+    assert(
+      [PHASES.REVIEW, PHASES.BATTLE, PHASES.RESUPPLY].includes(this.state.phase),
+      'INVALID_PHASE',
+      'The game can only be ended after the quiz.',
+    );
+    this.finishBattle(Date.now(), { reason: 'Ended by facilitator' });
     await this.commit();
   }
 
@@ -792,6 +874,8 @@ export class GameSession extends EventEmitter {
               name: player.displayName,
               answered: entry.answered || 0,
               correct: entry.correct || 0,
+              shots: Number(player.stats?.attacks) || 0,
+              hits: Number(player.stats?.hits) || 0,
               connected: Boolean(player.connected),
             };
           })
@@ -805,6 +889,7 @@ export class GameSession extends EventEmitter {
           answered,
           correct,
           accuracy: answered > 0 ? Math.round((correct / answered) * 100) : 0,
+          won: correct * SCORING.missilesPerCorrect,
           missiles: this.arsenalFor(team.id),
           points: Number(this.state.scores[team.id]?.points) || 0,
           players,

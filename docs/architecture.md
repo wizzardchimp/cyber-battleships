@@ -18,18 +18,27 @@ Browsers                          Node.js server                     PostgreSQL
 ## Phases
 
 ```
-lobby ──start──▶ quiz ──timer or skip──▶ review ──start battle──▶ battle ──▶ result
-  ▲                                                                           │
-  └────────────────────────── back to lobby / play again ◀───────────────────┘
+lobby ─start─▶ quiz ─timer/skip─▶ review ─start battle─▶ battle ──fleet sunk──▶ result
+  ▲              ▲                                          │                     │
+  │              └──── more questions ◀── resupply ◀────────┘ timer / no missiles │
+  └──────────────────── back to lobby / play again ◀──────────────────────────────┘
 ```
 
 | Phase | Ends when |
 | --- | --- |
 | `lobby` | Facilitator starts (any number of players) |
 | `quiz` | The quiz timer runs out, or the facilitator skips |
-| `review` | The facilitator starts the battle |
-| `battle` | The timer ends, a fleet is destroyed, nobody has missiles (after 3 s), or the facilitator ends it |
-| `result` | Play again (new quiz), back to lobby, or a new game |
+| `review` | The facilitator starts the battle (or ends the game) |
+| `battle` | A fleet is destroyed (`result`), or the timer ends / nobody has missiles after 3 s / the facilitator ends the round (`resupply`) |
+| `resupply` | **More questions** starts another quiz round; **resume** returns to battle if missiles remain; **end game** goes to `result` |
+| `result` | Play again (new game), back to lobby, or a new game |
+
+Each trip through `quiz → review → battle` is a *question round* (`round.cycle`).
+The game itself (`round.number`) only ends when every ship on a fleet is sunk, or
+the facilitator ends it on score. Between question rounds the fleets, shots,
+scores and unspent missiles carry over; per-round answer counters and each
+player's question numbering restart, and a player does not see a repeat question
+until their set is used up.
 
 ## Modes
 
@@ -56,6 +65,9 @@ than the new mode holds.
 - An answer is accepted until the quiz timer ends plus a 1.5 s grace period.
   The reply carries the correct index and explanation; the next question is
   issued immediately.
+- Every question has exactly three answers: the correct one plus two wrong ones,
+  shuffled. Older data with more answers is trimmed when it is served and tidied
+  in the database on startup.
 - A correct answer gives the side 1 missile and 10 points. Teams share one pool.
 
 ## Battle engine
@@ -63,9 +75,11 @@ than the new mode holds.
 - Each side owns a fleet of five ships on a square grid, regenerated every round.
 - A shot costs one missile, can only target the opposing grid, and each cell can
   be hit once. A hit scores 25, a sunk ship adds 50.
-- Outcome: a destroyed fleet wins at once. Otherwise the higher score wins, then
-  more hits, otherwise it is a draw. Versus CPU, the crew wins only by sinking the
-  whole firewall.
+- A destroyed fleet wins at once. Running out of missiles or time never ends the
+  game; it pauses into `resupply` so the sides can earn more.
+- If the facilitator ends the game early the higher score wins, then more hits,
+  otherwise it is a draw. Versus CPU, the crew wins only by sinking the whole
+  firewall.
 
 ## What each screen may see
 
@@ -97,7 +111,9 @@ holds the control key.
 | --- | --- | --- |
 | `display:subscribe` | screen | Attach to the game; reports whether it controls |
 | `display:create` | screen | Create a game (replaces the current one with the key or `force`) |
-| `display:advance` | controller | Start, skip, start battle, end battle, or play again, depending on the phase |
+| `display:advance` | controller | Start, skip, start battle, end the battle round, more questions, or play again, depending on the phase |
+| `display:resume` | controller | Resume firing after a pause, while missiles remain |
+| `display:finish` | controller | End the game now and decide the winner on score |
 | `display:lobby` | controller | Return to the lobby |
 | `display:settings` | controller | Change settings (lobby only) |
 | `display:remove` | controller | Remove a player |
@@ -116,7 +132,7 @@ All handlers validate with Zod, are rate limited per socket, and acknowledge wit
   redeploys. Sets are cached in memory.
 - Routes (all but the list need the `x-control-key` header):
   - `GET /api/questions` lists sets with counts
-  - `GET /api/questions/:set/export.csv` downloads a UTF-8 CSV with a BOM
+  - `GET /api/questions/:set/export.csv` downloads a UTF-8 CSV with a BOM (three answer columns)
   - `POST /api/questions/:set/import` validates (`dryRun`) or replaces a set
   - `POST /api/questions/:set/reset` restores the built-in questions
 - Import and reset only work in the lobby. The parser detects comma, semicolon or

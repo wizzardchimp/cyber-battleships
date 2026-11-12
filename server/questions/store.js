@@ -1,4 +1,5 @@
-import { DEFAULT_SET_DEFS, defaultQuestionsFor } from '../../shared/questions.js';
+import { OPTIONS_PER_QUESTION } from '../../shared/constants.js';
+import { DEFAULT_SET_DEFS, defaultQuestionsFor, toThreeOptions } from '../../shared/questions.js';
 
 function parseQuestions(value) {
   if (Array.isArray(value)) return value;
@@ -41,6 +42,28 @@ export class QuestionStore {
       if (this.sets.has(def.id)) continue;
       await this.write(def.id, def.name, defaultQuestionsFor(def.id), false);
       this.logger?.info({ set: def.id }, 'Seeded default question set');
+    }
+    await this.migrateToThreeOptions();
+  }
+
+  /**
+   * Older versions stored four answers per question. Built-in sets are simply
+   * restored from the new defaults; edited sets keep their questions but are
+   * trimmed to the correct answer plus two wrong ones.
+   */
+  async migrateToThreeOptions() {
+    for (const set of [...this.sets.values()]) {
+      const stale = set.questions.some((question) => question.options?.length !== OPTIONS_PER_QUESTION);
+      if (!stale) continue;
+      if (!set.custom) {
+        await this.write(set.id, set.name, defaultQuestionsFor(set.id), false);
+      } else {
+        const trimmed = set.questions
+          .map((question) => toThreeOptions(question))
+          .filter((question) => question.options.length === OPTIONS_PER_QUESTION);
+        await this.write(set.id, set.name, trimmed, true);
+      }
+      this.logger?.info({ set: set.id }, 'Migrated question set to three answers');
     }
   }
 

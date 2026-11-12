@@ -1,3 +1,5 @@
+import { OPTIONS_PER_QUESTION } from './constants.js';
+
 /**
  * Cyber security question bank for live rounds.
  *
@@ -889,17 +891,34 @@ export const DEFAULT_SET_DEFS = Object.freeze([
   { id: 'complex', name: 'Complex', difficulties: ['hard', 'expert'] },
 ]);
 
+/**
+ * Reduce a question to the correct answer plus the first two wrong ones.
+ * Used for the built-in bank and to tidy older four-answer data.
+ */
+export function toThreeOptions(question) {
+  if (question.options.length <= OPTIONS_PER_QUESTION) return question;
+  const correct = question.options[question.answerIndex];
+  const wrong = question.options.filter((_, index) => index !== question.answerIndex);
+  const kept = [...wrong.slice(0, OPTIONS_PER_QUESTION - 1)];
+  const position = Math.min(question.answerIndex, kept.length);
+  kept.splice(position, 0, correct);
+  return { ...question, options: kept, answerIndex: position };
+}
+
 export function defaultQuestionsFor(setId) {
   const def = DEFAULT_SET_DEFS.find((entry) => entry.id === setId);
   if (!def) return [];
   return QUESTION_BANK.filter((question) => def.difficulties.includes(question.difficulty)).map(
-    (question, index) => ({
-      id: `${setId}-${index + 1}`,
-      category: question.category,
-      prompt: question.prompt,
-      options: [...question.options],
-      answerIndex: question.answerIndex,
-      explanation: question.explanation,
-    }),
+    (question, index) => {
+      const trimmed = toThreeOptions(question);
+      return {
+        id: `${setId}-${index + 1}`,
+        category: trimmed.category,
+        prompt: trimmed.prompt,
+        options: [...trimmed.options],
+        answerIndex: trimmed.answerIndex,
+        explanation: trimmed.explanation,
+      };
+    },
   );
 }

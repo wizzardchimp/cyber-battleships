@@ -4,12 +4,12 @@ import test from 'node:test';
 import { defaultQuestionsFor } from '../shared/questions.js';
 import { parseQuestionsCsv, serializeQuestions } from '../server/questions/csv.js';
 
-const HEADER = 'category,question,option_a,option_b,option_c,option_d,correct,explanation';
+const HEADER = 'category,question,option_a,option_b,option_c,correct,explanation';
 
 function rows(count) {
   return Array.from(
     { length: count },
-    (_, index) => `Topic,Question number ${index + 1}?,Alpha,Bravo,Charlie,Delta,${'ABCD'[index % 4]},Because ${index + 1}`,
+    (_, index) => `Topic,Question number ${index + 1}?,Alpha,Bravo,Charlie,${'ABC'[index % 3]},Because ${index + 1}`,
   ).join('\n');
 }
 
@@ -41,7 +41,7 @@ test('export then import round-trips the default sets exactly', () => {
 });
 
 test('quoted cells with commas, quotes and line breaks survive', () => {
-  const csv = `${HEADER}\n"Net, work","What does ""DNS"" do,\nexactly?","Maps names, to addresses",Cools servers,Encrypts disks,Blocks ads,A,"It ""resolves"" names"\n${rows(8)}`;
+  const csv = `${HEADER}\n"Net, work","What does ""DNS"" do,\nexactly?","Maps names, to addresses",Cools servers,Encrypts disks,A,"It ""resolves"" names"\n${rows(8)}`;
   const result = parseQuestionsCsv(csv);
   assert.equal(result.ok, true, JSON.stringify(result.errors));
   const first = result.questions[0];
@@ -62,8 +62,8 @@ test('semicolon and tab delimited files from other spreadsheet locales are accep
 });
 
 test('Windows line endings, a BOM, alias headers and number answers are fine', () => {
-  const lines = ['Prompt,A,B,C,D,Answer'];
-  for (let index = 0; index < 8; index += 1) lines.push(`Q${index}?,one,two,three,four,${(index % 4) + 1}`);
+  const lines = ['Prompt,A,B,C,Answer'];
+  for (let index = 0; index < 8; index += 1) lines.push(`Q${index}?,one,two,three,${(index % 3) + 1}`);
   const result = parseQuestionsCsv(`\uFEFF${lines.join('\r\n')}\r\n`);
   assert.equal(result.ok, true, JSON.stringify(result.errors));
   assert.equal(result.questions[0].answerIndex, 0);
@@ -75,20 +75,22 @@ test('problem rows are reported by spreadsheet row and block the whole import', 
   const csv = [
     HEADER,
     rows(8),
-    'Topic,Missing answer?,One,Two,Three,Four,,why',
-    'Topic,Empty option?,One,,Three,Four,B,why',
-    'Topic,Bad letter?,One,Two,Three,Four,E,why',
-    'Topic,Same options?,One,One,Three,Four,A,why',
-    ',,,,,,,',
+    'Topic,Missing answer?,One,Two,Three,,why',
+    'Topic,Empty option?,One,,Three,B,why',
+    'Topic,Bad letter?,One,Two,Three,E,why',
+    'Topic,Old fourth answer?,One,Two,Three,D,why',
+    'Topic,Same options?,One,One,Three,A,why',
+    ',,,,,,',
   ].join('\n');
   const result = parseQuestionsCsv(csv);
   assert.equal(result.ok, false);
   assert.deepEqual(result.questions, []);
   const byRow = Object.fromEntries(result.errors.map((error) => [error.row, error.message]));
-  assert.match(byRow[10], /correct must be A, B, C or D/);
+  assert.match(byRow[10], /correct must be A, B or C/);
   assert.match(byRow[11], /option_b is empty/);
-  assert.match(byRow[12], /correct must be A, B, C or D/);
-  assert.match(byRow[13], /identical/);
+  assert.match(byRow[12], /correct must be A, B or C/);
+  assert.match(byRow[13], /correct must be A, B or C/);
+  assert.match(byRow[14], /identical/);
   assert.equal(result.warnings.some((warning) => /blank row/.test(warning.message)), true);
 });
 
@@ -101,7 +103,7 @@ test('files with missing columns, too few questions or bad quoting are refused',
   assert.equal(few.ok, false);
   assert.match(few.errors[0].message, /at least 8 questions/);
 
-  const quote = parseQuestionsCsv(`${HEADER}\nTopic,"Never closed,A,B,C,D,A,x`);
+  const quote = parseQuestionsCsv(`${HEADER}\nTopic,"Never closed,A,B,C,A,x`);
   assert.equal(quote.ok, false);
   assert.match(quote.errors[0].message, /closing quote/);
 
@@ -110,7 +112,7 @@ test('files with missing columns, too few questions or bad quoting are refused',
 });
 
 test('duplicate questions are a warning, not a failure', () => {
-  const csv = `${HEADER}\n${rows(8)}\nTopic,question number 1?,Alpha,Bravo,Charlie,Delta,A,again`;
+  const csv = `${HEADER}\n${rows(8)}\nTopic,question number 1?,Alpha,Bravo,Charlie,A,again`;
   const result = parseQuestionsCsv(csv);
   assert.equal(result.ok, true);
   assert.equal(result.total, 9);
@@ -118,8 +120,34 @@ test('duplicate questions are a warning, not a failure', () => {
 });
 
 test('angle brackets in questions are kept as plain text', () => {
-  const csv = `${HEADER}\nWeb,Which tag runs <script> code?,<script>,<style>,<div>,<p>,A,Plain text only\n${rows(8)}`;
+  const csv = `${HEADER}\nWeb,Which tag runs <script> code?,<script>,<style>,<div>,A,Plain text only\n${rows(8)}`;
   const result = parseQuestionsCsv(csv);
   assert.equal(result.ok, true, JSON.stringify(result.errors));
   assert.equal(result.questions[0].prompt, 'Which tag runs <script> code?');
+});
+
+test('an old four-column file still imports, with the fourth answer ignored', () => {
+  const lines = ['category,question,option_a,option_b,option_c,option_d,correct,explanation'];
+  for (let index = 0; index < 9; index += 1) {
+    lines.push(`Old,Old question ${index}?,One,Two,Three,Four,${'ABC'[index % 3]},why`);
+  }
+  const result = parseQuestionsCsv(lines.join('\n'));
+  assert.equal(result.ok, true, JSON.stringify(result.errors));
+  assert.equal(result.questions[0].options.length, 3);
+  assert.ok(result.warnings.some((warning) => /option_d column was ignored/.test(warning.message)));
+
+  lines.push('Old,Needs the fourth?,One,Two,Three,Four,D,why');
+  const refused = parseQuestionsCsv(lines.join('\n'));
+  assert.equal(refused.ok, false);
+  assert.match(refused.errors[0].message, /correct must be A, B or C/);
+});
+
+test('every built-in question has exactly three different answers', () => {
+  for (const id of ['easy', 'complex']) {
+    for (const question of defaultQuestionsFor(id)) {
+      assert.equal(question.options.length, 3, question.prompt);
+      assert.equal(new Set(question.options).size, 3, question.prompt);
+      assert.ok(question.answerIndex >= 0 && question.answerIndex < 3, question.prompt);
+    }
+  }
 });

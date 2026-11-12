@@ -77,7 +77,7 @@ async function answerCorrectly(session, player) {
 
 async function answerWrongly(session, player) {
   const current = currentQuestion(session, player.id);
-  return session.answer(player.id, current.number, (current.answerIndex + 1) % 4);
+  return session.answer(player.id, current.number, (current.answerIndex + 1) % 3);
 }
 
 // ------------------------------------------------------------------ lobby
@@ -184,9 +184,9 @@ test('starting the game gives every player their own question', async () => {
   const qa = currentQuestion(session, a.id);
   const qb = currentQuestion(session, b.id);
   assert.equal(qa.number, 1);
-  assert.equal(qa.options.length, 4);
+  assert.equal(qa.options.length, 3);
   assert.equal(qb.number, 1);
-  assert.ok(qa.answerIndex >= 0 && qa.answerIndex <= 3);
+  assert.ok(qa.answerIndex >= 0 && qa.answerIndex <= 2);
 
   const view = playerProjection(session, a.id);
   assert.equal(view.round.me.question.prompt, qa.prompt);
@@ -250,7 +250,7 @@ test('stale or invalid answers are rejected', async () => {
   const { session, a } = await startedDuel();
   const current = currentQuestion(session, a.id);
   await expectReject(() => session.answer(a.id, current.number + 5, 0), 'QUESTION_CHANGED');
-  await expectReject(() => session.answer(a.id, current.number, 9), 'INVALID_ANSWER');
+  await expectReject(() => session.answer(a.id, current.number, 3), 'INVALID_ANSWER');
   await answerCorrectly(session, a);
   await expectReject(() => session.answer(a.id, current.number, 0), 'QUESTION_CHANGED');
 });
@@ -308,6 +308,7 @@ test('the briefing reports each side with accuracy and missiles won', async () =
   assert.equal(alphaRow.correct, 2);
   assert.equal(alphaRow.accuracy, 67);
   assert.equal(alphaRow.missiles, 2);
+  assert.equal(alphaRow.won, 2);
   assert.equal(alphaRow.players[0].name, 'Alice');
   assert.equal(JSON.stringify(view).includes('answerIndex'), false);
 });
@@ -387,12 +388,23 @@ test('destroying a fleet ends the battle at once and wins the game', async () =>
   assert.equal(outcome.humanWin, true);
 });
 
-test('when time runs out the higher score wins and level scores draw', async () => {
-  const { session, alpha, a } = await startedDuel();
+test('when the battle timer ends the battle pauses for more questions', async () => {
+  const { session, a } = await startedDuel();
   await answerCorrectly(session, a);
   await session.advance();
   await session.advance();
   await session.tick(Date.parse(session.state.round.battleEndsAt) + 10);
+  assert.equal(session.phase, PHASES.RESUPPLY);
+  assert.equal(session.state.round.battleEndReason, 'time');
+  assert.equal(session.state.round.outcome, null, 'nobody has won yet');
+});
+
+test('ending the game on score picks the higher score, and level scores draw', async () => {
+  const { session, alpha, a } = await startedDuel();
+  await answerCorrectly(session, a);
+  await session.advance();
+  await session.advance();
+  await session.finish();
   assert.equal(session.phase, PHASES.RESULT);
   assert.equal(session.state.round.outcome.winnerId, alpha.id);
   assert.equal(session.state.round.outcome.reason, 'Highest score');
@@ -400,12 +412,12 @@ test('when time runs out the higher score wins and level scores draw', async () 
   const drawn = await startedDuel();
   await drawn.session.advance();
   await drawn.session.advance();
-  await drawn.session.advance();
+  await drawn.session.finish();
   assert.equal(drawn.session.state.round.outcome.draw, true);
   assert.equal(drawn.session.state.round.outcome.winnerName, 'DRAW');
 });
 
-test('the battle ends early when nobody has missiles left', async () => {
+test('the battle pauses when nobody has missiles left', async () => {
   const { session } = await startedDuel();
   await session.advance();
   await session.advance();
@@ -413,8 +425,163 @@ test('the battle ends early when nobody has missiles left', async () => {
   await session.tick(start + 500);
   assert.equal(session.phase, PHASES.BATTLE, 'a short grace period keeps the screen up');
   await session.tick(start + TIMING.minBattleMs + 100);
+  assert.equal(session.phase, PHASES.RESUPPLY);
+  assert.equal(session.state.round.battleEndReason, 'ammo');
+});
+
+test('running out of missiles leads to another question round that keeps the battle going', async () => {
+  const { session, alpha, bravo, a, b } = await startedDuel();
+  await answerCorrectly(session, a);
+  await answerCorrectly(session, b);
+  const firstQuestions = new Set([currentQuestion(session, a.id).id]);
+  await session.advance();
+  await session.advance();
+
+  // Each side spends its single missile.
+  const alphaTarget = session.state.fleets[bravo.id];
+  const hitCell = alphaTarget.ships[0].cells[0];
+  await session.attack(a.id, hitCell.x, hitCell.y);
+  const bravoTarget = session.state.fleets[alpha.id];
+  const free = [...Array(10).keys()]
+    .flatMap((x) => [...Array(10).keys()].map((y) => ({ x, y })))
+    .find(({ x, y }) => !bravoTarget.ships.some((ship) => ship.cells.some((c) => c.x === x && c.y === y)));
+  await session.attack(b.id, free.x, free.y);
+  const start = Date.parse(session.state.round.battleStartedAt);
+  await session.tick(start + TIMING.minBattleMs + 100);
+  assert.equal(session.phase, PHASES.RESUPPLY);
+  const shipsBefore = JSON.stringify(session.state.fleets[bravo.id].ships);
+  const pointsBefore = session.state.scores[alpha.id].points;
+
+  await session.advance();
+  assert.equal(session.phase, PHASES.QUIZ);
+  assert.equal(session.state.round.cycle, 2);
+  assert.equal(session.state.round.number, 1, 'still the same game');
+  assert.equal(JSON.stringify(session.state.fleets[bravo.id].ships), shipsBefore, 'fleets are unchanged');
+  assert.equal(session.state.fleets[bravo.id].shots.length, 1, 'earlier shots stay on the board');
+  assert.equal(session.state.scores[alpha.id].points, pointsBefore);
+  assert.equal(session.arsenalFor(alpha.id), 0);
+
+  const next = currentQuestion(session, a.id);
+  assert.equal(next.number, 1, 'question numbers restart each round');
+  assert.ok(!firstQuestions.has(next.id), 'players do not see repeats');
+
+  await answerCorrectly(session, a);
+  await answerCorrectly(session, a);
+  assert.equal(session.arsenalFor(alpha.id), 2);
+  await session.advance();
+  const briefing = publicProjection(session).round.teams.find((team) => team.id === alpha.id);
+  assert.equal(briefing.won, 2, 'the briefing counts only this round');
+  assert.equal(briefing.answered, 2);
+  assert.equal(briefing.missiles, 2);
+
+  await session.advance();
+  assert.equal(session.phase, PHASES.BATTLE);
+  const result = await session.attack(a.id, 9, 9);
+  assert.equal(result.missiles, 1);
+  assert.equal(session.state.fleets[bravo.id].shots.length, 2);
+});
+
+test('missiles left over when time runs out can be fired after resuming', async () => {
+  const { session, alpha, a } = await startedDuel();
+  await answerCorrectly(session, a);
+  await answerCorrectly(session, a);
+  await session.advance();
+  await session.advance();
+  await session.tick(Date.parse(session.state.round.battleEndsAt) + 10);
+  assert.equal(session.phase, PHASES.RESUPPLY);
+  assert.equal(session.arsenalFor(alpha.id), 2);
+
+  await session.resumeFight();
+  assert.equal(session.phase, PHASES.BATTLE);
+  assert.equal(session.state.round.battleEndReason, null);
+  assert.ok(Date.parse(session.state.round.battleEndsAt) > Date.now());
+  assert.equal(session.arsenalFor(alpha.id), 2);
+});
+
+test('the battle cannot resume when nobody has missiles', async () => {
+  const { session } = await startedDuel();
+  await session.advance();
+  await session.advance();
+  await session.advance();
+  assert.equal(session.phase, PHASES.RESUPPLY);
+  await expectReject(() => session.resumeFight(), 'NO_MISSILES');
+});
+
+test('the game only ends when a fleet is sunk, even across several question rounds', async () => {
+  const { session, alpha, bravo, a } = await startedDuel();
+  const ships = session.state.fleets[bravo.id].ships;
+  const cells = ships.flatMap((ship) => ship.cells);
+
+  let fired = 0;
+  let cycles = 1;
+  while (session.phase !== PHASES.RESULT && cycles < 12) {
+    session.setArsenal(alpha.id, 5);
+    if (session.phase === PHASES.QUIZ) await session.advance();
+    if (session.phase === PHASES.REVIEW) await session.advance();
+    for (let shot = 0; shot < 5 && session.phase === PHASES.BATTLE; shot += 1) {
+      const cell = cells[fired];
+      fired += 1;
+      await session.attack(a.id, cell.x, cell.y);
+    }
+    if (session.phase === PHASES.BATTLE) {
+      await session.advance();
+    }
+    if (session.phase === PHASES.RESUPPLY) {
+      await session.advance();
+      cycles += 1;
+    }
+  }
+
+  assert.equal(session.phase, PHASES.RESULT);
+  assert.ok(cycles > 1, 'it took more than one question round');
+  assert.equal(session.state.round.outcome.winnerId, alpha.id);
+  assert.equal(session.state.round.outcome.reason, 'Fleet destroyed');
+  assert.ok(session.state.fleets[bravo.id].ships.every((ship) => ship.sunk));
+});
+
+test('the facilitator can end the game early from the briefing or a paused battle', async () => {
+  const { session } = await startedDuel();
+  await expectReject(() => session.finish(), 'INVALID_PHASE');
+  await session.advance();
+  await session.finish();
   assert.equal(session.phase, PHASES.RESULT);
   assert.equal(session.state.round.outcome.draw, true);
+
+  await session.advance();
+  await session.advance();
+  await session.advance();
+  await session.advance();
+  assert.equal(session.phase, PHASES.RESUPPLY);
+  await session.finish();
+  assert.equal(session.phase, PHASES.RESULT);
+});
+
+test('every question offers exactly three answers with the right one included', async () => {
+  const { session, a } = await startedDuel();
+  for (let index = 0; index < 20; index += 1) {
+    const current = currentQuestion(session, a.id);
+    assert.equal(current.options.length, 3);
+    assert.equal(new Set(current.options).size, 3);
+    assert.ok(current.answerIndex >= 0 && current.answerIndex < 3);
+    await answerCorrectly(session, a);
+  }
+});
+
+test('older four-answer questions are trimmed to three when they are served', async () => {
+  const legacy = Array.from({ length: 8 }, (_, index) => ({
+    id: `old-${index}`,
+    category: 'Old',
+    prompt: `Old question ${index}?`,
+    options: ['Right', 'Wrong one', 'Wrong two', 'Wrong three'],
+    answerIndex: 0,
+    explanation: '',
+  }));
+  const { session } = makeSession({ mode: MODES.DUEL }, { easy: legacy });
+  const { player } = session.join({ name: 'Legacy' });
+  await session.advance();
+  const current = currentQuestion(session, player.id);
+  assert.equal(current.options.length, 3);
+  assert.equal(current.options[current.answerIndex], 'Right');
 });
 
 test('everyone vs CPU: the crew wins by breaching the firewall', async () => {
@@ -443,13 +610,13 @@ test('everyone vs CPU: the crew wins by breaching the firewall', async () => {
   assert.ok(repository.saves.length > 0);
 });
 
-test('everyone vs CPU: the firewall holds when time runs out', async () => {
+test('everyone vs CPU: the firewall holds if the game is ended early', async () => {
   const { session } = makeSession({ mode: MODES.CPU });
   session.join({ name: 'Ace' });
   await session.advance(); // start quiz
   await session.advance(); // skip to briefing
   await session.advance(); // start battle
-  await session.advance(); // end battle
+  await session.finish(); // facilitator ends the game
   assert.equal(session.phase, PHASES.RESULT);
   assert.equal(session.state.round.outcome.reason, 'Firewall held');
   assert.equal(session.state.round.outcome.humanWin, false);
@@ -462,13 +629,14 @@ test('play again starts a clean round with the same players', async () => {
   await answerCorrectly(session, a);
   await session.advance();
   await session.advance();
-  await session.advance();
+  await session.finish();
   assert.equal(session.phase, PHASES.RESULT);
   const firstFleet = JSON.stringify(session.state.fleets[alpha.id].ships);
 
   await session.advance();
   assert.equal(session.phase, PHASES.QUIZ);
   assert.equal(session.state.round.number, 2);
+  assert.equal(session.state.round.cycle, 1);
   assert.equal(session.state.scores[alpha.id].points, 0);
   assert.equal(session.arsenalFor(alpha.id), 0);
   assert.notEqual(JSON.stringify(session.state.fleets[alpha.id].ships), firstFleet);
@@ -528,6 +696,9 @@ test('ship positions are revealed only after the result', async () => {
   await session.advance();
   assert.ok(playerProjection(session, a.id).round.boards.every((board) => !board.ships));
   await session.advance();
+  assert.equal(session.phase, PHASES.RESUPPLY);
+  assert.ok(publicProjection(session).round.boards.every((board) => !board.ships));
+  await session.finish();
   assert.equal(session.phase, PHASES.RESULT);
   assert.ok(publicProjection(session).round.boards.every((board) => board.ships.length === 5));
 });
