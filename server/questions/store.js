@@ -1,5 +1,14 @@
+import crypto from 'node:crypto';
+
 import { OPTIONS_PER_QUESTION } from '../../shared/constants.js';
 import { DEFAULT_SET_DEFS, defaultQuestionsFor, toThreeOptions } from '../../shared/questions.js';
+
+export const VAULT_PREFIX = 'vault-';
+export const MAX_VAULT_LISTS = 50;
+
+export function isVaultId(id) {
+  return typeof id === 'string' && id.startsWith(VAULT_PREFIX);
+}
 
 function parseQuestions(value) {
   if (Array.isArray(value)) return value;
@@ -95,16 +104,50 @@ export class QuestionStore {
   }
 
   summaries() {
-    return DEFAULT_SET_DEFS.map((def) => {
+    const builtIn = DEFAULT_SET_DEFS.map((def) => {
       const set = this.sets.get(def.id);
       return {
         id: def.id,
         name: set?.name || def.name,
         count: set?.questions.length || 0,
         custom: Boolean(set?.custom),
+        vault: false,
         updatedAt: set?.updatedAt || null,
       };
     });
+    return [...builtIn, ...this.vaultSummaries()];
+  }
+
+  /** Lists the host has imported, newest first. They are kept for future games. */
+  vaultSummaries() {
+    return [...this.sets.values()]
+      .filter((set) => isVaultId(set.id))
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+      .map((set) => ({
+        id: set.id,
+        name: set.name,
+        count: set.questions.length,
+        custom: true,
+        vault: true,
+        updatedAt: set.updatedAt,
+      }));
+  }
+
+  vaultCount() {
+    return [...this.sets.keys()].filter(isVaultId).length;
+  }
+
+  async createVault(name, questions) {
+    const id = `${VAULT_PREFIX}${crypto.randomBytes(4).toString('hex')}`;
+    const stamped = questions.map((question, index) => ({ ...question, id: `${id}-${index + 1}` }));
+    await this.write(id, name, stamped, true);
+    return id;
+  }
+
+  async removeVault(id) {
+    if (!isVaultId(id) || !this.sets.has(id)) throw new Error(`Unknown vault list: ${id}`);
+    await this.db.query('DELETE FROM question_sets WHERE id = $1', [id]);
+    this.sets.delete(id);
   }
 
   async replace(id, questions) {

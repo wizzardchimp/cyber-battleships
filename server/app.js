@@ -10,6 +10,7 @@ import { ZodError } from 'zod';
 
 import { AppError } from './errors.js';
 import { parseQuestionsCsv, serializeQuestions } from './questions/csv.js';
+import { MAX_VAULT_LISTS, isVaultId } from './questions/store.js';
 import { baseUrlFor, displayUrlFor, normaliseJoinCode, shortJoinUrlFor } from './util/security.js';
 
 function asyncHandler(fn) {
@@ -143,6 +144,68 @@ export function createApp({ config, manager, db, logger }) {
       await manager.questions.replace(id, result.questions);
       session.emit('change');
       res.json({ ok: true, count: result.total, warnings: result.warnings, preview });
+    }),
+  );
+
+  // The vault: lists the host has imported, kept for future games.
+  app.post(
+    '/api/vault',
+    asyncHandler(async (req, res) => {
+      const session = requireControl(req);
+      const name = String(req.body?.name ?? '')
+        .replace(/[\u0000-\u001f\u007f]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 40);
+      if (name.length < 2) {
+        throw new AppError('INVALID_NAME', 'Give the list a name of at least two characters.', 422);
+      }
+      const result = parseQuestionsCsv(req.body?.csv, { setId: 'vault' });
+      if (!result.ok) {
+        res.status(422).json({
+          error: { code: 'INVALID_CSV', message: 'The file has problems. Nothing was saved.' },
+          errors: result.errors,
+          warnings: result.warnings,
+        });
+        return;
+      }
+      const preview = result.questions.slice(0, 3).map((question) => ({
+        category: question.category,
+        prompt: question.prompt,
+      }));
+      if (req.body?.dryRun) {
+        res.json({ ok: true, dryRun: true, count: result.total, warnings: result.warnings, preview });
+        return;
+      }
+      if (session.phase !== 'lobby') {
+        throw new AppError('NOT_IN_LOBBY', 'Questions can only be changed in the lobby.', 409);
+      }
+      if (manager.questions.vaultCount() >= MAX_VAULT_LISTS) {
+        throw new AppError('VAULT_FULL', `The vault holds up to ${MAX_VAULT_LISTS} lists. Delete one first.`, 409);
+      }
+      const id = await manager.questions.createVault(name, result.questions);
+      // A newly imported list is the one this game uses.
+      await session.updateConfig({ questionSet: id });
+      session.emit('change');
+      res.json({ ok: true, id, count: result.total, warnings: result.warnings, preview, sets: manager.questions.summaries() });
+    }),
+  );
+
+  app.delete(
+    '/api/vault/:id',
+    asyncHandler(async (req, res) => {
+      const session = requireControl(req);
+      const id = String(req.params.id || '');
+      if (!isVaultId(id) || !manager.questions.has(id)) {
+        throw new AppError('SET_NOT_FOUND', 'That list is not in the vault.', 404);
+      }
+      if (session.phase !== 'lobby') {
+        throw new AppError('NOT_IN_LOBBY', 'Questions can only be changed in the lobby.', 409);
+      }
+      if (session.config.questionSet === id) await session.updateConfig({ questionSet: 'easy' });
+      await manager.questions.removeVault(id);
+      session.emit('change');
+      res.json({ ok: true, sets: manager.questions.summaries() });
     }),
   );
 

@@ -243,3 +243,36 @@ test('sets saved with four answers are tidied to three when the server starts', 
   assert.equal(complex.questions.length, defaultQuestionsFor('complex').length, 'built-in set is restored');
   assert.ok(complex.questions.every((question) => question.options.length === 3));
 });
+
+test('the vault keeps imported lists, selects them, and can delete them', async (t) => {
+  const { h, screen } = await setup(t);
+  const headers = control(screen.key);
+  const post = (body) => fetch(`${h.baseUrl}/api/vault`, { method: 'POST', headers, body: JSON.stringify(body) });
+
+  assert.equal((await fetch(`${h.baseUrl}/api/vault`, { method: 'POST', body: '{}' })).status, 401);
+  assert.equal((await post({ name: 'x', csv: customCsv(12) })).status, 422, 'name too short');
+  assert.equal((await post({ name: 'Bad', csv: `${customCsv(9)}\nMine,Broken?,A,B,C,Z,why` })).status, 422);
+
+  const dry = await post({ name: 'Phishing week', csv: customCsv(12), dryRun: true });
+  assert.equal(dry.status, 200);
+  assert.equal(h.manager.questions.vaultCount(), 0, 'preview saves nothing');
+
+  const saved = await post({ name: 'Phishing week', csv: customCsv(12) });
+  assert.equal(saved.status, 200);
+  const body = await saved.json();
+  assert.match(body.id, /^vault-/);
+  const listed = await fetch(`${h.baseUrl}/api/questions`).then((response) => response.json());
+  const entry = listed.sets.find((set) => set.id === body.id);
+  assert.equal(entry.name, 'Phishing week');
+  assert.equal(entry.vault, true);
+  assert.equal(entry.count, 12);
+  assert.deepEqual(listed.sets.slice(0, 2).map((set) => set.id), ['easy', 'complex']);
+  assert.equal(h.manager.current().config.questionSet, body.id, 'the new list is selected for this game');
+  assert.equal(h.manager.questions.questionsFor(body.id).length, 12);
+
+  const gone = await fetch(`${h.baseUrl}/api/vault/${body.id}`, { method: 'DELETE', headers });
+  assert.equal(gone.status, 200);
+  assert.equal(h.manager.questions.has(body.id), false);
+  assert.equal(h.manager.current().config.questionSet, 'easy', 'deleting the active list falls back to easy');
+  assert.equal((await fetch(`${h.baseUrl}/api/vault/easy`, { method: 'DELETE', headers })).status, 404, 'built-in sets are not deletable');
+});

@@ -1525,3 +1525,57 @@ body.display-page {
 .join-modal__body .join-card__qr {
   width: min(70vh, 100%);
 }
+
+/* ------------------------------------------------------------------ vault */
+
+.set-card--vault {
+  border-style: dashed;
+}
+
+.vault-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+}
+
+.vault-table th {
+  padding: 0.4rem 0.6rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 400;
+  letter-spacing: 0.2em;
+  text-align: left;
+  border-bottom: 1px solid var(--line-strong);
+}
+
+.vault-table td {
+  padding: 0.6rem;
+  color: var(--ink-soft);
+  border-bottom: 1px solid var(--line);
+}
+
+.vault-table tr.is-using td {
+  background: color-mix(in srgb, var(--cyan) 10%, transparent);
+}
+
+.vault-table__name {
+  color: var(--ink);
+  font-size: 1.1rem;
+  overflow-wrap: anywhere;
+}
+
+.vault-table__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+
+.vault-import {
+  display: flex;
+  gap: 0.8rem;
+}
+
+.vault-import .input {
+  flex: 1;
+}
