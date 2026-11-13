@@ -719,3 +719,46 @@ button.battle-cell:disabled {
     animation: none;
   }
 }
+
+/* -------------------------------------------- team-coloured battle boards */
+
+/* The grid takes the colour of the fleet under attack; shots take the colour
+   of the side that fired them. */
+.battle-grid {
+  --side: var(--cyan);
+  --shot: var(--red);
+  background: color-mix(in srgb, var(--side) 32%, transparent);
+  border-color: color-mix(in srgb, var(--side) 70%, transparent);
+}
+
+.battle-cell {
+  background: color-mix(in srgb, var(--side) 14%, #06142a);
+}
+
+.battle-cell.is-miss::after {
+  background: color-mix(in srgb, var(--shot) 70%, #fff 0%);
+  opacity: 0.8;
+}
+
+.battle-cell.is-hit {
+  background: color-mix(in srgb, var(--shot) 45%, #06142a);
+  box-shadow: inset 0 0 0 2px var(--shot);
+}
+
+.battle-cell.is-hit::before,
+.battle-cell.is-hit::after {
+  background: #fff;
+  box-shadow: 0 0 8px var(--shot);
+}
+
+.battle-cell.is-ship {
+  background: color-mix(in srgb, var(--side) 40%, #1a3550);
+}
+
+.battle-cell.is-ship.is-hit {
+  background: color-mix(in srgb, var(--shot) 50%, #06142a);
+}
+
+.battle-cell.is-sunk {
+  background: color-mix(in srgb, var(--shot) 35%, #1a0710);
+}

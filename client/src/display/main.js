@@ -539,6 +539,10 @@ function targetBoards(round) {
   return round.boards.filter((board) => targeted.has(board.id));
 }
 
+function attackerColorOf(round, boardId) {
+  return round.combatants.find((combatant) => combatant.targetId === boardId)?.color || null;
+}
+
 function attackersOf(round, boardId) {
   return round.combatants
     .filter((combatant) => combatant.targetId === boardId)
@@ -551,7 +555,7 @@ function boardMarkup(round, board, { revealed, legend = false }) {
   return `
     <article class="board" style="--side:${board.color};--board-size:${revealed ? '36vh' : '50vh'}">
       <h2 class="board__title">${escapeHtml(title)}<small>ATTACKED BY ${escapeHtml(attackersOf(round, board.id))}</small></h2>
-      <div class="board__grid">${renderGrid({ size: board.gridSize, shots: board.shots, ships: board.ships || [], label: title })}${legend ? shipLegend(board) : ''}</div>
+      <div class="board__grid">${renderGrid({ size: board.gridSize, shots: board.shots, ships: board.ships || [], label: title, color: board.color, shotColor: attackerColorOf(round, board.id) })}${legend ? shipLegend(board) : ''}</div>
       <div class="board__foot"><span>SUNK <b>${board.shipsSunk}/${board.shipsTotal}</b></span><span>SHOTS <b>${board.shots.length}</b></span></div>
     </article>`;
 }

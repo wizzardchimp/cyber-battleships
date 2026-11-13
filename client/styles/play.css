@@ -810,3 +810,34 @@ body.play-page {
 .captain-draw__team.is-locked .captain-draw__tag {
   color: var(--green);
 }
+
+.key-hint {
+  display: none;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  letter-spacing: 0.04em;
+}
+
+.key-hint b {
+  padding: 0 0.35rem;
+  color: var(--ink);
+  border: 1px solid var(--line-strong);
+}
+
+/* Laptops and Chromebooks: a fine pointer or a wide screen. */
+@media (hover: hover) and (pointer: fine), (min-width: 900px) {
+  .key-hint {
+    display: block;
+  }
+
+  .p-main {
+    width: 100%;
+    max-width: 44rem;
+    margin: 0 auto;
+  }
+
+  .fire-grid {
+    max-width: min(30rem, 56vh);
+  }
+}
