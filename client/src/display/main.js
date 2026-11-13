@@ -19,6 +19,7 @@ import { renderGrid } from '../shared/grid.js';
 import { createSocket, request } from '../shared/socket.js';
 
 const KEY_STORAGE = 'cb.display.key';
+const VAULT_TARGET = '__vault';
 const MUSIC_BY_PHASE = {
   [PHASES.LOBBY]: 'menu',
   [PHASES.RESULT]: 'menu',
@@ -39,6 +40,8 @@ let fatal = '';
 let settingsOpen = false;
 let menuOpen = false;
 let joinOpen = false;
+let vaultOpen = false;
+let vaultName = '';
 let importUi = null;
 let armed = null; // { action, timer } for two-step confirmations
 let lastPhase = null;
@@ -61,6 +64,11 @@ let importTarget = null;
 const controlKey = () => localStorage.getItem(KEY_STORAGE) || '';
 const hasControl = () => Boolean(state?.viewer?.control);
 const configOf = () => state?.session?.config || {};
+
+/** The shown name of a question set, including vault lists. */
+function setName(id) {
+  return state?.questionSets?.find((set) => set.id === id)?.name || setLabel(id);
+}
 
 function play(name) {
   if (configOf().soundEnabled === false) return;
@@ -136,6 +144,7 @@ async function createGame({ force = false } = {}) {
     settingsOpen = false;
     menuOpen = false;
     joinOpen = false;
+    vaultOpen = false;
     importUi = null;
     fatal = '';
   } finally {
@@ -439,7 +448,7 @@ function lobbyScreen() {
           <span class="badge badge--mode">${escapeHtml(preset?.label || session.mode)}</span>
           <span class="badge">Quiz ${config.quizMinutes} min</span>
           <span class="badge">Battle ${config.battleSeconds} sec</span>
-          <span class="badge">${escapeHtml(setLabel(config.questionSet))} questions</span>
+          <span class="badge">${escapeHtml(setName(config.questionSet))} questions</span>
           <span class="badge">Grid ${grid} × ${grid}</span>
         </div>
         ${sides}
@@ -793,12 +802,82 @@ function renderControls() {
 
 // ------------------------------------------------------------------- modal
 
+function vaultCardMarkup(config) {
+  const lists = state.questionSets.filter((set) => set.vault);
+  const active = lists.find((set) => set.id === config.questionSet);
+  return `
+    <div class="set-card set-card--vault ${active ? 'is-selected' : ''}">
+      <div class="set-card__head">
+        <span class="set-card__name">VAULT</span>
+        <button class="btn btn--small ${active ? 'btn--primary' : ''}" type="button" data-action="vault-open">${active ? 'IN USE' : 'OPEN VAULT'}</button>
+      </div>
+      <p class="set-card__meta">${active ? `${escapeHtml(active.name)} · ${active.count} questions` : `${lists.length} saved list${lists.length === 1 ? '' : 's'}`}</p>
+      <div class="set-card__actions">
+        <button class="btn btn--small btn--ghost" type="button" data-action="vault-open">${active ? 'CHANGE LIST' : 'IMPORT A LIST'}</button>
+      </div>
+    </div>`;
+}
+
+function vaultModal() {
+  const config = configOf();
+  const lists = state.questionSets.filter((set) => set.vault);
+  const rows = lists
+    .map((set) => {
+      const using = set.id === config.questionSet;
+      const id = escapeHtml(set.id);
+      const deleting = armed?.action === `vault-delete:${set.id}`;
+      return `
+        <tr class="${using ? 'is-using' : ''}">
+          <td class="vault-table__name">${escapeHtml(set.name)}</td>
+          <td>${set.count}</td>
+          <td>${escapeHtml(new Date(set.updatedAt).toLocaleDateString())}</td>
+          <td class="vault-table__actions">
+            <button class="btn btn--small ${using ? 'btn--primary' : ''}" type="button" data-key="questionSet" data-value="${id}">${using ? 'IN USE' : 'USE'}</button>
+            <button class="btn btn--small btn--ghost" type="button" data-export="${id}">EXPORT</button>
+            <button class="btn btn--small btn--ghost ${deleting ? 'is-confirm' : ''}" type="button" data-vault-delete="${id}">${deleting ? 'TAP AGAIN' : 'DELETE'}</button>
+          </td>
+        </tr>`;
+    })
+    .join('');
+  return `
+    <div class="modal-backdrop" data-backdrop>
+      <section class="modal hud" role="dialog" aria-modal="true" aria-label="Question vault">
+        <header class="modal__head">
+          <h2 class="modal__title">QUESTION VAULT</h2>
+          <span class="badge">${lists.length} saved</span>
+        </header>
+        <div class="modal__body">
+          ${
+            lists.length
+              ? `<table class="vault-table">
+                   <thead><tr><th>LIST</th><th>QUESTIONS</th><th>ADDED</th><th></th></tr></thead>
+                   <tbody>${rows}</tbody>
+                 </table>`
+              : '<p class="setting__help" style="font-size:1.1rem">Nothing saved yet. Import a CSV below and it is kept here, ready to pick again in future games.</p>'
+          }
+          <div class="setting">
+            <span class="setting__label">IMPORT A NEW LIST</span>
+            <div class="vault-import">
+              <input class="input" type="text" maxlength="40" placeholder="List name, e.g. Phishing week" value="${escapeHtml(vaultName)}" data-vault-name />
+              <button class="btn btn--small" type="button" data-vault-import>CHOOSE CSV FILE</button>
+            </div>
+            ${importPanelMarkup()}
+            <p class="setting__help">The list is saved to the vault and used for this game straight away. Columns: category, question, option_a, option_b, option_c, correct (A, B or C), explanation.</p>
+          </div>
+        </div>
+        <footer class="modal__foot">
+          <button class="btn btn--primary" type="button" data-action="vault-close">BACK TO SETTINGS</button>
+        </footer>
+      </section>
+    </div>`;
+}
+
 function setCardMarkup(set, selected) {
   const edited = set.custom;
   return `
     <div class="set-card ${selected ? 'is-selected' : ''}">
       <div class="set-card__head">
-        <span class="set-card__name">${escapeHtml(setLabel(set.id))}</span>
+        <span class="set-card__name">${escapeHtml(setName(set.id))}</span>
         <button class="btn btn--small ${selected ? 'btn--primary' : ''}" type="button" data-key="questionSet" data-value="${escapeHtml(set.id)}">${selected ? 'IN USE' : 'USE THIS SET'}</button>
       </div>
       <p class="set-card__meta">${set.count} questions · ${edited ? 'your edited version' : 'built-in'}</p>
@@ -813,12 +892,13 @@ function setCardMarkup(set, selected) {
 function importPanelMarkup() {
   if (!importUi) return '';
   const name = escapeHtml(importUi.fileName || 'file');
-  const label = escapeHtml(setLabel(importUi.setId));
+  const isVault = importUi.setId === VAULT_TARGET;
+  const label = escapeHtml(isVault ? importUi.listName || 'the vault' : setName(importUi.setId));
   if (importUi.status === 'checking') {
     return `<div class="import-panel"><p class="import-panel__title">Checking ${name}…</p></div>`;
   }
   if (importUi.status === 'saving') {
-    return `<div class="import-panel"><p class="import-panel__title">Saving to the ${label} set…</p></div>`;
+    return `<div class="import-panel"><p class="import-panel__title">Saving ${isVault ? `${label} to the vault` : `to the ${label} set`}…</p></div>`;
   }
   if (importUi.status === 'error') {
     return `
@@ -832,8 +912,8 @@ function importPanelMarkup() {
   const current = state.questionSets.find((set) => set.id === importUi.setId);
   return `
     <div class="import-panel">
-      <p class="import-panel__title" style="color:var(--green)">READY TO IMPORT INTO ${label}</p>
-      <p><b>${importUi.count}</b> valid questions found in ${name}. This replaces all <b>${current?.count ?? 0}</b> questions currently in the ${label} set.</p>
+      <p class="import-panel__title" style="color:var(--green)">${isVault ? `READY TO SAVE ${label.toUpperCase()}` : `READY TO IMPORT INTO ${label}`}</p>
+      <p><b>${importUi.count}</b> valid questions found in ${name}. ${isVault ? 'It is saved to the vault and used for this game.' : `This replaces all <b>${current?.count ?? 0}</b> questions currently in the ${label} set.`}</p>
       <ul>${importUi.preview.map((entry) => `<li>${escapeHtml(entry.prompt)}</li>`).join('')}</ul>
       ${importUi.warnings.length ? `<ul>${importUi.warnings.map((entry) => `<li><b>${entry.row ? `Row ${entry.row}` : 'Note'}:</b> ${escapeHtml(entry.message)}</li>`).join('')}</ul>` : ''}
       <div class="import-panel__actions">
@@ -891,8 +971,9 @@ function settingsModal() {
           </div>
           <div class="setting">
             <span class="setting__label">QUESTION SET</span>
-            <div class="setting-grid" style="grid-template-columns:repeat(2,minmax(0,1fr))">
-              ${state.questionSets.map((set) => setCardMarkup(set, set.id === config.questionSet)).join('')}
+            <div class="setting-grid" style="grid-template-columns:repeat(3,minmax(0,1fr))">
+              ${state.questionSets.filter((set) => !set.vault).map((set) => setCardMarkup(set, set.id === config.questionSet)).join('')}
+              ${vaultCardMarkup(config)}
             </div>
             ${importPanelMarkup()}
             <p class="setting__help">Export a set to get a CSV file, edit it in Excel or Google Sheets, then import it back. Each row is one question with three answers and the columns below. Import replaces only the set you choose.</p>
@@ -970,6 +1051,7 @@ function renderModal() {
   const sig = JSON.stringify([
     settingsOpen,
     menuOpen,
+    vaultOpen,
     configOf(),
     state.questionSets,
     state.counts.players,
@@ -980,7 +1062,7 @@ function renderModal() {
   const body = $('.modal__body', modalRoot);
   const scroll = body ? body.scrollTop : 0;
   modalSig = sig;
-  modalRoot.innerHTML = settingsOpen ? settingsModal() : menuModal();
+  modalRoot.innerHTML = settingsOpen ? (vaultOpen ? vaultModal() : settingsModal()) : menuModal();
   const next = $('.modal__body', modalRoot);
   if (next) next.scrollTop = scroll;
 }
@@ -1083,13 +1165,16 @@ async function exportSet(id) {
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 2000);
-    toast(`${setLabel(id)} questions exported.`, 'success', '#toast-root');
+    toast(`${setName(id)} questions exported.`, 'success', '#toast-root');
   } catch (error) {
     toast(error.message, 'error', '#toast-root');
   }
 }
 
 async function importRequest(setId, body) {
+  if (setId === VAULT_TARGET) {
+    return api('/api/vault', { method: 'POST', headers: { 'x-control-key': controlKey() }, body });
+  }
   return api(`/api/questions/${encodeURIComponent(setId)}/import`, {
     method: 'POST',
     headers: { 'x-control-key': controlKey() },
@@ -1107,15 +1192,17 @@ fileInput.addEventListener('change', async () => {
     return;
   }
   const csv = await file.text();
-  importUi = { status: 'checking', setId, fileName: file.name };
+  const listName = setId === VAULT_TARGET ? vaultName.trim() || file.name.replace(/\.[^.]+$/, '').slice(0, 40) : '';
+  importUi = { status: 'checking', setId, fileName: file.name, listName };
   modalSig = '';
   render();
   try {
-    const result = await importRequest(setId, { csv, dryRun: true });
+    const result = await importRequest(setId, { csv, dryRun: true, name: listName });
     importUi = {
       status: 'preview',
       setId,
       fileName: file.name,
+      listName,
       csv,
       count: result.count,
       preview: result.preview || [],
@@ -1127,6 +1214,7 @@ fileInput.addEventListener('change', async () => {
         status: 'error',
         setId,
         fileName: file.name,
+        listName,
         errors: error.payload.errors,
         warnings: error.payload.warnings || [],
       };
@@ -1141,13 +1229,20 @@ fileInput.addEventListener('change', async () => {
 
 async function confirmImport() {
   if (!importUi || importUi.status !== 'preview') return;
-  const { setId, csv, count } = importUi;
+  const { setId, csv, count, listName } = importUi;
   importUi = { ...importUi, status: 'saving' };
   modalSig = '';
   render();
   try {
-    await importRequest(setId, { csv });
-    toast(`${setLabel(setId)} set replaced with ${count} questions.`, 'success', '#toast-root');
+    await importRequest(setId, { csv, name: listName });
+    toast(
+      setId === VAULT_TARGET
+        ? `${listName} saved to the vault (${count} questions) and selected.`
+        : `${setName(setId)} set replaced with ${count} questions.`,
+      'success',
+      '#toast-root',
+    );
+    if (setId === VAULT_TARGET) vaultName = '';
     play('success');
     importUi = null;
   } catch (error) {
@@ -1158,13 +1253,30 @@ async function confirmImport() {
   render();
 }
 
+async function deleteVaultList(id) {
+  try {
+    const name = setName(id);
+    await api(`/api/vault/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: { 'x-control-key': controlKey() },
+    });
+    toast(`${name} removed from the vault.`, 'success', '#toast-root');
+  } catch (error) {
+    toast(error.message, 'error', '#toast-root');
+  }
+}
+
+document.addEventListener('input', (event) => {
+  if (event.target?.matches?.('[data-vault-name]')) vaultName = event.target.value;
+});
+
 async function resetSet(id) {
   try {
     await api(`/api/questions/${encodeURIComponent(id)}/reset`, {
       method: 'POST',
       headers: { 'x-control-key': controlKey() },
     });
-    toast(`${setLabel(id)} set restored to the built-in questions.`, 'success', '#toast-root');
+    toast(`${setName(id)} set restored to the built-in questions.`, 'success', '#toast-root');
   } catch (error) {
     toast(error.message, 'error', '#toast-root');
   }
@@ -1178,6 +1290,7 @@ document.addEventListener('click', (event) => {
     settingsOpen = false;
     menuOpen = false;
     joinOpen = false;
+    vaultOpen = false;
     importUi = null;
     chromeSig = '';
     render();
@@ -1189,6 +1302,7 @@ document.addEventListener('click', (event) => {
     settingsOpen = false;
     menuOpen = false;
     joinOpen = false;
+    vaultOpen = false;
     importUi = null;
     chromeSig = '';
     render();
@@ -1204,6 +1318,24 @@ document.addEventListener('click', (event) => {
   const exportButton = target.closest('[data-export]');
   if (exportButton) {
     exportSet(exportButton.dataset.export);
+    return;
+  }
+
+  if (target.closest('[data-vault-import]')) {
+    importTarget = VAULT_TARGET;
+    fileInput.click();
+    return;
+  }
+
+  const vaultDelete = target.closest('[data-vault-delete]');
+  if (vaultDelete) {
+    const key = `vault-delete:${vaultDelete.dataset.vaultDelete}`;
+    if (armed?.action === key) {
+      disarm();
+      deleteVaultList(vaultDelete.dataset.vaultDelete);
+    } else {
+      arm(key);
+    }
     return;
   }
 
@@ -1274,6 +1406,17 @@ document.addEventListener('click', (event) => {
       modalSig = '';
       render();
       return;
+    case 'vault-open':
+      vaultOpen = true;
+      modalSig = '';
+      render();
+      return;
+    case 'vault-close':
+      vaultOpen = false;
+      importUi = null;
+      modalSig = '';
+      render();
+      return;
     case 'menu':
       menuOpen = true;
       modalSig = '';
@@ -1300,6 +1443,7 @@ document.addEventListener('keydown', (event) => {
     settingsOpen = false;
     menuOpen = false;
     joinOpen = false;
+    vaultOpen = false;
     importUi = null;
     chromeSig = '';
     render();
