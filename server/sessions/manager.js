@@ -77,6 +77,7 @@ export class SessionManager extends EventEmitter {
       repository: this.repository,
       logger: this.logger,
       questions: this.questions,
+      introMs: this.config.battleIntroMs,
     });
   }
 

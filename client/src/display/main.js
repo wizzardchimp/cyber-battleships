@@ -12,8 +12,9 @@ import {
   setBattleSoundsEnabled,
 } from '../shared/battleSounds.js';
 import { runCaptainDraw } from '../shared/captainDraw.js';
+import { cutsceneActive, playCutscene, skipCutscene } from './cutscene.js';
 import { setMusic, setMusicEnabled } from '../shared/music.js';
-import { formatCountdown, msRemaining, syncClock } from '../shared/clock.js';
+import { formatCountdown, msRemaining, serverNow, syncClock } from '../shared/clock.js';
 import { $, escapeHtml, toast } from '../shared/dom.js';
 import { renderGrid } from '../shared/grid.js';
 import { createSocket, request } from '../shared/socket.js';
@@ -76,12 +77,12 @@ function play(name) {
   sfx[name]?.();
 }
 
-function countdown(endsAt) {
-  return `<strong class="timer__value" data-countdown="${escapeHtml(endsAt || '')}">${formatCountdown(endsAt)}</strong>`;
+function countdown(endsAt, opensAt = null) {
+  return `<strong class="timer__value" data-countdown="${escapeHtml(endsAt || '')}" data-opens="${escapeHtml(opensAt || '')}">${formatCountdown(endsAt, opensAt)}</strong>`;
 }
 
-function timerBlock(label, endsAt) {
-  return `<div class="timer"><span class="timer__label">${label}</span>${countdown(endsAt)}</div>`;
+function timerBlock(label, endsAt, opensAt = null) {
+  return `<div class="timer"><span class="timer__label">${label}</span>${countdown(endsAt, opensAt)}</div>`;
 }
 
 // -------------------------------------------------------------- connection
@@ -265,6 +266,58 @@ function maybeDrawCaptains(before, after) {
   );
 }
 
+// ---------------------------------------------------------------- cut scenes
+
+function restoreMusic() {
+  const phase = state?.session?.phase;
+  setMusic(cutsceneActive() ? 'battle' : (MUSIC_BY_PHASE[phase] ?? 'menu'));
+}
+
+/** Random hit sounds spread across the end scene, as the fleet goes down. */
+function endScenePlayHits() {
+  const times = [700, 2300, 4100, 6000, 8200];
+  for (const base of times) {
+    window.setTimeout(() => {
+      if (cutsceneActive()) playBattle('hit', { volume: 0.9 });
+    }, base + Math.random() * 500);
+  }
+}
+
+/**
+ * Intro before the first battle, regroup when a battle round ends, and the
+ * end scene when the game is over. They run on this screen only.
+ */
+function maybePlayCutscene(previous, next) {
+  if (previous === null || configOf().cutscenes === false) return;
+  const phase = next.session.phase;
+  if (phase === previous) return;
+  const round = next.round;
+
+  if (phase === PHASES.BATTLE && previous === PHASES.REVIEW) {
+    const opens = Date.parse(round?.battleOpensAt || '');
+    if (!Number.isFinite(opens) || opens <= serverNow() + 1000) return;
+    playCutscene({ src: '/video/intro.mp4', title: 'BATTLE', subtitle: 'FIRE AT WILL', onEnd: restoreMusic });
+  } else if (phase === PHASES.RESUPPLY && previous === PHASES.BATTLE) {
+    playCutscene({
+      src: '/video/regroup.mp4',
+      title: 'REGROUP',
+      subtitle: 'COLLECT MORE QUESTIONS FOR MORE MISSILES',
+      onEnd: restoreMusic,
+    });
+  } else if (phase === PHASES.RESULT) {
+    const outcome = round?.outcome || {};
+    const subtitle = outcome.draw ? 'DRAW. NO WINNER.' : `${outcome.winnerName || 'NOBODY'} WON`;
+    playCutscene({
+      src: '/video/end.mp4',
+      title: 'GAME OVER',
+      subtitle,
+      color: outcome.winnerColor || '',
+      onEnd: restoreMusic,
+    });
+    endScenePlayHits();
+  }
+}
+
 function applyState(next) {
   const previous = state?.session?.phase ?? null;
   setBattleSoundsEnabled(next.session?.config?.soundEnabled !== false);
@@ -274,7 +327,8 @@ function applyState(next) {
   state = next;
   const phase = next.session.phase;
   setMusicEnabled(next.session?.config?.soundEnabled !== false);
-  setMusic(MUSIC_BY_PHASE[phase] ?? 'menu');
+  maybePlayCutscene(previous, next);
+  setMusic(cutsceneActive() ? 'battle' : (MUSIC_BY_PHASE[phase] ?? 'menu'));
   if (previous !== null && previous !== phase) {
     if (phase !== PHASES.LOBBY) settingsOpen = false;
     if (phase === PHASES.QUIZ || phase === PHASES.BATTLE) play('alert');
@@ -325,7 +379,7 @@ function renderChrome() {
     </div>
     <span class="badge badge--live chrome__phase">${escapeHtml(phaseLabel(phase))}</span>
     ${control ? '' : '<span class="badge badge--warn">VIEW ONLY</span>'}
-    ${battleEnds ? `<div class="chrome__timer">${timerBlock('TIME LEFT', battleEnds)}</div>` : ''}
+    ${battleEnds ? `<div class="chrome__timer">${timerBlock('TIME LEFT', battleEnds, state.round?.battleOpensAt)}</div>` : ''}
     <div class="chrome__spacer"></div>
     <div id="link" class="chrome__link"></div>
     <div class="chrome__tools">
@@ -1530,11 +1584,55 @@ document.addEventListener('keydown', (event) => {
   }
 });
 
+// ------------------------------------------------- keyboard and clickers
+
+// Space, and the keys most presentation clickers send for "next", move the game
+// on by pressing the big main button. Stopping a running timer takes two presses.
+const NEXT_KEYS = new Set(['PageDown', 'ArrowRight']);
+let nextArmedAt = 0;
+
+function nextAction() {
+  if (!state) return;
+  if (cutsceneActive()) {
+    skipCutscene();
+    return;
+  }
+  if (!hasControl() || settingsOpen || menuOpen || joinOpen || vaultOpen) return;
+  const main = document.querySelector('#controls .btn--main');
+  if (!main || main.disabled) return;
+  const phase = state.session.phase;
+  const risky =
+    phase === PHASES.QUIZ || phase === PHASES.BATTLE || (phase === PHASES.LOBBY && state.counts.players === 0);
+  if (risky && Date.now() - nextArmedAt > 2500) {
+    nextArmedAt = Date.now();
+    toast(`Press space again to ${main.textContent.trim().toLowerCase()}`, 'info', '#toast-root');
+    return;
+  }
+  nextArmedAt = 0;
+  main.click();
+}
+
+document.addEventListener('keydown', (event) => {
+  const isSpace = event.code === 'Space' || event.key === ' ';
+  const isEnter = event.key === 'Enter' && document.activeElement === document.body;
+  if (!isSpace && !isEnter && !NEXT_KEYS.has(event.key)) return;
+  if (event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
+  const tag = document.activeElement?.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+  event.preventDefault();
+  nextAction();
+});
+
+// A focused button would also click on the space key's release; the keydown above already acted.
+document.addEventListener('keyup', (event) => {
+  if (event.code === 'Space' || event.key === ' ') event.preventDefault();
+});
+
 // ---------------------------------------------------------------- countdown
 
 function updateCountdowns() {
   for (const node of document.querySelectorAll('[data-countdown]')) {
-    const value = formatCountdown(node.dataset.countdown);
+    const value = formatCountdown(node.dataset.countdown, node.dataset.opens || null);
     if (node.textContent !== value) node.textContent = value;
     const [minutes, seconds] = value.split(':').map(Number);
     node.classList.toggle('is-low', minutes === 0 && seconds <= 10 && node.dataset.countdown !== '');

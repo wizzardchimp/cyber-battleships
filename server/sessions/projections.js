@@ -89,6 +89,7 @@ function roundProjection(session) {
     cycle: round.cycle || 1,
     quizEndsAt: round.quizEndsAt,
     battleEndsAt: round.battleEndsAt,
+    battleOpensAt: round.battleOpensAt || null,
     battleEndReason: round.battleEndReason || null,
     captainSwapAt: state.phase === PHASES.BATTLE ? round.captainSwapAt || null : null,
     teams: session.teamProgress(),
