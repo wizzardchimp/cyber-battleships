@@ -372,6 +372,7 @@ body.play-page {
   min-height: 62vh;
   padding: 1.2rem;
   text-align: center;
+  cursor: pointer;
 }
 
 .feedback--wrong {

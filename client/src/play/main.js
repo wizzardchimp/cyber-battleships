@@ -80,6 +80,42 @@ function shell(inner, { side = null } = {}) {
   updateCountdowns();
 }
 
+/**
+ * Spectators do not fire, so they learn about the captain's shots from state
+ * updates: show the result and play the same sounds the captain hears.
+ */
+function watchShots(before, after) {
+  if (after.session?.phase !== PHASES.BATTLE || before?.session?.phase !== PHASES.BATTLE) return;
+  const me = after.round?.me;
+  if (!me || me.isCaptain || !before.round?.me || before.round.number !== after.round.number) return;
+  const oldBoards = new Map((before.round.me.targetBoards || []).map((board) => [board.id, board]));
+  let hit = false;
+  let sunk = false;
+  let last = null;
+  let lastBoard = null;
+  for (const board of me.targetBoards || []) {
+    const old = oldBoards.get(board.id);
+    if (!old) continue;
+    const added = board.shots.slice(old.shots.length);
+    if (added.length === 0) continue;
+    hit ||= added.some((shot) => shot.hit);
+    sunk ||= board.shipsSunk > old.shipsSunk;
+    last = added[added.length - 1];
+    lastBoard = board;
+  }
+  if (!last) return;
+  const who = me.captainName || 'Your captain';
+  const where = `${(me.targetBoards || []).length > 1 ? `${lastBoard.name} ` : ''}${coordLabel(last.x, last.y)}`;
+  const text = sunk
+    ? `${who} fired at ${where}: HIT! A ship was sunk!`
+    : hit
+      ? `${who} fired at ${where}: DIRECT HIT!`
+      : `${who} fired at ${where}: miss`;
+  shotMsg = { id: Date.now(), kind: sunk ? 'sunk' : hit ? 'hit' : 'miss', text };
+  playBattle('fire');
+  playShotResult({ hit, sunk });
+}
+
 function renderLink() {
   const node = $('#p-link');
   if (!node) return;
@@ -271,7 +307,7 @@ function renderQuiz() {
         ? `<div class="feedback__bonus"><strong>BONUS AMMUNITION!</strong><span>+${feedback.bonus} extra missile${feedback.bonus === 1 ? '' : 's'} · ${feedback.streak} in a row</span></div>`
         : '';
     body = `
-      <section class="feedback ${right ? '' : 'feedback--wrong'}" aria-live="assertive">
+      <section class="feedback ${right ? '' : 'feedback--wrong'}" data-action="skip-feedback" aria-live="assertive">
         ${!right && feedback.correctText ? `<div class="feedback__answer"><span>CORRECT ANSWER</span><strong>${escapeHtml(feedback.correctKey)}. ${escapeHtml(feedback.correctText)}</strong></div>` : ''}
         <svg class="feedback__mark" viewBox="0 0 100 100" role="img" aria-label="${right ? 'Correct' : 'Incorrect'}">${mark}</svg>
         ${right ? rewardMarkup() : ''}
@@ -411,7 +447,7 @@ function renderBattle() {
     message = `<div class="shot-msg">GET READY. Firing opens in <b data-countdown="${escapeHtml(round.battleOpensAt)}">${formatCountdown(round.battleOpensAt)}</b></div>`;
   } else if (out) {
     message = '<div class="shot-msg shot-msg--out">Your fleet has been sunk. You are out of the battle. Keep watching!</div>';
-  } else if (shotMsg && captain) {
+  } else if (shotMsg) {
     message = `<div class="shot-msg shot-msg--${shotMsg.kind}">${escapeHtml(shotMsg.text)}</div>`;
   } else if (canFire) {
     message = `<div class="shot-msg">${boards.length > 1 ? `Firing at ${escapeHtml(board.name)}. Tap a square.` : 'Tap a square to fire.'}</div>`;
@@ -666,6 +702,7 @@ function ensureSocket() {
     syncClock(next.meta?.serverNow);
     const previous = playerState?.session?.phase;
     const before = playerState;
+    watchShots(before, next);
     playerState = next;
     maybeDrawCaptain(before, next);
     announceControlChange(before, next);
@@ -805,6 +842,11 @@ async function submitAnswer(optionIndex) {
       questionNumber: question.number,
       optionIndex,
     });
+    const feedbackMs = !result.correct
+      ? TIMING.feedbackMs
+      : result.bonus > 0
+        ? TIMING.bonusFeedbackMs
+        : TIMING.correctFeedbackMs;
     feedback = {
       ...snapshot,
       correct: result.correct,
@@ -815,7 +857,7 @@ async function submitAnswer(optionIndex) {
       progress: result.progress || 0,
       bonus: result.bonus || 0,
       streak: result.streak || 0,
-      until: Date.now() + TIMING.feedbackMs,
+      until: Date.now() + feedbackMs,
     };
     if (result.correct) sfx.success();
     else sfx.error();
@@ -823,7 +865,7 @@ async function submitAnswer(optionIndex) {
     feedbackTimer = setTimeout(() => {
       feedback = null;
       render(true);
-    }, TIMING.feedbackMs);
+    }, feedbackMs);
   } catch (error) {
     toast(error.message, 'error', '#toast-root');
     sfx.error();

@@ -526,13 +526,16 @@ export class GameSession extends EventEmitter {
    * round, favouring players who have not had a turn yet and never repeating
    * the previous captain while the side has anyone else.
    */
-  pickCaptain(team) {
+  pickCaptain(team, { standIn = false } = {}) {
     const players = this.playersOnTeam(team.id);
     if (players.length === 0) return null;
     team.captainHistory = Array.isArray(team.captainHistory) ? team.captainHistory : [];
     const online = players.filter((player) => player.connected);
     let pool = online.length > 0 ? online : players;
     if (pool.length > 1) pool = pool.filter((player) => player.id !== team.captainPlayerId);
+    // A stand-in covers for a captain who dropped out mid-round. It does not use
+    // up anyone's turn, so the normal rotation carries on unchanged.
+    if (standIn) return pool[crypto.randomInt(0, pool.length)];
     let fresh = pool.filter((player) => !team.captainHistory.includes(player.id));
     if (fresh.length === 0) {
       team.captainHistory = [];
@@ -543,8 +546,8 @@ export class GameSession extends EventEmitter {
     return chosen;
   }
 
-  assignCaptain(team) {
-    const chosen = this.pickCaptain(team);
+  assignCaptain(team, options) {
+    const chosen = this.pickCaptain(team, options);
     team.captainPlayerId = chosen?.id || null;
     if (chosen) {
       this.recordEvent('captain_chosen', {
@@ -627,10 +630,11 @@ export class GameSession extends EventEmitter {
   ensureCaptains() {
     for (const team of this.state.teams) {
       const captain = this.playerById(team.captainPlayerId);
-      const usable = captain && captain.teamId === team.id && captain.connected;
-      if (usable) continue;
-      const others = this.playersOnTeam(team.id).filter((player) => player.connected);
-      if (!captain || captain.teamId !== team.id || others.length > 0) this.assignCaptain(team);
+      const onTheSide = captain?.teamId === team.id;
+      if (onTheSide && captain.connected) continue;
+      // An offline captain stays unless a teammate is online to take over.
+      const teammateOnline = this.playersOnTeam(team.id).some((player) => player.connected);
+      if (!onTheSide || teammateOnline) this.assignCaptain(team, { standIn: true });
     }
   }
 
@@ -734,9 +738,8 @@ export class GameSession extends EventEmitter {
     const result = {
       number: current.number,
       correct,
-      correctIndex: current.answerIndex,
       chosenIndex: index,
-      explanation: current.explanation,
+      correctIndex: current.answerIndex,
       reward,
       credits,
       perMissile,
@@ -826,7 +829,12 @@ export class GameSession extends EventEmitter {
     }
     assert(!this.fleetDestroyed(aimAt), 'TARGET_DESTROYED', 'That fleet has already been sunk.');
     const side = this.teamById(ownerId);
-    if (side && !this.playerById(side.captainPlayerId)) this.assignCaptain(side);
+    if (side && !this.playerById(side.captainPlayerId)) {
+      // No captain on record (for example a game saved before captains existed).
+      this.assignCaptain(side, { standIn: true });
+      this.bump();
+      await this.commit();
+    }
     assert(
       side?.captainPlayerId === player.id,
       'NOT_CAPTAIN',

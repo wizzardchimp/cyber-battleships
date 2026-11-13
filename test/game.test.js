@@ -219,6 +219,7 @@ test('a correct answer earns one missile and ten points; a wrong one earns nothi
   assert.equal(right.reward, SCORING.missilesPerCorrect);
   assert.equal(right.missiles, 1);
   assert.equal(right.correctIndex, first.answerIndex);
+  assert.equal('explanation' in right, false, 'explanations are not sent back');
   assert.equal(session.state.scores[alpha.id].points, SCORING.correct);
   assert.equal(session.arsenalFor(alpha.id), 1);
 
@@ -764,7 +765,7 @@ test('the briefing counts bonus missiles in what a side won', async () => {
 // ------------------------------------------------------------------ captains
 
 async function startedSquad() {
-  const { session } = makeSession({ mode: MODES.SQUAD });
+  const { session, repository } = makeSession({ mode: MODES.SQUAD });
   const [alpha, bravo] = session.state.teams;
   const alphaPlayers = ['A One', 'A Two', 'A Three'].map(
     (name) => session.join({ name, teamId: alpha.id }).player,
@@ -773,7 +774,7 @@ async function startedSquad() {
     (name) => session.join({ name, teamId: bravo.id }).player,
   );
   await session.advance();
-  return { session, alpha, bravo, alphaPlayers, bravoPlayers };
+  return { session, repository, alpha, bravo, alphaPlayers, bravoPlayers };
 }
 
 test('each side gets exactly one captain, and only the captain can fire', async () => {
@@ -1085,4 +1086,63 @@ test('a game saved when 1 v 1 held one player a side takes up to twenty after a 
   const alpha = reloaded.state.teams[0];
   for (let i = 1; i <= 12; i += 1) reloaded.join({ name: `Player ${i}`, teamId: alpha.id });
   assert.equal(reloaded.playersOnTeam(alpha.id).length, 12);
+});
+
+// ------------------------------------------------------- captain edge cases
+
+test('a captain with no teammate online stays in place', async () => {
+  const { session, alpha, alphaPlayers } = await startedSquad();
+  await session.advance();
+  await session.advance();
+  for (const player of alphaPlayers) player.connected = false;
+  const captain = alpha.captainPlayerId;
+  session.ensureCaptains();
+  assert.equal(alpha.captainPlayerId, captain);
+});
+
+test('a stand-in captain does not use up anyone\'s turn in the rotation', async () => {
+  const { session, alpha, alphaPlayers } = await startedSquad();
+  const first = alpha.captainPlayerId;
+  await session.advance();
+  await session.advance();
+  await session.setConnected(first, false);
+  const standIn = alpha.captainPlayerId;
+  assert.notEqual(standIn, first);
+  assert.deepEqual(alpha.captainHistory, [first], 'only real turns are recorded');
+
+  await session.advance(); // pause
+  await session.advance(); // next question round picks the next captain in turn
+  assert.notEqual(alpha.captainPlayerId, first);
+  assert.ok(alphaPlayers.some((player) => player.id === alpha.captainPlayerId));
+});
+
+test('a side with no captain on record gets one saved when somebody tries to fire', async () => {
+  const { session, repository, alpha, alphaPlayers } = await startedSquad();
+  for (const player of alphaPlayers) await answerCorrectly(session, player);
+  await session.advance();
+  await session.advance();
+  alpha.captainPlayerId = null;
+  const saves = repository.saves.length;
+  const version = session.state.version;
+
+  await session.attack(alphaPlayers[0].id, 0, 0).catch((error) => {
+    assert.equal(error.code, 'NOT_CAPTAIN');
+  });
+  assert.ok(alphaPlayers.some((player) => player.id === alpha.captainPlayerId), 'a captain was chosen');
+  assert.ok(repository.saves.length > saves, 'the new captain was saved');
+  assert.ok(session.state.version > version, 'clients are told about it');
+});
+
+test('streaks start again with each question round', async () => {
+  const { session, a } = await startedDuel();
+  for (let index = 0; index < 4; index += 1) await answerCorrectly(session, a);
+  assert.equal(a.streak, 4);
+  await session.advance(); // briefing
+  await session.advance(); // battle
+  await session.advance(); // paused
+  await session.advance(); // next question round
+  assert.equal(a.streak, 0);
+  assert.equal((await answerCorrectly(session, a)).bonus, 0);
+  assert.equal((await answerCorrectly(session, a)).bonus, 0);
+  assert.equal((await answerCorrectly(session, a)).bonus, 1);
 });

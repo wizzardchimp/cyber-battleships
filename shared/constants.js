@@ -138,7 +138,9 @@ export const SCORING = Object.freeze({
 export const TIMING = Object.freeze({
   answerGraceMs: 1500,
   minBattleMs: 3000,
-  feedbackMs: 1900,
+  feedbackMs: 1900, // wrong answers: long enough to read the right answer
+  correctFeedbackMs: 1300,
+  bonusFeedbackMs: 2300,
   captainSwapMs: 30_000,
 });
 
