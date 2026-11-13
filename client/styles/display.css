@@ -1729,3 +1729,166 @@ body.display-page {
     font-size: 2rem;
   }
 }
+
+/* -------------------------------------------------------------- cut scenes */
+
+.cutscene {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  overflow: hidden;
+  background: #000;
+  cursor: none;
+}
+
+.cutscene__video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: contrast(1.1) saturate(0.85) brightness(0.95);
+  animation: cutscene-jitter 3.1s steps(1) infinite;
+}
+
+/* Analogue interference: static, scan lines, a rolling band, a vignette. */
+.cutscene__noise {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+  mix-blend-mode: screen;
+  opacity: 0.16;
+  pointer-events: none;
+}
+
+.cutscene__lines {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.38) 0,
+    rgba(0, 0, 0, 0.38) 1px,
+    transparent 1px,
+    transparent 4px
+  );
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
+
+.cutscene__band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -20%;
+  height: 18%;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    rgba(255, 255, 255, 0.1) 40%,
+    rgba(255, 255, 255, 0.22) 50%,
+    rgba(255, 255, 255, 0.1) 60%,
+    transparent
+  );
+  mix-blend-mode: screen;
+  animation: cutscene-band 4.2s linear infinite;
+  pointer-events: none;
+}
+
+.cutscene__vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, 0.7) 100%);
+  pointer-events: none;
+}
+
+.cutscene__text {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 1.4rem;
+  padding: 0 6vw;
+  text-align: center;
+  pointer-events: none;
+}
+
+.cutscene__title {
+  position: relative;
+  color: #fff;
+  font-family: var(--font-pixel);
+  font-size: clamp(3rem, 9vw, 9rem);
+  letter-spacing: 0.08em;
+  line-height: 1.1;
+  text-shadow:
+    4px 0 rgba(255, 40, 90, 0.85),
+    -4px 0 rgba(25, 227, 255, 0.85),
+    0 0 40px rgba(0, 0, 0, 0.9);
+  animation: cutscene-flicker 2.4s steps(1) infinite;
+}
+
+.cutscene__subtitle {
+  --accent: #fff;
+  max-width: 70rem;
+  color: var(--accent);
+  font-family: var(--font-pixel);
+  font-size: clamp(1.1rem, 2.6vw, 2.6rem);
+  line-height: 1.5;
+  letter-spacing: 0.06em;
+  text-shadow:
+    2px 0 rgba(255, 40, 90, 0.7),
+    -2px 0 rgba(25, 227, 255, 0.7),
+    0 0 24px rgba(0, 0, 0, 0.95);
+}
+
+.cutscene__fade {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  opacity: 1;
+  pointer-events: none;
+}
+
+.cutscene__skip {
+  position: absolute;
+  right: 1.6rem;
+  bottom: 1.2rem;
+  color: rgba(255, 255, 255, 0.45);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  letter-spacing: 0.25em;
+  pointer-events: none;
+}
+
+@keyframes cutscene-band {
+  from { transform: translateY(0); }
+  to { transform: translateY(700%); }
+}
+
+@keyframes cutscene-flicker {
+  0%, 100% { opacity: 1; transform: translateX(0); }
+  41% { opacity: 0.85; transform: translateX(-6px); }
+  43% { opacity: 1; transform: translateX(8px); }
+  45% { opacity: 0.9; transform: translateX(0); }
+  78% { opacity: 1; transform: translateX(3px); }
+  80% { opacity: 0.8; transform: translateX(-4px); }
+}
+
+@keyframes cutscene-jitter {
+  0%, 100% { transform: translate(0, 0); }
+  30% { transform: translate(-3px, 0); }
+  32% { transform: translate(4px, 1px); }
+  34% { transform: translate(0, 0); }
+  71% { transform: translate(2px, -1px); }
+  73% { transform: translate(0, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cutscene__video,
+  .cutscene__title,
+  .cutscene__band {
+    animation: none;
+  }
+}

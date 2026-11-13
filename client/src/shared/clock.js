@@ -14,15 +14,18 @@ export function formatClock(timestamp) {
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-export function msRemaining(endsAt) {
+/** Time left until endsAt; if the clock has not started yet (opensAt), the full time. */
+export function msRemaining(endsAt, opensAt = null) {
   if (!endsAt) return 0;
   const end = Date.parse(endsAt);
   if (!Number.isFinite(end)) return 0;
-  return Math.max(0, end - serverNow());
+  const opens = opensAt ? Date.parse(opensAt) : NaN;
+  const from = Number.isFinite(opens) ? Math.max(serverNow(), opens) : serverNow();
+  return Math.max(0, end - from);
 }
 
-export function formatCountdown(endsAt) {
-  const totalSeconds = Math.ceil(msRemaining(endsAt) / 1000);
+export function formatCountdown(endsAt, opensAt = null) {
+  const totalSeconds = Math.ceil(msRemaining(endsAt, opensAt) / 1000);
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${minutes}:${String(seconds).padStart(2, '0')}`;

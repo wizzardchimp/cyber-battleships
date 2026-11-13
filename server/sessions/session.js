@@ -73,8 +73,10 @@ export function createSessionState({
 }
 
 export class GameSession extends EventEmitter {
-  constructor({ state, repository, logger, questions }) {
+  constructor({ state, repository, logger, questions, introMs = 0 }) {
     super();
+    // How long the opening cut scene covers the big screen before firing opens.
+    this.introMs = Math.max(0, Number(introMs) || 0);
     this.state = state;
     this.repository = repository;
     this.logger = logger;
@@ -758,10 +760,15 @@ export class GameSession extends EventEmitter {
   enterBattle(now = Date.now()) {
     const round = this.state.round;
     assert(round, 'NOT_IN_ROUND', 'No game is running.');
-    round.battleStartedAt = new Date(now).toISOString();
-    round.battleEndsAt = new Date(now + this.config.battleSeconds * 1000).toISOString();
+    // The first battle of a game opens after the intro cut scene has played.
+    const first = this.state.phase === PHASES.REVIEW && !round.introPlayed;
+    const opensAt = now + (first ? this.introMs : 0);
+    round.introPlayed = true;
+    round.battleOpensAt = new Date(opensAt).toISOString();
+    round.battleStartedAt = new Date(opensAt).toISOString();
+    round.battleEndsAt = new Date(opensAt + this.config.battleSeconds * 1000).toISOString();
     round.battleEndReason = null;
-    round.captainSwapAt = new Date(now + TIMING.captainSwapMs).toISOString();
+    round.captainSwapAt = new Date(opensAt + TIMING.captainSwapMs).toISOString();
     this.ensureCaptains();
     this.state.phase = PHASES.BATTLE;
     this.recordEvent('battle_started', { round: round.number });
@@ -797,6 +804,8 @@ export class GameSession extends EventEmitter {
     const ownerId = player.teamId;
     const combatant = round.combatants.find((entry) => entry.id === ownerId);
     assert(combatant?.targetId, 'NO_TARGET', 'No target is assigned.');
+    const opensAt = Date.parse(round.battleOpensAt);
+    assert(!(opensAt > Date.now()), 'BATTLE_NOT_OPEN', 'The battle is about to begin. Get ready to fire.');
     assert(!this.fleetDestroyed(ownerId), 'ELIMINATED', 'Your fleet has been sunk. You are out of the battle.');
     const targets = this.targetIdsOf(combatant);
     let aimAt = combatant.targetId;

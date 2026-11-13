@@ -65,6 +65,8 @@ export function loadConfig(overrides = {}) {
     dataDir,
     clientDist: path.resolve(overrides.clientDist || path.join(ROOT, 'dist', 'client')),
     publicUrl,
+    // Time the intro cut scene covers the screen before the first battle opens.
+    battleIntroMs: Number(overrides.battleIntroMs ?? process.env.BATTLE_INTRO_MS ?? 11000),
     // Needed to start a game or replace a running one. Empty turns it off.
     facilitatorPin: String(overrides.facilitatorPin ?? process.env.FACILITATOR_PIN ?? 'rocu').trim(),
     sessionRetentionHours: Number(

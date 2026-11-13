@@ -164,6 +164,7 @@ needed.
 | `PORT` | `3000` | HTTP port |
 | `PUBLIC_URL` | Railway domain / LAN | Base URL used in QR codes and join links |
 | `FACILITATOR_PIN` | `rocu` | PIN to start or replace a game; empty turns it off |
+| `BATTLE_INTRO_MS` | `11000` | Delay before the first battle opens while the intro plays; `0` removes it |
 | `DATABASE_URL` | empty | PostgreSQL URL; empty uses embedded PGlite |
 | `PGSSL` | on in production | Set `false` for a local Postgres without TLS |
 | `DATA_DIR` | `./data` | PGlite data directory |
@@ -254,6 +255,22 @@ docs/architecture.md     # design notes
   code on the welcome page, or by typing the short link shown on the big screen.
 - On a laptop or Chromebook, answer with **1 / 2 / 3** or **A / B / C**, or click.
   The captain fires by clicking a square with the mouse or trackpad.
+
+## Cut scenes and keyboard control
+
+- **Cut scenes** play on the big screen only, fading up from black over analogue
+  interference (static, scan lines, a rolling band) with bold text and the battle
+  music (the videos themselves are muted): an **intro** before the first battle
+  ("BATTLE"), **regroup** when a battle round ends ("REGROUP – collect more
+  questions for more missiles"), and **end** when the game is over ("GAME OVER – ALPHA
+  WON"), with a few random hit sounds. Videos live in `client/public/video/`.
+  Firing opens when the intro finishes (`BATTLE_INTRO_MS`, default 11000; the full
+  battle time still follows). Any key or a click skips a scene.
+- **Space, Page Down, Right Arrow** (and Enter) press the big main button, so the
+  game can be run from the keyboard or a presentation clicker: START GAME,
+  START BATTLE, MORE QUESTIONS, PLAY AGAIN. Where that would stop a running timer
+  (SKIP TIMER, END BATTLE ROUND) or start an empty game, press twice within 2.5
+  seconds.
 
 ## Question vault
 

@@ -24,6 +24,7 @@ export async function bootTestServer({ pgliteDir = 'memory://', facilitatorPin =
     publicUrl: 'http://127.0.0.1',
     logLevel: 'silent',
     facilitatorPin,
+    battleIntroMs: 0,
     databaseUrl: '',
   });
   const logger = pino({ level: 'silent' });

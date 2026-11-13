@@ -14,7 +14,7 @@ import {
   setBattleSoundsEnabled,
 } from '../shared/battleSounds.js';
 import { runCaptainDraw } from '../shared/captainDraw.js';
-import { formatCountdown, msRemaining, syncClock } from '../shared/clock.js';
+import { formatCountdown, msRemaining, serverNow, syncClock } from '../shared/clock.js';
 import { $, escapeHtml, toast } from '../shared/dom.js';
 import { coordLabel, renderGrid } from '../shared/grid.js';
 import { createSocket, request } from '../shared/socket.js';
@@ -235,12 +235,12 @@ function renderLobby() {
   );
 }
 
-function topBar(endsAt, missiles, me = null) {
+function topBar(endsAt, missiles, me = null, opensAt = null) {
   const per = me?.perMissile || 1;
   const frac = per > 1 ? `<small class="q-frac">+${me.ammoProgress || 0}/${per}</small>` : '';
   return `
     <div class="q-top">
-      <div class="q-timer"><span>TIME</span><strong data-countdown="${escapeHtml(endsAt || '')}">${formatCountdown(endsAt)}</strong></div>
+      <div class="q-timer"><span>TIME</span><strong data-countdown="${escapeHtml(endsAt || '')}" data-opens="${escapeHtml(opensAt || '')}">${formatCountdown(endsAt, opensAt)}</strong></div>
       <div class="q-missiles"><span>MISSILES</span><strong>${missiles}${frac}</strong></div>
     </div>`;
 }
@@ -339,7 +339,7 @@ function renderBriefing() {
 
 function swapNote(round) {
   if (!round.captainSwapAt) return '';
-  return `<p class="swap-note">Controls swap to a random teammate in <b data-countdown="${escapeHtml(round.captainSwapAt)}">${formatCountdown(round.captainSwapAt)}</b></p>`;
+  return `<p class="swap-note">Controls swap to a random teammate in <b data-countdown="${escapeHtml(round.captainSwapAt)}" data-opens="${escapeHtml(round.battleOpensAt || '')}">${formatCountdown(round.captainSwapAt, round.battleOpensAt)}</b></p>`;
 }
 
 function passControlsMarkup() {
@@ -402,9 +402,14 @@ function renderBattle() {
 
   const captain = me.isCaptain;
   const out = Boolean(me.eliminated);
-  const canFire = captain && me.missiles > 0 && !out && board.shipsSunk < board.shipsTotal;
+  const opensIn = round.battleOpensAt ? Date.parse(round.battleOpensAt) - serverNow() : 0;
+  const notOpen = opensIn > 0;
+  if (notOpen) window.setTimeout(() => render(true), opensIn + 80);
+  const canFire = captain && !notOpen && me.missiles > 0 && !out && board.shipsSunk < board.shipsTotal;
   let message = '';
-  if (out) {
+  if (notOpen) {
+    message = `<div class="shot-msg">GET READY. Firing opens in <b data-countdown="${escapeHtml(round.battleOpensAt)}">${formatCountdown(round.battleOpensAt)}</b></div>`;
+  } else if (out) {
     message = '<div class="shot-msg shot-msg--out">Your fleet has been sunk. You are out of the battle. Keep watching!</div>';
   } else if (shotMsg && captain) {
     message = `<div class="shot-msg shot-msg--${shotMsg.kind}">${escapeHtml(shotMsg.text)}</div>`;
@@ -421,7 +426,7 @@ function renderBattle() {
 
   shell(
     `
-    ${topBar(round.battleEndsAt, me.missiles, me)}
+    ${topBar(round.battleEndsAt, me.missiles, me, round.battleOpensAt)}
     ${role}
     ${targetTabsMarkup(boards, board)}
     <div class="target" style="--side:${targetColor}">
@@ -1063,7 +1068,7 @@ app.addEventListener('input', (event) => {
 
 function updateCountdowns() {
   for (const node of document.querySelectorAll('[data-countdown]')) {
-    const value = formatCountdown(node.dataset.countdown);
+    const value = formatCountdown(node.dataset.countdown, node.dataset.opens || null);
     if (node.textContent !== value) node.textContent = value;
     const [minutes, seconds] = value.split(':').map(Number);
     node.classList.toggle('is-low', minutes === 0 && seconds <= 10 && node.dataset.countdown !== '');

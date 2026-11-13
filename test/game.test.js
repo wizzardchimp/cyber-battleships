@@ -1022,3 +1022,30 @@ test('resetting the players empties the room but keeps the code and settings', a
   const again = session.join({ name: 'Fresh Start' }).player;
   assert.ok(again.id);
 });
+
+test('the first battle opens after the intro cut scene, later ones straight away', async () => {
+  const { session, alpha, alphaPlayers } = await startedSquad();
+  session.introMs = 11_000;
+  for (const player of alphaPlayers) await answerCorrectly(session, player);
+  await session.advance(); // briefing
+  const before = Date.now();
+  await session.advance(); // battle
+  const round = session.state.round;
+  assert.ok(Date.parse(round.battleOpensAt) >= before + 10_900, 'firing opens after the intro');
+  assert.ok(Date.parse(round.battleEndsAt) - Date.parse(round.battleOpensAt) === session.config.battleSeconds * 1000,
+    'the full battle time still follows the intro');
+  const captain = session.playerById(alpha.captainPlayerId);
+  await expectReject(() => session.attack(captain.id, 0, 0), 'BATTLE_NOT_OPEN');
+
+  // After the intro time has passed the captain can fire.
+  round.battleOpensAt = new Date(Date.now() - 1).toISOString();
+  assert.equal((await session.attack(captain.id, 0, 0)).missiles, 2);
+
+  // A second battle (after more questions) has no intro delay.
+  await session.advance(); // pause
+  await session.advance(); // more questions
+  await session.advance(); // briefing
+  const again = Date.now();
+  await session.advance(); // battle
+  assert.ok(Date.parse(session.state.round.battleOpensAt) <= again + 50);
+});
