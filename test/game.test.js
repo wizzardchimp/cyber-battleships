@@ -858,3 +858,130 @@ test('players can join while questions are running, but not during the battle', 
   await session.advance(); // briefing
   expectCode(() => session.join({ name: 'Too Late', teamId: alpha.id }), 'JOIN_CLOSED');
 });
+
+// -------------------------------------------------------------- three teams
+
+async function startedFleet() {
+  const { session } = makeSession({ mode: MODES.FLEET });
+  const [alpha, bravo, charlie] = session.state.teams;
+  const make = (team, tag) =>
+    ['One', 'Two', 'Three', 'Four'].map((n) => session.join({ name: `${tag} ${n}`, teamId: team.id }).player);
+  const a = make(alpha, 'A');
+  const b = make(bravo, 'B');
+  const c = make(charlie, 'C');
+  await session.advance();
+  return { session, alpha, bravo, charlie, a, b, c };
+}
+
+function sinkEverything(session, targetId) {
+  const fleet = session.state.fleets[targetId];
+  const cells = fleet.ships.flatMap((ship) => ship.cells);
+  return cells;
+}
+
+test('the three-team mode holds three sides of twenty with a third of a missile per correct answer', async () => {
+  const { session, alpha, a } = await startedFleet();
+  assert.equal(session.state.teams.length, 3);
+  assert.equal(alpha.maxPlayers, 20);
+
+  const first = await answerCorrectly(session, a[0]);
+  assert.equal(first.reward, 0, 'one correct answer is only a third of a missile');
+  assert.equal(first.perMissile, 3);
+  assert.equal(first.progress, 1);
+  assert.equal(session.arsenalFor(alpha.id), 0);
+  await answerCorrectly(session, a[1]);
+  const third = await answerCorrectly(session, a[2]);
+  assert.equal(third.reward, 1, 'the third correct answer earns a whole missile');
+  assert.equal(third.progress, 0);
+  assert.equal(session.arsenalFor(alpha.id), 1);
+});
+
+test('a captain picks which of the two other fleets to fire at', async () => {
+  const { session, alpha, bravo, charlie, a, b, c } = await startedFleet();
+  for (const player of [...a, ...b, ...c]) {
+    for (let i = 0; i < 3; i += 1) await answerCorrectly(session, player);
+  }
+  await session.advance(); // briefing
+  await session.advance(); // battle
+
+  const captain = a.find((player) => player.id === alpha.captainPlayerId);
+  const view = playerProjection(session, captain.id);
+  assert.deepEqual([...view.round.me.targetIds].sort(), [bravo.id, charlie.id].sort());
+  assert.equal(view.round.me.targetBoards.length, 2);
+
+  await expectReject(() => session.attack(captain.id, 0, 0), 'CHOOSE_TARGET');
+  await expectReject(() => session.attack(captain.id, 0, 0, alpha.id), 'INVALID_TARGET');
+  const shot = await session.attack(captain.id, 0, 0, charlie.id);
+  assert.equal(shot.x, 0);
+  assert.equal(session.state.fleets[charlie.id].shots.length, 1);
+  assert.equal(session.state.fleets[bravo.id].shots.length, 0);
+});
+
+test('a sunk fleet is out; the last fleet afloat wins', async () => {
+  const { session, alpha, bravo, charlie, a, b, c } = await startedFleet();
+  for (const player of [...a, ...b, ...c]) {
+    for (let i = 0; i < 12; i += 1) await answerCorrectly(session, player).catch(() => {});
+  }
+  await session.advance();
+  await session.advance();
+
+  const shoot = async (teamId, targetId) => {
+    const team = session.teamById(teamId);
+    for (const cell of session.state.fleets[targetId].ships.flatMap((ship) => ship.cells)) {
+      if (session.fleetDestroyed(targetId)) break;
+      session.addArsenal(teamId, 1);
+      await session.attack(team.captainPlayerId, cell.x, cell.y, targetId);
+    }
+  };
+
+  await shoot(alpha.id, bravo.id);
+  assert.equal(session.fleetDestroyed(bravo.id), true);
+  assert.equal(session.state.phase, 'battle', 'two fleets still afloat, so the battle goes on');
+  assert.equal(bravo.eliminated, true);
+  await expectReject(
+    () => session.attack(bravo.captainPlayerId, 9, 9, alpha.id),
+    'ELIMINATED',
+  );
+  await expectReject(() => session.attack(alpha.captainPlayerId, 9, 9, bravo.id), 'TARGET_DESTROYED');
+
+  await shoot(alpha.id, charlie.id);
+  assert.equal(session.state.phase, 'result');
+  assert.equal(session.state.round.outcome.winnerId, alpha.id);
+  assert.equal(session.state.round.outcome.reason, 'Fleet destroyed');
+});
+
+test('controls swap to another teammate every 30 seconds of battle', async () => {
+  const { session, alpha, alphaPlayers, bravo } = await startedSquad();
+  for (const player of alphaPlayers) await answerCorrectly(session, player);
+  await session.advance(); // briefing
+  await session.advance(); // battle
+  const round = session.state.round;
+  assert.ok(round.captainSwapAt, 'a swap time is set when the battle starts');
+
+  const first = alpha.captainPlayerId;
+  const bravoFirst = bravo.captainPlayerId;
+  assert.equal(await session.tick(Date.now() + 10_000), false, 'nothing happens early');
+  assert.equal(alpha.captainPlayerId, first);
+
+  assert.equal(await session.tick(Date.now() + 31_000), true);
+  assert.notEqual(alpha.captainPlayerId, first, 'alpha has a new captain');
+  assert.notEqual(bravo.captainPlayerId, bravoFirst, 'bravo has a new captain');
+  assert.ok(alphaPlayers.some((player) => player.id === alpha.captainPlayerId));
+  assert.ok(Date.parse(round.captainSwapAt) > Date.now() + 25_000, 'the next swap is rescheduled');
+  const view = publicProjection(session);
+  assert.ok(view.round.captainSwapAt);
+});
+
+test('a side with only one player keeps its captain', async () => {
+  const { session } = makeSession({ mode: MODES.SQUAD });
+  const [alpha, bravo] = session.state.teams;
+  const solo = session.join({ name: 'Solo', teamId: alpha.id }).player;
+  session.join({ name: 'B One', teamId: bravo.id });
+  session.join({ name: 'B Two', teamId: bravo.id });
+  await session.advance();
+  await answerCorrectly(session, solo);
+  await session.advance();
+  await session.advance();
+  await session.tick(Date.now() + 31_000);
+  assert.equal(alpha.captainPlayerId, solo.id);
+});

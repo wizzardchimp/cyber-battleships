@@ -20,13 +20,14 @@ export const MODES = Object.freeze({
   CPU: 'cpu',
   DUEL: 'duel',
   SQUAD: 'squad',
+  FLEET: 'fleet',
 });
 
 export const ROLES = Object.freeze({
   PLAYER: 'player',
 });
 
-export const TEAM_COLORS = Object.freeze(['#19e3ff', '#ff3d9a']);
+export const TEAM_COLORS = Object.freeze(['#19e3ff', '#ff3d9a', '#7dff6b']);
 export const CPU_COLOR = '#b66dff';
 
 export const MODE_PRESETS = Object.freeze({
@@ -48,6 +49,17 @@ export const MODE_PRESETS = Object.freeze({
     versusCpu: false,
     blurb: 'Two players go head to head.',
   }),
+  fleet: Object.freeze({
+    id: 'fleet',
+    label: '3 TEAMS',
+    short: '3 teams',
+    teams: Object.freeze(['ALPHA', 'BRAVO', 'CHARLIE']),
+    perTeam: 20,
+    versusCpu: false,
+    // Big teams: every third correct answer earns the team one missile.
+    correctPerMissile: 3,
+    blurb: 'Three teams of up to 20. Every 3 correct answers earn a missile. Last fleet afloat wins.',
+  }),
   squad: Object.freeze({
     id: 'squad',
     label: '3 VS 3',
@@ -59,7 +71,17 @@ export const MODE_PRESETS = Object.freeze({
   }),
 });
 
-export const MODE_LIST = Object.freeze([MODE_PRESETS.squad, MODE_PRESETS.duel, MODE_PRESETS.cpu]);
+/** How many correct answers a side needs for one missile in a mode. */
+export function correctPerMissile(mode) {
+  return Math.max(1, Number(MODE_PRESETS[mode]?.correctPerMissile) || 1);
+}
+
+export const MODE_LIST = Object.freeze([
+  MODE_PRESETS.squad,
+  MODE_PRESETS.duel,
+  MODE_PRESETS.cpu,
+  MODE_PRESETS.fleet,
+]);
 
 export const QUESTION_SET_IDS = Object.freeze(['easy', 'complex']);
 
@@ -115,6 +137,7 @@ export const TIMING = Object.freeze({
   answerGraceMs: 1500,
   minBattleMs: 3000,
   feedbackMs: 1900,
+  captainSwapMs: 30_000,
 });
 
 export const DEFAULT_CONFIG = Object.freeze({

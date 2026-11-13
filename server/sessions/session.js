@@ -10,6 +10,7 @@ import {
   ROLES,
   SCORING,
   TIMING,
+  correctPerMissile,
 } from '../../shared/constants.js';
 import { cleanText, nameKey } from '../../shared/util.js';
 import { GameError, assert } from '../errors.js';
@@ -55,6 +56,7 @@ export function createSessionState({
     round: null,
     fleets: {},
     arsenal: {},
+    ammoProgress: {},
     scores: {},
     recentEvents: [],
     eventSeq: 0,
@@ -101,6 +103,8 @@ export class GameSession extends EventEmitter {
     state.round = state.round || null;
     state.fleets = state.fleets && typeof state.fleets === 'object' ? state.fleets : {};
     state.arsenal = state.arsenal && typeof state.arsenal === 'object' ? state.arsenal : {};
+    state.ammoProgress =
+      state.ammoProgress && typeof state.ammoProgress === 'object' ? state.ammoProgress : {};
     state.scores = state.scores && typeof state.scores === 'object' ? state.scores : {};
     state.expiresAt =
       state.expiresAt || new Date(Date.now() + LIMITS.sessionRetentionHours * 3600_000).toISOString();
@@ -399,8 +403,10 @@ export class GameSession extends EventEmitter {
     this.state.scores = {};
     this.state.fleets = {};
     this.state.arsenal = {};
+    this.state.ammoProgress = {};
     for (const team of this.state.teams) {
       team.missiles = 0;
+      team.eliminated = false;
       team.captainPlayerId = null;
       team.captainHistory = [];
     }
@@ -511,6 +517,34 @@ export class GameSession extends EventEmitter {
 
   assignCaptains() {
     for (const team of this.state.teams) this.assignCaptain(team);
+  }
+
+  /**
+   * Hand every side's controls to a different connected teammate at random.
+   * Sides with nobody else online keep their captain.
+   */
+  rotateCaptains(now = Date.now()) {
+    const round = this.state.round;
+    for (const team of this.state.teams) {
+      if (this.fleetDestroyed(team.id)) continue;
+      const before = team.captainPlayerId;
+      const others = this.playersOnTeam(team.id).filter(
+        (player) => player.connected && player.id !== before,
+      );
+      if (others.length === 0) continue;
+      const chosen = this.assignCaptain(team);
+      if (chosen && chosen.id !== before) {
+        this.recordEvent('captain_rotated', {
+          fromId: before,
+          playerId: chosen.id,
+          name: chosen.displayName,
+          teamId: team.id,
+          teamName: team.name,
+        });
+      }
+    }
+    round.captainSwapAt = new Date(now + TIMING.captainSwapMs).toISOString();
+    this.bump();
   }
 
   /** The captain hands the attack controls to another connected member of their side. */
@@ -628,7 +662,16 @@ export class GameSession extends EventEmitter {
       correct && player.streak >= SCORING.streakBonusFrom && player.streak <= SCORING.streakBonusThrough
         ? SCORING.streakBonusMissiles
         : 0;
-    const reward = correct ? SCORING.missilesPerCorrect + bonus : 0;
+    // Big teams earn a missile for every few correct answers; others one each.
+    const perMissile = correctPerMissile(this.config.mode);
+    const credits = correct ? SCORING.missilesPerCorrect + bonus : 0;
+    let reward = credits;
+    let progress = 0;
+    if (perMissile > 1) {
+      const total = (Number(this.state.ammoProgress[ownerId]) || 0) + credits;
+      reward = Math.floor(total / perMissile);
+      progress = total % perMissile;
+    }
     const score = ensureScore(this.state, ownerId);
     score.answered += 1;
     entry.answered += 1;
@@ -642,6 +685,7 @@ export class GameSession extends EventEmitter {
       entry.bonus = (entry.bonus || 0) + bonus;
       player.stats.correct += 1;
       this.addArsenal(ownerId, reward);
+      if (perMissile > 1) this.state.ammoProgress[ownerId] = progress;
     }
 
     const result = {
@@ -651,6 +695,9 @@ export class GameSession extends EventEmitter {
       chosenIndex: index,
       explanation: current.explanation,
       reward,
+      credits,
+      perMissile,
+      progress: perMissile > 1 ? Number(this.state.ammoProgress[ownerId]) || 0 : 0,
       bonus,
       streak: player.streak,
       missiles: this.arsenalFor(ownerId),
@@ -680,6 +727,7 @@ export class GameSession extends EventEmitter {
     round.battleStartedAt = new Date(now).toISOString();
     round.battleEndsAt = new Date(now + this.config.battleSeconds * 1000).toISOString();
     round.battleEndReason = null;
+    round.captainSwapAt = new Date(now + TIMING.captainSwapMs).toISOString();
     this.ensureCaptains();
     this.state.phase = PHASES.BATTLE;
     this.recordEvent('battle_started', { round: round.number });
@@ -707,7 +755,7 @@ export class GameSession extends EventEmitter {
     this.enterBattle(now);
   }
 
-  async attack(playerId, x, y) {
+  async attack(playerId, x, y, targetId = null) {
     assert(this.state.phase === PHASES.BATTLE, 'NOT_BATTLE', 'The battle is not running.');
     const round = this.state.round;
     const player = this.playerById(playerId);
@@ -715,6 +763,18 @@ export class GameSession extends EventEmitter {
     const ownerId = player.teamId;
     const combatant = round.combatants.find((entry) => entry.id === ownerId);
     assert(combatant?.targetId, 'NO_TARGET', 'No target is assigned.');
+    assert(!this.fleetDestroyed(ownerId), 'ELIMINATED', 'Your fleet has been sunk. You are out of the battle.');
+    const targets = this.targetIdsOf(combatant);
+    let aimAt = combatant.targetId;
+    if (targetId) {
+      assert(targets.includes(targetId), 'INVALID_TARGET', 'You cannot fire at that fleet.');
+      aimAt = targetId;
+    } else if (targets.length > 1) {
+      const alive = targets.filter((id) => !this.fleetDestroyed(id));
+      assert(alive.length === 1, 'CHOOSE_TARGET', 'Choose which fleet to fire at.');
+      aimAt = alive[0];
+    }
+    assert(!this.fleetDestroyed(aimAt), 'TARGET_DESTROYED', 'That fleet has already been sunk.');
     const side = this.teamById(ownerId);
     if (side && !this.playerById(side.captainPlayerId)) this.assignCaptain(side);
     assert(
@@ -723,7 +783,7 @@ export class GameSession extends EventEmitter {
       'Only your captain can fire missiles this round.',
     );
 
-    const targetFleet = this.state.fleets[combatant.targetId];
+    const targetFleet = this.state.fleets[aimAt];
     assert(targetFleet, 'NO_TARGET', 'That target is unavailable.');
     const cx = Number(x);
     const cy = Number(y);
@@ -762,7 +822,7 @@ export class GameSession extends EventEmitter {
     }
 
     targetFleet.shots.push({ x: cx, y: cy, by: ownerId, hit, at: new Date(now).toISOString() });
-    round.attacks.push({ ownerId, targetId: combatant.targetId, x: cx, y: cy, hit, sunkShip });
+    round.attacks.push({ ownerId, targetId: aimAt, x: cx, y: cy, hit, sunkShip });
 
     const score = ensureScore(this.state, ownerId);
     player.stats.attacks += 1;
@@ -775,7 +835,7 @@ export class GameSession extends EventEmitter {
         score.points += SCORING.sunk;
         this.recordEvent('ship_sunk', {
           teamName: combatant.name,
-          targetName: round.combatants.find((entry) => entry.id === combatant.targetId)?.name,
+          targetName: round.combatants.find((entry) => entry.id === aimAt)?.name,
           shipName: sunkShip,
         });
       }
@@ -784,7 +844,21 @@ export class GameSession extends EventEmitter {
     }
 
     const eliminated = targetFleet.ships.every((entry) => entry.sunk);
-    if (eliminated) this.finishBattle(now, { reason: 'Fleet destroyed', winnerId: ownerId });
+    if (eliminated) {
+      const targetTeam = this.teamById(aimAt);
+      if (targetTeam) targetTeam.eliminated = true;
+      const standing = round.combatants.filter(
+        (entry) => entry.kind === 'team' && !this.fleetDestroyed(entry.id),
+      );
+      if (this.preset.versusCpu || standing.length <= 1) {
+        this.finishBattle(now, { reason: 'Fleet destroyed', winnerId: standing[0]?.id || ownerId });
+      } else {
+        this.recordEvent('team_eliminated', {
+          teamName: round.combatants.find((entry) => entry.id === aimAt)?.name,
+          byName: combatant.name,
+        });
+      }
+    }
 
     this.bump();
     await this.commit();
@@ -800,8 +874,20 @@ export class GameSession extends EventEmitter {
     };
   }
 
+  /** Every fleet a side may fire at; older saved games only stored one. */
+  targetIdsOf(combatant) {
+    return combatant.targetIds?.length ? combatant.targetIds : [combatant.targetId].filter(Boolean);
+  }
+
+  fleetDestroyed(ownerId) {
+    const ships = this.state.fleets?.[ownerId]?.ships || [];
+    return ships.length > 0 && ships.every((ship) => ship.sunk);
+  }
+
   noMissilesLeft() {
-    const sides = this.state.round?.combatants.filter((entry) => entry.kind === 'team') || [];
+    const sides = (this.state.round?.combatants.filter((entry) => entry.kind === 'team') || []).filter(
+      (entry) => !this.fleetDestroyed(entry.id),
+    );
     return sides.length > 0 && sides.every((entry) => this.arsenalFor(entry.id) === 0);
   }
 
@@ -904,6 +990,17 @@ export class GameSession extends EventEmitter {
         changed = true;
       }
 
+      // Controls pass to a different teammate every so often.
+      if (
+        !changed &&
+        this.state.phase === PHASES.BATTLE &&
+        round.captainSwapAt &&
+        now >= Date.parse(round.captainSwapAt)
+      ) {
+        this.rotateCaptains(now);
+        changed = true;
+      }
+
       if (changed) await this.commit();
       return changed;
     } catch (error) {
@@ -966,6 +1063,7 @@ export class GameSession extends EventEmitter {
     this.state.round = null;
     this.state.fleets = {};
     this.state.arsenal = {};
+    this.state.ammoProgress = {};
     this.state.scores = {};
     for (const team of this.state.teams) {
       team.missiles = 0;
@@ -1016,8 +1114,11 @@ export class GameSession extends EventEmitter {
           answered,
           correct,
           accuracy: answered > 0 ? Math.round((correct / answered) * 100) : 0,
-          won: correct * SCORING.missilesPerCorrect + bonus,
+          won: Math.floor((correct * SCORING.missilesPerCorrect + bonus) / correctPerMissile(this.config.mode)),
           missiles: this.arsenalFor(team.id),
+          ammoProgress: Number(this.state.ammoProgress?.[team.id]) || 0,
+          perMissile: correctPerMissile(this.config.mode),
+          eliminated: this.fleetDestroyed(team.id),
           points: Number(this.state.scores[team.id]?.points) || 0,
           players,
         };

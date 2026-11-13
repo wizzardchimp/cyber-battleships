@@ -1053,7 +1053,7 @@ body.display-page {
 
 .mode-cards {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.8rem;
 }
 
@@ -1338,7 +1338,7 @@ body.display-page {
   --fit: min(100cqw, calc(100cqh - var(--legend-h) - 0.5rem));
   container-type: size;
   display: grid;
-  align-content: center;
+  align-content: start;
   justify-content: center;
   gap: 0.5rem;
   width: 100%;
@@ -1578,4 +1578,75 @@ body.display-page {
 
 .vault-import .input {
   flex: 1;
+}
+
+/* ------------------------------------------------------- three-team mode */
+
+.sides--multi {
+  grid-template-columns: repeat(var(--teams, 3), minmax(0, 1fr));
+  align-items: stretch;
+}
+
+.roster-team__frac {
+  margin-left: 0.3rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-style: normal;
+}
+
+.roster-team.is-eliminated {
+  opacity: 0.45;
+}
+
+.roster-team.is-eliminated .roster-team__name::after {
+  content: ' · OUT';
+  color: var(--red);
+  font-size: 0.7em;
+}
+
+/* Twenty players a side: tighten the team list so all three teams fit. */
+.roster-panel.is-packed {
+  gap: 0.6rem;
+}
+
+.roster-panel.is-packed .roster-team__head {
+  padding: 0.4rem 0.8rem;
+}
+
+.roster-panel.is-packed .roster-team__rows {
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0.05rem 0.6rem;
+  padding: 0.4rem 0.8rem;
+}
+
+.roster-panel.is-packed .roster-row {
+  font-size: 0.78rem;
+  min-width: 0;
+}
+
+.roster-panel.is-packed .roster-row__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.roster-panel.is-packed .roster-row__nums {
+  display: none;
+}
+
+.roster-panel.is-packed .afloat__item {
+  flex: 1 1 5rem;
+  padding: 0.4rem 0.6rem;
+}
+
+.roster-panel.is-packed .afloat__item strong {
+  font-size: 1.8rem;
+}
+
+.board.is-eliminated {
+  opacity: 0.5;
+}
+
+.board.is-eliminated .board__title small {
+  color: var(--red);
 }

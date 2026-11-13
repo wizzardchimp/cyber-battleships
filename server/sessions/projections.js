@@ -1,4 +1,4 @@
-import { PHASES } from '../../shared/constants.js';
+import { PHASES, correctPerMissile } from '../../shared/constants.js';
 import { shortJoinUrlFor } from '../util/security.js';
 import { CPU_ID, questionForPlayer } from './round.js';
 
@@ -43,6 +43,9 @@ function scoreFor(session, combatant) {
     correct: Number(score.correct) || 0,
     answered: Number(score.answered) || 0,
     missiles: combatant.kind === 'cpu' ? 0 : session.arsenalFor(combatant.id),
+    ammoProgress: Number(state.ammoProgress?.[combatant.id]) || 0,
+    perMissile: correctPerMissile(state.config.mode),
+    eliminated: shipsTotal > 0 && shipsSunk >= shipsTotal,
     shipsTotal,
     shipsSunk,
   };
@@ -58,7 +61,7 @@ function boardFor(session, combatant, { revealShips }) {
     color: combatant.color,
     kind: combatant.kind,
     gridSize: fleet?.gridSize || state.config.gridSize,
-    shots: (fleet?.shots || []).map((shot) => ({ x: shot.x, y: shot.y, hit: Boolean(shot.hit) })),
+    shots: (fleet?.shots || []).map((shot) => ({ x: shot.x, y: shot.y, hit: Boolean(shot.hit), by: shot.by || null })),
     shipsTotal: fleet?.ships?.length || 0,
     shipsSunk: fleet?.ships?.filter((ship) => ship.sunk).length || 0,
     sunkShips: (fleet?.ships || []).filter((ship) => ship.sunk).map((ship) => ship.name),
@@ -87,6 +90,7 @@ function roundProjection(session) {
     quizEndsAt: round.quizEndsAt,
     battleEndsAt: round.battleEndsAt,
     battleEndReason: round.battleEndReason || null,
+    captainSwapAt: state.phase === PHASES.BATTLE ? round.captainSwapAt || null : null,
     teams: session.teamProgress(),
     combatants: round.combatants.map((combatant) => ({
       id: combatant.id,
@@ -94,6 +98,7 @@ function roundProjection(session) {
       color: combatant.color,
       kind: combatant.kind,
       targetId: combatant.targetId || null,
+      targetIds: combatant.targetIds?.length ? combatant.targetIds : [combatant.targetId].filter(Boolean),
     })),
     scores: round.combatants.map((combatant) => scoreFor(session, combatant)),
     boards: round.combatants.map((combatant) => boardFor(session, combatant, { revealShips })),
@@ -120,6 +125,7 @@ export function publicProjection(session, { control = false } = {}) {
         maxPlayers: team.maxPlayers,
         playerCount: roster.length,
         connectedCount: roster.filter((entry) => entry.connected).length,
+        eliminated: Boolean(team.eliminated),
         players: roster,
       };
     });
@@ -176,6 +182,7 @@ export function playerProjection(session, playerId) {
     const entry = state.round.quiz?.[player.id] || {};
     const combatant = state.round.combatants.find((item) => item.id === player.teamId) || null;
     const targetId = combatant?.targetId || null;
+    const targetIds = combatant?.targetIds?.length ? combatant.targetIds : [targetId].filter(Boolean);
     const targetCombatant = state.round.combatants.find((item) => item.id === targetId) || null;
     const revealShips = state.phase === PHASES.RESULT;
 
@@ -195,9 +202,20 @@ export function playerProjection(session, playerId) {
           ? boardFor(session, targetCombatant, { revealShips })
           : null,
       isCpuTarget: targetId === CPU_ID,
+      targetIds,
+      eliminated: session.fleetDestroyed(player.teamId),
+      ammoProgress: team ? Number(state.ammoProgress?.[team.id]) || 0 : 0,
+      perMissile: correctPerMissile(state.config.mode),
+      targetBoards:
+        state.phase === PHASES.BATTLE || state.phase === PHASES.RESUPPLY || revealShips
+          ? targetIds
+              .map((id) => state.round.combatants.find((item) => item.id === id))
+              .filter(Boolean)
+              .map((item) => boardFor(session, item, { revealShips }))
+          : [],
     };
     // Players only need their own side's board and scores; keep payloads small.
-    round.boards = round.boards.filter((board) => board.id === player.teamId || board.id === targetId);
+    round.boards = round.boards.filter((board) => board.id === player.teamId || targetIds.includes(board.id));
   }
 
   return { ...publicState, round, me };

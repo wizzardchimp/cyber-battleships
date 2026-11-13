@@ -419,7 +419,11 @@ function lobbyScreen() {
            <p class="cpu-card__note">5 hidden ships on a ${grid} × ${grid} grid. Sink them all to win.</p>
          </aside>
        </div>`
-    : `<div class="sides sides--versus">
+    : teams.length > 2
+      ? `<div class="sides sides--multi" style="--teams:${teams.length}">
+           ${teams.map((team) => sideCard(team, { wrap: true })).join('')}
+         </div>`
+      : `<div class="sides sides--versus">
          ${sideCard(teams[0], { wrap: false })}
          <div class="vs">VS</div>
          ${sideCard(teams[1], { wrap: false })}
@@ -562,17 +566,27 @@ function briefingScreen() {
 }
 
 function targetBoards(round) {
-  const targeted = new Set(round.combatants.map((combatant) => combatant.targetId));
+  const targeted = new Set(
+    round.combatants.flatMap((combatant) => combatant.targetIds || [combatant.targetId]),
+  );
   return round.boards.filter((board) => targeted.has(board.id));
 }
 
+/** Colour of each side, so every shot on a board shows who fired it. */
+function shotColorsOf(round) {
+  return Object.fromEntries(round.combatants.map((combatant) => [combatant.id, combatant.color]));
+}
+
 function attackerColorOf(round, boardId) {
-  return round.combatants.find((combatant) => combatant.targetId === boardId)?.color || null;
+  return (
+    round.combatants.find((combatant) => (combatant.targetIds || [combatant.targetId]).includes(boardId))
+      ?.color || null
+  );
 }
 
 function attackersOf(round, boardId) {
   return round.combatants
-    .filter((combatant) => combatant.targetId === boardId)
+    .filter((combatant) => (combatant.targetIds || [combatant.targetId]).includes(boardId))
     .map((combatant) => combatant.name)
     .join(' + ');
 }
@@ -580,9 +594,9 @@ function attackersOf(round, boardId) {
 function boardMarkup(round, board, { revealed, legend = false }) {
   const title = board.kind === 'cpu' ? board.name : `${board.name} FLEET`;
   return `
-    <article class="board" style="--side:${board.color};--board-size:${revealed ? '36vh' : '50vh'}">
-      <h2 class="board__title">${escapeHtml(title)}<small>ATTACKED BY ${escapeHtml(attackersOf(round, board.id))}</small></h2>
-      <div class="board__grid">${renderGrid({ size: board.gridSize, shots: board.shots, ships: board.ships || [], label: title, color: board.color, shotColor: attackerColorOf(round, board.id) })}${legend ? shipLegend(board) : ''}</div>
+    <article class="board ${board.shipsSunk >= board.shipsTotal && board.shipsTotal > 0 ? 'is-eliminated' : ''}" style="--side:${board.color};--board-size:${revealed ? '36vh' : '50vh'}">
+      <h2 class="board__title">${escapeHtml(title)}<small>${board.shipsSunk >= board.shipsTotal && board.shipsTotal > 0 ? 'ELIMINATED' : `ATTACKED BY ${escapeHtml(attackersOf(round, board.id))}`}</small></h2>
+      <div class="board__grid">${renderGrid({ size: board.gridSize, shots: board.shots, ships: board.ships || [], label: title, color: board.color, shotColor: attackerColorOf(round, board.id), shotColors: shotColorsOf(round) })}${legend ? shipLegend(board) : ''}</div>
       <div class="board__foot"><span>SUNK <b>${board.shipsSunk}/${board.shipsTotal}</b></span><span>SHOTS <b>${board.shots.length}</b></span></div>
     </article>`;
 }
@@ -607,8 +621,9 @@ function shipLegend(board) {
 function rosterPanel(round, { detailed, afloat = false }) {
   const scores = new Map(round.scores.map((score) => [score.id, score]));
   const dense = round.teams.some((team) => team.players.length > 6);
+  const packed = round.teams.some((team) => team.players.length > 12);
   return `
-    <aside class="roster-panel ${dense ? 'is-dense' : ''}">
+    <aside class="roster-panel ${dense ? 'is-dense' : ''} ${packed ? 'is-packed' : ''}">
       ${round.teams
         .map((team) => {
           const score = scores.get(team.id) || {};
@@ -622,12 +637,12 @@ function rosterPanel(round, { detailed, afloat = false }) {
             )
             .join('');
           return `
-          <article class="roster-team" style="--side:${team.color}">
+          <article class="roster-team ${team.eliminated ? 'is-eliminated' : ''}" style="--side:${team.color}">
             <header class="roster-team__head">
               <h2 class="roster-team__name">${escapeHtml(team.name)}</h2>
               <div class="roster-team__nums">
                 <span class="roster-team__pts">${team.points}<small>PTS</small></span>
-                <span class="roster-team__ammo">${team.missiles}<small>MISSILES</small></span>
+                <span class="roster-team__ammo">${team.missiles}${team.perMissile > 1 ? `<em class="roster-team__frac">+${team.ammoProgress}/${team.perMissile}</em>` : ''}<small>MISSILES</small></span>
               </div>
             </header>
             ${detailed ? `<p class="roster-team__detail">${score.correct ?? 0} correct · ${score.hits ?? 0} hits · ${score.sunk ?? 0} sunk</p>` : ''}

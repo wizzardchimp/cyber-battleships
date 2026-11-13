@@ -45,6 +45,7 @@ let shotMsg = null;
 let lastSig = '';
 let lastBeep = null;
 let passOpen = false;
+let selectedTarget = null;
 
 // ------------------------------------------------------------------ storage
 
@@ -234,12 +235,23 @@ function renderLobby() {
   );
 }
 
-function topBar(endsAt, missiles) {
+function topBar(endsAt, missiles, me = null) {
+  const per = me?.perMissile || 1;
+  const frac = per > 1 ? `<small class="q-frac">+${me.ammoProgress || 0}/${per}</small>` : '';
   return `
     <div class="q-top">
       <div class="q-timer"><span>TIME</span><strong data-countdown="${escapeHtml(endsAt || '')}">${formatCountdown(endsAt)}</strong></div>
-      <div class="q-missiles"><span>MISSILES</span><strong>${missiles}</strong></div>
+      <div class="q-missiles"><span>MISSILES</span><strong>${missiles}${frac}</strong></div>
     </div>`;
+}
+
+function rewardMarkup() {
+  if (feedback.perMissile > 1) {
+    return feedback.reward > 0
+      ? `<p class="feedback__reward">+${feedback.reward} MISSILE${feedback.reward === 1 ? '' : 'S'}!</p>`
+      : `<p class="feedback__reward">+1/${feedback.perMissile} missile<br /><small>${feedback.progress}/${feedback.perMissile} to the next one</small></p>`;
+  }
+  return `<p class="feedback__reward">+${feedback.reward} missile${feedback.reward === 1 ? '' : 's'}</p>`;
 }
 
 function renderQuiz() {
@@ -262,7 +274,7 @@ function renderQuiz() {
       <section class="feedback ${right ? '' : 'feedback--wrong'}" aria-live="assertive">
         ${!right && feedback.correctText ? `<div class="feedback__answer"><span>CORRECT ANSWER</span><strong>${escapeHtml(feedback.correctKey)}. ${escapeHtml(feedback.correctText)}</strong></div>` : ''}
         <svg class="feedback__mark" viewBox="0 0 100 100" role="img" aria-label="${right ? 'Correct' : 'Incorrect'}">${mark}</svg>
-        ${right ? `<p class="feedback__reward">+${feedback.reward} missile${feedback.reward === 1 ? '' : 's'}</p>` : ''}
+        ${right ? rewardMarkup() : ''}
         ${bonus}
       </section>`;
   } else if (!question) {
@@ -287,7 +299,7 @@ function renderQuiz() {
 
   shell(
     `
-    ${topBar(round.quizEndsAt, me.missiles)}
+    ${topBar(round.quizEndsAt, me.missiles, me)}
     ${body}
     <p class="p-foot"><b>${escapeHtml(playerState.me.teamName || '')}</b> · you answered ${me.answered}, ${me.correct} correct</p>`,
     { side: color },
@@ -320,6 +332,11 @@ function renderBriefing() {
   );
 }
 
+function swapNote(round) {
+  if (!round.captainSwapAt) return '';
+  return `<p class="swap-note">Controls swap to a random teammate in <b data-countdown="${escapeHtml(round.captainSwapAt)}">${formatCountdown(round.captainSwapAt)}</b></p>`;
+}
+
 function passControlsMarkup() {
   const mates = (myTeam()?.players || []).filter((player) => player.id !== playerState.me.id);
   if (mates.length === 0) return '';
@@ -339,11 +356,38 @@ function passControlsMarkup() {
     </div>`;
 }
 
+/** The fleets this player's side can attack, and the one currently on screen. */
+function targetChoices() {
+  const me = playerState.round.me;
+  const boards = me.targetBoards?.length ? me.targetBoards : me.targetBoard ? [me.targetBoard] : [];
+  const live = boards.filter((entry) => entry.shipsSunk < entry.shipsTotal);
+  const chosen =
+    boards.find((entry) => entry.id === selectedTarget && live.includes(entry)) || live[0] || boards[0] || null;
+  return { boards, board: chosen };
+}
+
+function targetTabsMarkup(boards, board) {
+  if (boards.length < 2) return '';
+  return `
+    <div class="target-tabs" role="tablist" aria-label="Choose a fleet">
+      ${boards
+        .map((entry) => {
+          const out = entry.shipsSunk >= entry.shipsTotal;
+          return `
+          <button class="target-tab ${entry.id === board?.id ? 'is-active' : ''}" type="button" role="tab" style="--side:${escapeHtml(entry.color)}" data-target="${escapeHtml(entry.id)}" ${out ? 'disabled' : ''}>
+            <strong>${escapeHtml(entry.name)}</strong>
+            <small>${out ? 'SUNK' : `${entry.shipsTotal - entry.shipsSunk}/${entry.shipsTotal} afloat`}</small>
+          </button>`;
+        })
+        .join('')}
+    </div>`;
+}
+
 function renderBattle() {
   const round = playerState.round;
   const me = round.me;
   const color = playerState.me.teamColor || '#19e3ff';
-  const board = me.targetBoard;
+  const { boards, board } = targetChoices();
   const targetColor = board?.color || '#ff3d9a';
 
   if (!board) {
@@ -352,30 +396,35 @@ function renderBattle() {
   }
 
   const captain = me.isCaptain;
-  const canFire = captain && me.missiles > 0;
+  const out = Boolean(me.eliminated);
+  const canFire = captain && me.missiles > 0 && !out && board.shipsSunk < board.shipsTotal;
   let message = '';
-  if (shotMsg && captain) {
+  if (out) {
+    message = '<div class="shot-msg shot-msg--out">Your fleet has been sunk. You are out of the battle. Keep watching!</div>';
+  } else if (shotMsg && captain) {
     message = `<div class="shot-msg shot-msg--${shotMsg.kind}">${escapeHtml(shotMsg.text)}</div>`;
   } else if (canFire) {
-    message = '<div class="shot-msg">Tap a square to fire.</div>';
+    message = `<div class="shot-msg">${boards.length > 1 ? `Firing at ${escapeHtml(board.name)}. Tap a square.` : 'Tap a square to fire.'}</div>`;
   }
-  if (me.missiles === 0) {
+  if (me.missiles === 0 && !out) {
     message = `<div class="shot-msg shot-msg--out">Out of missiles. Another round of questions is coming so you can earn more.</div>`;
   }
   const role = captain
-    ? `<div class="captain-tag">YOU ARE THE CAPTAIN · YOU FIRE THE MISSILES</div>${passControlsMarkup()}`
-    : `<div class="captain-tag captain-tag--watch">${escapeHtml(me.captainName || 'Your captain')} is the captain and fires the missiles. You are watching.</div>`;
+    ? `<div class="captain-tag">YOU ARE THE CAPTAIN · YOU FIRE THE MISSILES</div>${swapNote(round)}${passControlsMarkup()}`
+    : `<div class="captain-tag captain-tag--watch">${escapeHtml(me.captainName || 'Your captain')} is the captain and fires the missiles. You are watching.</div>${swapNote(round)}`;
+  const shotColors = Object.fromEntries(round.combatants.map((entry) => [entry.id, entry.color]));
 
   shell(
     `
-    ${topBar(round.battleEndsAt, me.missiles)}
+    ${topBar(round.battleEndsAt, me.missiles, me)}
     ${role}
+    ${targetTabsMarkup(boards, board)}
     <div class="target" style="--side:${targetColor}">
-      <span class="target__label">FIRE AT</span>
-      <span class="target__name">${escapeHtml(me.targetName || board.name)}</span>
+      <span class="target__label">${boards.length > 1 ? 'VIEWING' : 'FIRE AT'}</span>
+      <span class="target__name">${escapeHtml(boards.length > 1 ? board.name : me.targetName || board.name)}</span>
     </div>
     <div class="fire-grid ${captain ? '' : 'fire-grid--watch'}">
-      ${renderGrid({ size: board.gridSize, shots: board.shots, interactive: captain, disabled: !canFire || firing, axes: false, label: 'Target grid', color: targetColor, shotColor: color })}
+      ${renderGrid({ size: board.gridSize, shots: board.shots, interactive: captain, disabled: !canFire || firing, axes: false, label: 'Target grid', color: targetColor, shotColor: color, shotColors })}
     </div>
     ${message}
     <p class="p-foot">Ships sunk <b>${board.shipsSunk} / ${board.shipsTotal}</b> · ${escapeHtml(playerState.me.teamName || '')} <b>${round.scores.find((score) => score.id === playerState.me.teamId)?.points ?? 0} pts</b></p>`,
@@ -508,9 +557,14 @@ function signature() {
         me?.missiles,
         me?.targetBoard?.shots?.length,
         me?.targetBoard?.shipsSunk,
+        me?.targetBoards?.map((entry) => [entry.id, entry.shots.length, entry.shipsSunk]),
+        selectedTarget,
+        me?.eliminated,
+        me?.ammoProgress,
         shotMsg?.id,
         firing,
         passOpen,
+        round?.captainSwapAt,
         JSON.stringify(me?.isCaptain ? myTeam()?.players?.map((player) => [player.id, player.connected]) : null),
         round?.scores?.map((score) => score.points),
       ]);
@@ -603,6 +657,7 @@ function ensureSocket() {
     const before = playerState;
     playerState = next;
     maybeDrawCaptain(before, next);
+    announceControlChange(before, next);
     setBattleSoundsEnabled(next.session?.config?.soundEnabled !== false);
     if ([PHASES.REVIEW, PHASES.BATTLE, PHASES.RESUPPLY].includes(next.session.phase)) {
       preloadBattleSounds();
@@ -611,6 +666,7 @@ function ensureSocket() {
       feedback = null;
       shotMsg = null;
       passOpen = false;
+      selectedTarget = null;
       if ([PHASES.QUIZ, PHASES.BATTLE, PHASES.RESUPPLY].includes(next.session.phase)) sfx.alert();
       if (next.session.phase === PHASES.RESULT) sfx.success();
     }
@@ -741,6 +797,8 @@ async function submitAnswer(optionIndex) {
       correctText: snapshot.options[result.correctIndex] ?? '',
       correctKey: LETTERS[result.correctIndex] ?? '',
       reward: result.reward,
+      perMissile: result.perMissile || 1,
+      progress: result.progress || 0,
       bonus: result.bonus || 0,
       streak: result.streak || 0,
       until: Date.now() + TIMING.feedbackMs,
@@ -784,6 +842,30 @@ function flashHit({ hit, sunk, shipName }, elapsed = 0) {
   );
 }
 
+/** Pop-ups when the attack controls arrive or leave, e.g. the 30 second swap. */
+function announceControlChange(before, after) {
+  const was = before?.round?.me?.isCaptain;
+  const now = after?.round?.me?.isCaptain;
+  const phase = after?.session?.phase;
+  if (was === undefined || now === undefined || was === now) return;
+  if (before.session.phase !== phase || before.round?.number !== after.round?.number) return;
+  if (phase !== PHASES.BATTLE && phase !== PHASES.RESUPPLY) return;
+  const popup = document.createElement('div');
+  popup.className = `control-popup ${now ? 'control-popup--gain' : 'control-popup--lose'}`;
+  popup.setAttribute('role', 'alert');
+  popup.innerHTML = now
+    ? '<span>YOU HAVE THE CONTROLS</span><strong>You are now the captain. Fire!</strong>'
+    : `<span>CONTROLS PASSED</span><strong>${escapeHtml(after.round.me.captainName || 'A teammate')} is now the captain.</strong>`;
+  document.body.append(popup);
+  window.setTimeout(() => popup.remove(), 2600);
+  const flash = document.createElement('div');
+  flash.className = `hit-flash control-flash ${now ? 'control-flash--gain' : 'control-flash--lose'}`;
+  flash.setAttribute('aria-hidden', 'true');
+  document.body.append(flash);
+  window.setTimeout(() => flash.remove(), 450);
+  if (now) sfx.alert();
+}
+
 /** A short reveal of who the captain is when a question round begins. */
 function maybeDrawCaptain(before, after) {
   if (!before || !after?.round || !after.me || after.session.phase !== PHASES.QUIZ) return;
@@ -825,7 +907,7 @@ async function fire(x, y) {
   playBattle('fire');
   const firedAt = performance.now();
   try {
-    const result = await request(socket, EVENTS.PLAYER_ATTACK, { x, y });
+    const result = await request(socket, EVENTS.PLAYER_ATTACK, { x, y, targetId: targetChoices().board?.id || null });
     const elapsed = (performance.now() - firedAt) / 1000;
     playShotResult(result, { delay: RESULT_DELAY - elapsed });
     const where = coordLabel(x, y);
@@ -867,6 +949,14 @@ app.addEventListener('click', (event) => {
   const cell = event.target.closest('[data-fire-x]');
   if (cell) {
     fire(Number(cell.dataset.fireX), Number(cell.dataset.fireY));
+    return;
+  }
+
+  const tab = event.target.closest('[data-target]');
+  if (tab) {
+    selectedTarget = tab.dataset.target;
+    sfx.click();
+    render(true);
     return;
   }
 

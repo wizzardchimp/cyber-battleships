@@ -19,6 +19,7 @@ export function renderGrid({
   label = 'battle grid',
   color = null,
   shotColor = null,
+  shotColors = null,
 } = {}) {
   const shotMap = new Map();
   for (const shot of shots) shotMap.set(`${shot.x},${shot.y}`, shot);
@@ -53,6 +54,8 @@ export function renderGrid({
         if (ship.sunk) classes.push('is-sunk');
       }
       const coordinate = coordLabel(x, y);
+      const byColor = shot && shotColors && shot.by ? shotColors[shot.by] : null;
+      const cellStyle = byColor ? ` style="--shot:${byColor}"` : '';
       const title = shot
         ? `${coordinate} ${shot.hit ? 'hit' : 'miss'}`
         : ship
@@ -61,10 +64,10 @@ export function renderGrid({
 
       if (interactive) {
         parts.push(
-          `<button class="${classes.join(' ')}" type="button" data-fire-x="${x}" data-fire-y="${y}" aria-label="${title}" ${shot || disabled ? 'disabled' : ''}></button>`,
+          `<button class="${classes.join(' ')}" type="button" data-fire-x="${x}" data-fire-y="${y}" aria-label="${title}"${cellStyle} ${shot || disabled ? 'disabled' : ''}></button>`,
         );
       } else {
-        parts.push(`<span class="${classes.join(' ')}" title="${title}"></span>`);
+        parts.push(`<span class="${classes.join(' ')}" title="${title}"${cellStyle}></span>`);
       }
     }
   }
