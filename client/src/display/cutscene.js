@@ -23,7 +23,7 @@ export function skipCutscene() {
  * Play a cut scene. Options: src, title, subtitle, color (subtitle colour),
  * onTick(elapsedMs) called a few times a second, onEnd().
  */
-export function playCutscene({ src, title, subtitle = '', color = '', onTick = null, onEnd = null }) {
+export function playCutscene({ src, title, subtitle = '', color = '', teams = [], onTick = null, onEnd = null }) {
   active?.finish(true);
 
   const root = document.createElement('div');
@@ -39,6 +39,19 @@ export function playCutscene({ src, title, subtitle = '', color = '', onTick = n
       <h1 class="cutscene__title" data-text="${escapeHtml(title)}">${escapeHtml(title)}</h1>
       ${subtitle ? `<p class="cutscene__subtitle" ${color ? `style="--accent:${escapeHtml(color)}"` : ''}>${escapeHtml(subtitle)}</p>` : ''}
     </div>
+    ${
+      teams.length
+        ? `<div class="cutscene__teams">${teams
+            .map(
+              (team) => `
+          <div class="cutscene__team" style="--side:${escapeHtml(team.color || '#fff')}">
+            <span class="cutscene__team-name">${escapeHtml(team.name)}</span>
+            <span class="cutscene__team-captain">CAPTAIN <b>${escapeHtml(team.captain || '-')}</b></span>
+          </div>`,
+            )
+            .join('')}</div>`
+        : ''
+    }
     <div class="cutscene__fade"></div>
     <div class="cutscene__skip">PRESS SPACE TO SKIP</div>`;
   document.body.append(root);

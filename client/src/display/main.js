@@ -312,6 +312,12 @@ function maybePlayCutscene(previous, next) {
       title: 'GAME OVER',
       subtitle,
       color: outcome.winnerColor || '',
+      // Each team with its current captain, shown along the bottom.
+      teams: (next.teams || []).map((team) => ({
+        name: team.name,
+        color: team.color,
+        captain: team.players.find((player) => player.captain)?.name || '',
+      })),
       onEnd: restoreMusic,
     });
     endScenePlayHits();
@@ -385,8 +391,8 @@ function renderChrome() {
     <div class="chrome__tools">
       ${phase === PHASES.QUIZ ? '<button class="btn btn--small btn--go" type="button" data-action="join">JOIN</button>' : ''}
       ${gear}
-      <button class="icon-btn" type="button" data-action="audio" title="Sound">${isMuted() ? 'OFF' : 'SND'}</button>
-      <button class="icon-btn" type="button" data-action="fullscreen" title="Full screen">FS</button>
+      <button class="icon-btn" type="button" data-action="audio" title="Sound (S)">${isMuted() ? 'OFF' : 'SND'}</button>
+      <button class="icon-btn" type="button" data-action="fullscreen" title="Full screen (F)">FS</button>
     </div>`;
   renderChromeStatus();
 }
@@ -509,9 +515,9 @@ function lobbyScreen() {
            ${teams.map((team) => sideCard(team, { wrap: true })).join('')}
          </div>`
       : `<div class="sides sides--versus">
-         ${sideCard(teams[0], { wrap: false })}
+         ${sideCard(teams[0], { wrap: teams[0].maxPlayers > 6 })}
          <div class="vs">VS</div>
-         ${sideCard(teams[1], { wrap: false })}
+         ${sideCard(teams[1], { wrap: teams[1].maxPlayers > 6 })}
        </div>`;
 
   const tip = hasControl()
@@ -1526,8 +1532,7 @@ document.addEventListener('click', (event) => {
       render();
       return;
     case 'fullscreen':
-      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-      else document.documentElement.requestFullscreen?.().catch(() => {});
+      toggleFullscreen();
       return;
     case 'settings':
       settingsOpen = true;
@@ -1611,6 +1616,28 @@ function nextAction() {
   nextArmedAt = 0;
   main.click();
 }
+
+function toggleFullscreen() {
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  else document.documentElement.requestFullscreen?.().catch(() => {});
+}
+
+// F toggles full screen, S toggles the sound, from anywhere on the big screen.
+document.addEventListener('keydown', (event) => {
+  if (event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
+  const tag = document.activeElement?.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+  const key = event.key.toLowerCase();
+  if (key === 'f') {
+    event.preventDefault();
+    toggleFullscreen();
+  } else if (key === 's') {
+    event.preventDefault();
+    toggleMute();
+    chromeSig = '';
+    if (state) render();
+  }
+});
 
 document.addEventListener('keydown', (event) => {
   const isSpace = event.code === 'Space' || event.key === ' ';

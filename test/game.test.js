@@ -117,7 +117,8 @@ test('sides hold three players and the game fills up', () => {
 
 test('mode presets set the number of sides and their size', () => {
   const duel = makeSession({ mode: MODES.DUEL }).session;
-  assert.deepEqual(duel.state.teams.map((team) => team.maxPlayers), [1, 1]);
+  assert.deepEqual(duel.state.teams.map((team) => team.maxPlayers), [20, 20]);
+  assert.equal(duel.capacity(), 40);
 
   const cpu = makeSession({ mode: MODES.CPU }).session;
   assert.equal(cpu.state.teams.length, 1);
@@ -139,14 +140,21 @@ test('players can switch sides in the lobby while there is room', async () => {
 });
 
 test('changing mode keeps players seated and refuses when too many are present', async () => {
-  const { session } = makeSession();
+  const { session } = makeSession({ mode: MODES.FLEET });
   const alpha = session.state.teams[0];
   const one = session.join({ name: 'One', teamId: alpha.id });
-  session.join({ name: 'Two' });
-  session.join({ name: 'Three' });
+  for (let i = 2; i <= 25; i += 1) session.join({ name: `Player ${i}` });
 
-  await expectReject(() => session.updateConfig({ mode: MODES.DUEL }), 'TOO_MANY_PLAYERS');
-  assert.equal(session.config.mode, MODES.SQUAD);
+  await expectReject(() => session.updateConfig({ mode: MODES.CPU }), 'TOO_MANY_PLAYERS');
+  assert.equal(session.config.mode, MODES.FLEET);
+  await session.updateConfig({ mode: MODES.DUEL });
+  assert.equal(session.state.teams.length, 2);
+  for (let i = 26; i <= 40; i += 1) session.join({ name: `Player ${i}` });
+  await expectReject(() => session.updateConfig({ mode: MODES.CPU }), 'TOO_MANY_PLAYERS');
+  assert.equal(session.state.players.length, 40);
+  for (let i = session.state.players.length - 1; i >= 3; i -= 1) {
+    await session.removePlayer(session.state.players[i].id);
+  }
 
   await session.updateConfig({ mode: MODES.CPU });
   assert.equal(session.state.teams.length, 1);
@@ -156,8 +164,8 @@ test('changing mode keeps players seated and refuses when too many are present',
   await session.removePlayer(sideRemoved.id);
   await session.updateConfig({ mode: MODES.DUEL });
   assert.equal(session.state.teams.length, 2);
-  const sides = session.state.players.map((player) => player.teamId);
-  assert.equal(new Set(sides).size, 2, 'players are spread across both sides');
+  assert.equal(session.state.players.length, 2);
+  assert.ok(session.state.players.every((player) => session.teamById(player.teamId)), 'everyone keeps a seat');
   assert.ok(session.teamById(one.player.teamId));
 });
 
@@ -652,9 +660,8 @@ test('returning to the lobby clears the round and reopens joining', async () => 
   assert.equal(session.state.round, null);
   assert.deepEqual(session.state.fleets, {});
   assert.equal(session.state.players.length, 2);
-  expectCode(() => session.join({ name: 'Third' }), 'GAME_FULL');
-  await session.removePlayer(session.state.players[0].id);
-  assert.equal(session.join({ name: 'Third' }).player.displayName, 'Third');
+  assert.equal(session.join({ name: 'Third' }).player.displayName, 'Third', 'joining is open again');
+  assert.equal(session.state.players.length, 3);
 });
 
 test('players can be removed at any time', async () => {

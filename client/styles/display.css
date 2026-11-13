@@ -1892,3 +1892,48 @@ body.display-page {
     animation: none;
   }
 }
+
+/* End scene: every team with its current captain. */
+.cutscene__teams {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 9%;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 1.6rem;
+  padding: 0 4vw;
+  pointer-events: none;
+}
+
+.cutscene__team {
+  --side: #fff;
+  display: grid;
+  gap: 0.4rem;
+  min-width: 14rem;
+  padding: 0.9rem 1.6rem;
+  text-align: center;
+  background: rgba(0, 0, 0, 0.62);
+  border: 2px solid var(--side);
+  box-shadow: 0 0 28px color-mix(in srgb, var(--side) 45%, transparent);
+}
+
+.cutscene__team-name {
+  color: var(--side);
+  font-family: var(--font-pixel);
+  font-size: clamp(1rem, 1.8vw, 1.8rem);
+  text-shadow: 2px 0 rgba(255, 40, 90, 0.6), -2px 0 rgba(25, 227, 255, 0.6);
+}
+
+.cutscene__team-captain {
+  color: rgba(255, 255, 255, 0.7);
+  font-family: var(--font-mono);
+  font-size: clamp(0.9rem, 1.3vw, 1.4rem);
+  letter-spacing: 0.2em;
+}
+
+.cutscene__team-captain b {
+  color: #fff;
+  letter-spacing: 0.06em;
+}

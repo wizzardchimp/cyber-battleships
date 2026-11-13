@@ -42,12 +42,12 @@ export const MODE_PRESETS = Object.freeze({
   }),
   duel: Object.freeze({
     id: 'duel',
-    label: '1 VS 1',
-    short: '1 v 1',
+    label: 'TEAM VS TEAM',
+    short: 'team v team',
     teams: Object.freeze(['ALPHA', 'BRAVO']),
-    perTeam: 1,
+    perTeam: 20,
     versusCpu: false,
-    blurb: 'Two players go head to head.',
+    blurb: 'Two teams of up to 20 players head to head. A captain fires for each team.',
   }),
   fleet: Object.freeze({
     id: 'fleet',

@@ -35,7 +35,7 @@ There is no facilitator dashboard. The big screen **is** the control surface.
 | Mode | Sides | Notes |
 | --- | --- | --- |
 | **3 vs 3** | ALPHA and BRAVO, 3 players each | Teammates share one missile pool |
-| **1 vs 1** | ALPHA and BRAVO, 1 player each | Head to head |
+| **Team vs team** | ALPHA and BRAVO, up to 20 players each | Two teams head to head; a captain fires for each team, chosen again every question round |
 | **Everyone vs CPU** | One crew of up to 20 | All players attack the CPU fleet |
 | **3 teams** | ALPHA, BRAVO and CHARLIE, up to 20 players each | Every **3 correct answers** earn the team one missile. Each team may attack either other fleet; the captain picks one with tabs on their phone. A team with every ship sunk is out, and the last fleet afloat wins |
 
@@ -258,12 +258,15 @@ docs/architecture.md     # design notes
 
 ## Cut scenes and keyboard control
 
+- **F** toggles full screen and **S** toggles the sound on the big screen (the FS and SND
+  buttons do the same).
+
 - **Cut scenes** play on the big screen only, fading up from black over analogue
   interference (static, scan lines, a rolling band) with bold text and the battle
   music (the videos themselves are muted): an **intro** before the first battle
   ("BATTLE"), **regroup** when a battle round ends ("REGROUP – collect more
   questions for more missiles"), and **end** when the game is over ("GAME OVER – ALPHA
-  WON"), with a few random hit sounds. Videos live in `client/public/video/`.
+  WON"), with a few random hit sounds and each team's current captain along the bottom. Videos live in `client/public/video/`.
   Firing opens when the intro finishes (`BATTLE_INTRO_MS`, default 11000; the full
   battle time still follows). Any key or a click skips a scene.
 - **Space, Page Down, Right Arrow** (and Enter) press the big main button, so the
