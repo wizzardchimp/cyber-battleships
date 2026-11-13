@@ -242,11 +242,28 @@ body.display-page {
 }
 
 .join-card__url {
+  display: grid;
+  justify-items: center;
   max-width: 100%;
   color: var(--ink-soft);
   font-family: var(--font-mono);
-  font-size: 1.2rem;
+  font-size: 1.15rem;
+}
+
+.join-card__url b {
+  color: var(--ink);
+  font-size: 2rem;
+}
+
+.join-card__alt {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 1.05rem;
   overflow-wrap: anywhere;
+}
+
+.join-card__alt b {
+  color: var(--ink-soft);
 }
 
 .lobby__main {

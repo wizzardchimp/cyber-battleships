@@ -11,11 +11,8 @@ const error = $('#join-error');
 
 const params = new URLSearchParams(window.location.search);
 const preset = normaliseCode(params.get('code') || '');
-const playerPanel = $('.landing__player');
 if (preset) {
   input.value = preset;
-  // A link with a code is for a player: open the code entry straight away.
-  playerPanel.open = true;
   if (preset.length === 6) input.focus();
 }
 
