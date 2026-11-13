@@ -71,6 +71,10 @@
   color: var(--ink-soft);
 }
 
+.landing__card--join {
+  border-color: var(--line-strong);
+}
+
 .landing__player {
   width: min(26rem, 100%);
   color: var(--muted);

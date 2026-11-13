@@ -24,16 +24,9 @@
           <p class="landing__copy">Answer questions. Earn missiles. Sink the other fleet.</p>
         </header>
 
-        <section class="landing__card panel hud">
-          <h2 class="landing__card-title">FACILITATOR</h2>
-          <p class="landing__hint landing__hint--lead">
-            Start a game on this screen. A QR code appears for players to scan with their phones.
-          </p>
-          <a id="start-game" class="btn btn--primary btn--wide" href="/display">START GAME</a>
-        </section>
-
-        <details class="landing__player">
-          <summary>Joining as a player? Enter a code</summary>
+        <section class="landing__card landing__card--join panel hud">
+          <h2 class="landing__card-title">JOIN A GAME</h2>
+          <p class="landing__hint landing__hint--lead">Enter the six-character code shown on the big screen.</p>
           <form id="join-form" class="landing__form" novalidate>
             <label class="field">
               <span class="field__label">Join code</span>
@@ -53,7 +46,15 @@
             <button class="btn btn--wide" type="submit">JOIN</button>
             <p id="join-error" class="form-error" role="alert"></p>
           </form>
-        </details>
+        </section>
+        <section class="landing__card panel hud">
+          <h2 class="landing__card-title">FACILITATOR</h2>
+          <p class="landing__hint landing__hint--lead">
+            Start a game on this screen. A QR code appears for players to scan with their phones.
+          </p>
+          <a id="start-game" class="btn btn--primary btn--wide" href="/display">START GAME</a>
+        </section>
+
       </main>
     </div>
     <script type="module" src="/src/landing/main.js"></script>

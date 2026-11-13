@@ -377,6 +377,23 @@ function sideCard(team, { wrap }) {
     </article>`;
 }
 
+/** The bare host of a join link, for "go to host and enter the code". */
+function hostOf(url) {
+  try {
+    return new URL(url).host;
+  } catch {
+    return String(url).replace(/^https?:\/\//, '').split('/')[0];
+  }
+}
+
+function pathOf(url) {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return '';
+  }
+}
+
 function lobbyScreen() {
   const { session, teams, join, counts } = state;
   const config = session.config;
@@ -414,7 +431,8 @@ function lobbyScreen() {
           <div class="join-card__label">JOIN CODE</div>
           <div class="join-card__code">${escapeHtml(join.code)}</div>
         </div>
-        <div class="join-card__url">${escapeHtml(join.url.replace(/^https?:\/\//, ''))}</div>
+        <div class="join-card__url"><span>${escapeHtml(hostOf(join.url))}</span><b>${escapeHtml(pathOf(join.url))}</b></div>
+        <div class="join-card__alt">or go to <b>${escapeHtml(hostOf(join.url))}</b> and enter <b>${escapeHtml(join.code)}</b></div>
       </aside>
       <div class="lobby__main">
         <div class="mode-strip">
@@ -923,7 +941,8 @@ function joinModal() {
             <div class="join-card__label">JOIN CODE</div>
             <div class="join-card__code">${escapeHtml(join.code)}</div>
           </div>
-          <div class="join-card__url">${escapeHtml(join.url.replace(/^https?:\/\//, ''))}</div>
+          <div class="join-card__url"><span>${escapeHtml(hostOf(join.url))}</span><b>${escapeHtml(pathOf(join.url))}</b></div>
+        <div class="join-card__alt">or go to <b>${escapeHtml(hostOf(join.url))}</b> and enter <b>${escapeHtml(join.code)}</b></div>
         </div>
         <footer class="modal__foot"><button class="btn btn--primary" type="button" data-modal="close">CLOSE</button></footer>
       </section>
