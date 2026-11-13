@@ -2,7 +2,6 @@ import '../../styles/theme.css';
 import '../../styles/landing.css';
 import { $, on } from '../shared/dom.js';
 import { unlockAudio, sfx } from '../shared/audio.js';
-import { setMusic } from '../shared/music.js';
 import { normaliseCode } from '../../../shared/util.js';
 
 const form = $('#join-form');
@@ -40,5 +39,4 @@ on(document, 'click', 'a', () => {
   sfx.click();
 });
 
-// Menu music on the facilitator welcome page (starts after the first tap).
-setMusic('menu');
+// No music here: the facilitator screen controls all music in the room.
