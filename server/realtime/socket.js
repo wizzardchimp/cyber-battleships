@@ -464,7 +464,7 @@ export function attachSocketServer(io, { manager, config, logger }) {
           throw new AppError('UNAUTHORIZED', 'Join the game to fire.', 401);
         }
         const data = playerAttackSchema.parse(payload);
-        const result = await sessionFromSocket(socket).attack(socket.data.playerId, data.x, data.y);
+        const result = await sessionFromSocket(socket).attack(socket.data.playerId, data.x, data.y, data.targetId);
         reply(ack, { ok: true, ...result });
       });
     });

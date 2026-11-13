@@ -135,10 +135,14 @@ export function buildCombatants(state) {
     color: team.color,
     teamId: team.id,
     targetId: null,
+    targetIds: [],
   }));
 
   if (preset.versusCpu) {
-    for (const combatant of combatants) combatant.targetId = CPU_ID;
+    for (const combatant of combatants) {
+      combatant.targetId = CPU_ID;
+      combatant.targetIds = [CPU_ID];
+    }
     combatants.push({
       id: CPU_ID,
       kind: 'cpu',
@@ -146,12 +150,16 @@ export function buildCombatants(state) {
       color: CPU_COLOR,
       teamId: null,
       targetId: null,
+      targetIds: [],
     });
     return combatants;
   }
 
+  // Every side may attack every other side. The first is the default target.
   for (let index = 0; index < combatants.length; index += 1) {
-    combatants[index].targetId = combatants[(index + 1) % combatants.length].id;
+    const others = combatants.slice(index + 1).concat(combatants.slice(0, index));
+    combatants[index].targetIds = others.map((entry) => entry.id);
+    combatants[index].targetId = others[0]?.id || null;
   }
   return combatants;
 }
