@@ -32,6 +32,9 @@ function toastFor(event) {
       return { level: 'move', message: `${event.name} moved to ${event.teamName}` };
     case 'player_removed':
       return { level: 'leave', message: `${event.name} was removed` };
+    case 'captain_rotated':
+    case 'captain_passed':
+      return { level: 'move', message: `${event.teamName}: ${event.name} takes the controls` };
     case 'ship_sunk':
       return {
         level: 'alert',

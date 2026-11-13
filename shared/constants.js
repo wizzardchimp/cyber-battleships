@@ -137,6 +137,7 @@ export const TIMING = Object.freeze({
   answerGraceMs: 1500,
   minBattleMs: 3000,
   feedbackMs: 1900,
+  captainSwapMs: 30_000,
 });
 
 export const DEFAULT_CONFIG = Object.freeze({

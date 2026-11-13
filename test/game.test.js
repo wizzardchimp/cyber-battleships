@@ -948,4 +948,39 @@ test('a sunk fleet is out; the last fleet afloat wins', async () => {
   assert.equal(session.state.phase, 'result');
   assert.equal(session.state.round.outcome.winnerId, alpha.id);
   assert.equal(session.state.round.outcome.reason, 'Fleet destroyed');
+
+test('controls swap to another teammate every 30 seconds of battle', async () => {
+  const { session, alpha, alphaPlayers, bravo } = await startedSquad();
+  for (const player of alphaPlayers) await answerCorrectly(session, player);
+  await session.advance(); // briefing
+  await session.advance(); // battle
+  const round = session.state.round;
+  assert.ok(round.captainSwapAt, 'a swap time is set when the battle starts');
+
+  const first = alpha.captainPlayerId;
+  const bravoFirst = bravo.captainPlayerId;
+  assert.equal(await session.tick(Date.now() + 10_000), false, 'nothing happens early');
+  assert.equal(alpha.captainPlayerId, first);
+
+  assert.equal(await session.tick(Date.now() + 31_000), true);
+  assert.notEqual(alpha.captainPlayerId, first, 'alpha has a new captain');
+  assert.notEqual(bravo.captainPlayerId, bravoFirst, 'bravo has a new captain');
+  assert.ok(alphaPlayers.some((player) => player.id === alpha.captainPlayerId));
+  assert.ok(Date.parse(round.captainSwapAt) > Date.now() + 25_000, 'the next swap is rescheduled');
+  const view = publicProjection(session);
+  assert.ok(view.round.captainSwapAt);
+});
+
+test('a side with only one player keeps its captain', async () => {
+  const { session } = makeSession({ mode: MODES.SQUAD });
+  const [alpha, bravo] = session.state.teams;
+  const solo = session.join({ name: 'Solo', teamId: alpha.id }).player;
+  session.join({ name: 'B One', teamId: bravo.id });
+  session.join({ name: 'B Two', teamId: bravo.id });
+  await session.advance();
+  await answerCorrectly(session, solo);
+  await session.advance();
+  await session.advance();
+  await session.tick(Date.now() + 31_000);
+  assert.equal(alpha.captainPlayerId, solo.id);
 });

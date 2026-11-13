@@ -1,4 +1,4 @@
-/* ==========================================================================
+/* ===================================================================
    Player phone console. Large, high-contrast and one idea per screen.
    ========================================================================== */
 
@@ -887,4 +887,62 @@ body.play-page {
   margin-left: 0.4rem;
   color: var(--muted);
   font-size: 0.8rem;
+
+/* ------------------------------------------------ control hand-over pop-ups */
+
+.swap-note {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  text-align: center;
+}
+
+.swap-note b {
+  color: var(--ink);
+}
+
+.control-popup {
+  position: fixed;
+  left: 50%;
+  top: 36%;
+  z-index: 81;
+  display: grid;
+  gap: 0.5rem;
+  width: min(88vw, 22rem);
+  padding: 1.2rem;
+  text-align: center;
+  background: rgba(2, 5, 12, 0.95);
+  border: 2px solid var(--green);
+  box-shadow: 0 0 40px rgba(125, 255, 107, 0.5);
+  pointer-events: none;
+  transform: translateX(-50%);
+  animation: sunk-popup 2.6s ease both;
+}
+
+.control-popup span {
+  color: var(--green);
+  font-family: var(--font-pixel);
+  font-size: 0.95rem;
+}
+
+.control-popup strong {
+  color: var(--ink);
+  font-size: 1.15rem;
+}
+
+.control-popup--lose {
+  border-color: var(--amber);
+  box-shadow: 0 0 40px rgba(255, 194, 71, 0.5);
+}
+
+.control-popup--lose span {
+  color: var(--amber);
+}
+
+.control-flash--gain {
+  background: radial-gradient(circle, rgba(125, 255, 107, 0.55), rgba(25, 227, 255, 0.35));
+}
+
+.control-flash--lose {
+  background: radial-gradient(circle, rgba(255, 194, 71, 0.5), rgba(255, 194, 71, 0.2));
 }

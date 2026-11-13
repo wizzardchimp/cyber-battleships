@@ -90,6 +90,7 @@ function roundProjection(session) {
     quizEndsAt: round.quizEndsAt,
     battleEndsAt: round.battleEndsAt,
     battleEndReason: round.battleEndReason || null,
+    captainSwapAt: state.phase === PHASES.BATTLE ? round.captainSwapAt || null : null,
     teams: session.teamProgress(),
     combatants: round.combatants.map((combatant) => ({
       id: combatant.id,

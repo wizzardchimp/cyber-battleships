@@ -332,6 +332,11 @@ function renderBriefing() {
   );
 }
 
+function swapNote(round) {
+  if (!round.captainSwapAt) return '';
+  return `<p class="swap-note">Controls swap to a random teammate in <b data-countdown="${escapeHtml(round.captainSwapAt)}">${formatCountdown(round.captainSwapAt)}</b></p>`;
+}
+
 function passControlsMarkup() {
   const mates = (myTeam()?.players || []).filter((player) => player.id !== playerState.me.id);
   if (mates.length === 0) return '';
@@ -405,8 +410,8 @@ function renderBattle() {
     message = `<div class="shot-msg shot-msg--out">Out of missiles. Another round of questions is coming so you can earn more.</div>`;
   }
   const role = captain
-    ? `<div class="captain-tag">YOU ARE THE CAPTAIN · YOU FIRE THE MISSILES</div>${passControlsMarkup()}`
-    : `<div class="captain-tag captain-tag--watch">${escapeHtml(me.captainName || 'Your captain')} is the captain and fires the missiles. You are watching.</div>`;
+    ? `<div class="captain-tag">YOU ARE THE CAPTAIN · YOU FIRE THE MISSILES</div>${swapNote(round)}${passControlsMarkup()}`
+    : `<div class="captain-tag captain-tag--watch">${escapeHtml(me.captainName || 'Your captain')} is the captain and fires the missiles. You are watching.</div>${swapNote(round)}`;
   const shotColors = Object.fromEntries(round.combatants.map((entry) => [entry.id, entry.color]));
 
   shell(
@@ -559,6 +564,7 @@ function signature() {
         shotMsg?.id,
         firing,
         passOpen,
+        round?.captainSwapAt,
         JSON.stringify(me?.isCaptain ? myTeam()?.players?.map((player) => [player.id, player.connected]) : null),
         round?.scores?.map((score) => score.points),
       ]);
@@ -651,6 +657,7 @@ function ensureSocket() {
     const before = playerState;
     playerState = next;
     maybeDrawCaptain(before, next);
+    announceControlChange(before, next);
     setBattleSoundsEnabled(next.session?.config?.soundEnabled !== false);
     if ([PHASES.REVIEW, PHASES.BATTLE, PHASES.RESUPPLY].includes(next.session.phase)) {
       preloadBattleSounds();
@@ -833,6 +840,30 @@ function flashHit({ hit, sunk, shipName }, elapsed = 0) {
     },
     Math.max(0, (RESULT_DELAY - elapsed) * 1000),
   );
+}
+
+/** Pop-ups when the attack controls arrive or leave, e.g. the 30 second swap. */
+function announceControlChange(before, after) {
+  const was = before?.round?.me?.isCaptain;
+  const now = after?.round?.me?.isCaptain;
+  const phase = after?.session?.phase;
+  if (was === undefined || now === undefined || was === now) return;
+  if (before.session.phase !== phase || before.round?.number !== after.round?.number) return;
+  if (phase !== PHASES.BATTLE && phase !== PHASES.RESUPPLY) return;
+  const popup = document.createElement('div');
+  popup.className = `control-popup ${now ? 'control-popup--gain' : 'control-popup--lose'}`;
+  popup.setAttribute('role', 'alert');
+  popup.innerHTML = now
+    ? '<span>YOU HAVE THE CONTROLS</span><strong>You are now the captain. Fire!</strong>'
+    : `<span>CONTROLS PASSED</span><strong>${escapeHtml(after.round.me.captainName || 'A teammate')} is now the captain.</strong>`;
+  document.body.append(popup);
+  window.setTimeout(() => popup.remove(), 2600);
+  const flash = document.createElement('div');
+  flash.className = `hit-flash control-flash ${now ? 'control-flash--gain' : 'control-flash--lose'}`;
+  flash.setAttribute('aria-hidden', 'true');
+  document.body.append(flash);
+  window.setTimeout(() => flash.remove(), 450);
+  if (now) sfx.alert();
 }
 
 /** A short reveal of who the captain is when a question round begins. */

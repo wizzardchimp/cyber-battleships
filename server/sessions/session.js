@@ -519,6 +519,34 @@ export class GameSession extends EventEmitter {
     for (const team of this.state.teams) this.assignCaptain(team);
   }
 
+  /**
+   * Hand every side's controls to a different connected teammate at random.
+   * Sides with nobody else online keep their captain.
+   */
+  rotateCaptains(now = Date.now()) {
+    const round = this.state.round;
+    for (const team of this.state.teams) {
+      if (this.fleetDestroyed(team.id)) continue;
+      const before = team.captainPlayerId;
+      const others = this.playersOnTeam(team.id).filter(
+        (player) => player.connected && player.id !== before,
+      );
+      if (others.length === 0) continue;
+      const chosen = this.assignCaptain(team);
+      if (chosen && chosen.id !== before) {
+        this.recordEvent('captain_rotated', {
+          fromId: before,
+          playerId: chosen.id,
+          name: chosen.displayName,
+          teamId: team.id,
+          teamName: team.name,
+        });
+      }
+    }
+    round.captainSwapAt = new Date(now + TIMING.captainSwapMs).toISOString();
+    this.bump();
+  }
+
   /** The captain hands the attack controls to another connected member of their side. */
   async passCaptain(fromId, toId) {
     const phase = this.state.phase;
@@ -699,6 +727,7 @@ export class GameSession extends EventEmitter {
     round.battleStartedAt = new Date(now).toISOString();
     round.battleEndsAt = new Date(now + this.config.battleSeconds * 1000).toISOString();
     round.battleEndReason = null;
+    round.captainSwapAt = new Date(now + TIMING.captainSwapMs).toISOString();
     this.ensureCaptains();
     this.state.phase = PHASES.BATTLE;
     this.recordEvent('battle_started', { round: round.number });
@@ -958,6 +987,17 @@ export class GameSession extends EventEmitter {
         this.noMissilesLeft()
       ) {
         this.pauseBattle('ammo');
+        changed = true;
+      }
+
+      // Controls pass to a different teammate every so often.
+      if (
+        !changed &&
+        this.state.phase === PHASES.BATTLE &&
+        round.captainSwapAt &&
+        now >= Date.parse(round.captainSwapAt)
+      ) {
+        this.rotateCaptains(now);
         changed = true;
       }
 
