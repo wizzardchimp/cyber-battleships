@@ -999,3 +999,26 @@ test('a sunk team gets no more questions, and the briefing counts the missiles r
   assert.equal(view.round.me.question, null);
   await expectReject(() => session.answer(b[0].id, 1, 0), 'ELIMINATED');
 });
+
+test('resetting the players empties the room but keeps the code and settings', async () => {
+  const { session, alphaPlayers } = await startedSquad();
+  await session.updateConfig({ quizMinutes: 1 }).catch(() => {});
+  const removedEvents = [];
+  session.on('playerRemoved', (info) => removedEvents.push(info));
+  const code = session.state.joinCode;
+  const count = session.state.players.length;
+
+  const removed = await session.resetPlayers();
+  assert.equal(removed, count);
+  assert.equal(session.state.players.length, 0);
+  assert.equal(session.state.phase, 'lobby');
+  assert.equal(session.state.round, null);
+  assert.equal(session.state.joinCode, code, 'the join code is kept');
+  assert.equal(removedEvents.length, count);
+  assert.ok(removedEvents.every((info) => info.reason === 'reset'));
+  assert.ok(alphaPlayers.length > 0);
+
+  // The same code can be used to join again.
+  const again = session.join({ name: 'Fresh Start' }).player;
+  assert.ok(again.id);
+});

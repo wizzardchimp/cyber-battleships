@@ -480,3 +480,29 @@ test('five wrong PINs lock further attempts for a while', async (t) => {
   assert.equal(locked.ok, false);
   assert.equal(locked.error.code, 'PIN_LOCKED');
 });
+
+test('only the game screen can reset the players, and phones are told why', async (t) => {
+  const h = await bootTestServer();
+  const sockets = [];
+  t.after(async () => {
+    closeAll(sockets);
+    await h.close();
+  });
+  const screen = await startGameScreen(h.baseUrl, EVENTS);
+  sockets.push(screen.socket);
+  const code = screen.game.joinCode;
+  const player = await joinPlayer(h.baseUrl, EVENTS, code, 'Soon Gone');
+  sockets.push(player.socket);
+  const told = new Promise((resolve) => player.socket.once(EVENTS.PLAYER_REMOVED, resolve));
+
+  const denied = await emitAck(player.socket, EVENTS.DISPLAY_RESET_PLAYERS, {});
+  assert.equal(denied.ok, false);
+  assert.equal(h.manager.current().state.players.length, 1);
+
+  const done = await emitAck(screen.socket, EVENTS.DISPLAY_RESET_PLAYERS, {});
+  assert.equal(done.ok, true);
+  assert.equal(done.removed, 1);
+  assert.equal((await told).reason, 'reset');
+  assert.equal(h.manager.current().state.players.length, 0);
+  assert.equal(h.manager.current().joinCode, code);
+});

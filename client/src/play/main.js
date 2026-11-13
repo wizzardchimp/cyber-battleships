@@ -683,9 +683,12 @@ function ensureSocket() {
     closedMessage = 'The facilitator started a new game. Scan the new QR code to join it.';
     render(true);
   });
-  socket.on(EVENTS.PLAYER_REMOVED, () => {
+  socket.on(EVENTS.PLAYER_REMOVED, (info) => {
     clearToken();
-    closedMessage = 'The facilitator removed you from the game.';
+    closedMessage =
+      info?.reason === 'reset'
+        ? 'The facilitator reset the room. Enter the join code again to rejoin.'
+        : 'The facilitator removed you from the game.';
     render(true);
   });
   socket.on(EVENTS.PLAYER_SUPERSEDED, () => {

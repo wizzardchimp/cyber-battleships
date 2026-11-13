@@ -17,6 +17,7 @@ export const EVENTS = Object.freeze({
   DISPLAY_LOBBY: 'display:lobby',
   DISPLAY_SETTINGS: 'display:settings',
   DISPLAY_REMOVE: 'display:remove',
+  DISPLAY_RESET_PLAYERS: 'display:resetPlayers',
 
   // Shared
   TIME_SYNC: 'time:sync',
