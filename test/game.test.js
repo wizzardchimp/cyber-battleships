@@ -948,6 +948,7 @@ test('a sunk fleet is out; the last fleet afloat wins', async () => {
   assert.equal(session.state.phase, 'result');
   assert.equal(session.state.round.outcome.winnerId, alpha.id);
   assert.equal(session.state.round.outcome.reason, 'Fleet destroyed');
+});
 
 test('controls swap to another teammate every 30 seconds of battle', async () => {
   const { session, alpha, alphaPlayers, bravo } = await startedSquad();
