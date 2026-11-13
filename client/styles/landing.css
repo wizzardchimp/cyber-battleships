@@ -90,3 +90,64 @@
 .landing__player .landing__form {
   margin-top: 0.8rem;
 }
+
+/* ---------------------------------------------------------------- desktop */
+
+/* Wide screens: title on the left, JOIN in the middle, a small FACILITATOR
+   panel on the right. Phones keep the single stacked column above. */
+@media (min-width: 960px) {
+  .landing {
+    /* The title column sizes to the title; JOIN is the wide middle panel and
+       FACILITATOR a narrow one on the right. */
+    grid-template-columns: max-content minmax(18rem, 26rem) 14rem;
+    justify-content: center;
+    align-content: center;
+    align-items: center;
+    justify-items: stretch;
+    gap: clamp(1.5rem, 3vw, 3.5rem);
+    margin: 0 auto;
+    padding-inline: clamp(1.5rem, 4vw, 4rem);
+  }
+
+  .landing__hero {
+    justify-items: start;
+    text-align: left;
+  }
+
+  .landing__logo {
+    width: min(14rem, 18vw);
+  }
+
+  .landing__title {
+    font-size: clamp(1.5rem, 2.4vw, 2.6rem);
+  }
+
+  .landing__copy {
+    max-width: 22rem;
+  }
+
+  .landing__card,
+  .landing__player {
+    width: 100%;
+  }
+
+  /* The join panel is the main action. */
+  .landing__card--join {
+    padding: 2rem;
+  }
+
+  /* The facilitator panel is small and quiet on desktop. */
+  .landing__card:not(.landing__card--join) {
+    gap: 0.8rem;
+    padding: 1rem;
+    opacity: 0.9;
+  }
+
+  .landing__card:not(.landing__card--join) .landing__card-title {
+    font-size: 0.8rem;
+  }
+
+  .landing__card:not(.landing__card--join) .landing__hint--lead {
+    font-size: 0.9rem;
+  }
+}
