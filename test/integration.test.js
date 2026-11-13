@@ -430,3 +430,53 @@ test('a game restored mid-quiz keeps its timer and questions', async (t) => {
   assert.equal(restored.state.round.quizEndsAt, endsAt);
   assert.equal(restored.state.round.quiz[player.result.playerId].current.prompt, promptBefore);
 });
+
+test('a facilitator PIN guards starting a game and replacing a running one', async (t) => {
+  const h = await bootTestServer({ facilitatorPin: 'rocu' });
+  const sockets = [];
+  t.after(async () => {
+    closeAll(sockets);
+    await h.close();
+  });
+
+  const first = await connect(h.baseUrl);
+  sockets.push(first);
+  const sub = await emitAck(first, EVENTS.DISPLAY_SUBSCRIBE, {});
+  assert.equal(sub.game, null);
+  assert.equal(sub.pinRequired, true);
+
+  assert.equal((await emitAck(first, EVENTS.DISPLAY_CREATE, {})).error.code, 'PIN_REQUIRED');
+  assert.equal((await emitAck(first, EVENTS.DISPLAY_CREATE, { pin: 'nope' })).error.code, 'WRONG_PIN');
+  assert.equal(h.manager.current(), null, 'nothing was created');
+
+  const made = await emitAck(first, EVENTS.DISPLAY_CREATE, { pin: 'ROCU' });
+  assert.equal(made.ok, true, 'the PIN is not case sensitive');
+  assert.ok(made.key);
+
+  // Forcing a replacement without the key or the PIN is refused.
+  const intruder = await connect(h.baseUrl);
+  sockets.push(intruder);
+  const forced = await emitAck(intruder, EVENTS.DISPLAY_CREATE, { force: true });
+  assert.equal(forced.ok, false);
+  assert.equal(forced.error.code, 'PIN_REQUIRED');
+  assert.equal(h.manager.current().joinCode, made.game.joinCode);
+
+  // The screen that holds the key needs no PIN to start a new game.
+  const again = await emitAck(first, EVENTS.DISPLAY_CREATE, { key: made.key });
+  assert.equal(again.ok, true);
+});
+
+test('five wrong PINs lock further attempts for a while', async (t) => {
+  const h = await bootTestServer({ facilitatorPin: 'rocu' });
+  const socket = await connect(h.baseUrl);
+  t.after(async () => {
+    socket.close();
+    await h.close();
+  });
+  for (let i = 0; i < 5; i += 1) {
+    assert.equal((await emitAck(socket, EVENTS.DISPLAY_CREATE, { pin: `bad${i}` })).error.code, 'WRONG_PIN');
+  }
+  const locked = await emitAck(socket, EVENTS.DISPLAY_CREATE, { pin: 'rocu' });
+  assert.equal(locked.ok, false);
+  assert.equal(locked.error.code, 'PIN_LOCKED');
+});

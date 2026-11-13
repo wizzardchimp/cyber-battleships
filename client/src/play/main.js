@@ -277,6 +277,11 @@ function renderQuiz() {
         ${right ? rewardMarkup() : ''}
         ${bonus}
       </section>`;
+  } else if (me.eliminated) {
+    body = `<section class="p-card panel hud" style="--bracket:var(--red)">
+      <h1 class="p-title" style="color:var(--red)">YOUR FLEET HAS BEEN SUNK</h1>
+      <p class="p-copy">${escapeHtml(playerState.me.teamName || 'Your side')} is out of the battle, so there are no more questions for you. Keep watching to see who wins!</p>
+    </section>`;
   } else if (!question) {
     body = `<div class="waiting"><img class="waiting__pulse" src="/brand/mark-128.png" alt="" /><p>Loading your next question…</p></div>`;
   } else {
@@ -543,6 +548,7 @@ function signature() {
         me?.question?.number,
         me?.missiles,
         me?.answered,
+        me?.eliminated,
         Boolean(feedback && Date.now() < feedback.until),
         feedback?.number,
         answering,

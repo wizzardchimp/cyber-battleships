@@ -453,8 +453,12 @@ export class GameSession extends EventEmitter {
     round.battleEndsAt = null;
     round.battleEndReason = null;
     round.quizStartMissiles = {};
+    round.quizStartEarned = {};
     for (const combatant of round.combatants) {
-      if (combatant.kind === 'team') round.quizStartMissiles[combatant.id] = this.arsenalFor(combatant.id);
+      if (combatant.kind === 'team') {
+        round.quizStartMissiles[combatant.id] = this.arsenalFor(combatant.id);
+        round.quizStartEarned[combatant.id] = Number(this.state.scores[combatant.id]?.missilesEarned) || 0;
+      }
     }
 
     for (const player of this.state.players) {
@@ -638,6 +642,7 @@ export class GameSession extends EventEmitter {
 
     const player = this.playerById(playerId);
     assert(player, 'PLAYER_NOT_FOUND', 'Player not found.');
+    assert(!this.fleetDestroyed(player.teamId), 'ELIMINATED', 'Your fleet has been sunk. You are out of the game.');
     const entry = round.quiz[player.id];
     assert(entry?.current, 'NO_QUESTION', 'No question is available.');
     const current = entry.current;
@@ -1114,7 +1119,10 @@ export class GameSession extends EventEmitter {
           answered,
           correct,
           accuracy: answered > 0 ? Math.round((correct / answered) * 100) : 0,
-          won: Math.floor((correct * SCORING.missilesPerCorrect + bonus) / correctPerMissile(this.config.mode)),
+          // Missiles actually earned since this question round began.
+          won: round.quizStartEarned
+            ? (Number(this.state.scores[team.id]?.missilesEarned) || 0) - (round.quizStartEarned[team.id] || 0)
+            : Math.floor((correct * SCORING.missilesPerCorrect + bonus) / correctPerMissile(this.config.mode)),
           missiles: this.arsenalFor(team.id),
           ammoProgress: Number(this.state.ammoProgress?.[team.id]) || 0,
           perMissile: correctPerMissile(this.config.mode),

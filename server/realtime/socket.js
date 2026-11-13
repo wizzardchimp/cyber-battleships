@@ -16,7 +16,7 @@ import {
 } from '../../shared/schemas.js';
 import { AppError, errorPayload } from '../errors.js';
 import { playerProjection, publicProjection } from '../sessions/projections.js';
-import { baseUrlFromHeaders } from '../util/security.js';
+import { baseUrlFromHeaders, safeEqual } from '../util/security.js';
 
 const roomFor = (sessionId) => `session:${sessionId}`;
 
@@ -50,6 +50,22 @@ export function attachSocketServer(io, { manager, config, logger }) {
   const disconnectTimers = new Map(); // playerId -> timeout
   const broadcastTimers = new Map(); // sessionId -> timeout
   const wired = new WeakSet();
+
+  // Wrong-PIN lockout: five misses in a minute locks that address for a minute.
+  const pinMisses = new Map();
+  function pinLocked(ip) {
+    const entry = pinMisses.get(ip);
+    return Boolean(entry && entry.count >= 5 && Date.now() < entry.until);
+  }
+  function pinFailed(ip) {
+    const now = Date.now();
+    const entry = pinMisses.get(ip);
+    if (!entry || now > entry.until) pinMisses.set(ip, { count: 1, until: now + 60_000 });
+    else entry.count += 1;
+  }
+  function pinOk(ip) {
+    pinMisses.delete(ip);
+  }
 
   function guard(socket, key, max = 30, windowMs = 10_000) {
     const now = Date.now();
@@ -299,12 +315,17 @@ export function attachSocketServer(io, { manager, config, logger }) {
         const session = manager.current();
         if (!session) {
           leaveCurrent(socket);
-          reply(ack, { ok: true, game: null, control: false });
+          reply(ack, { ok: true, game: null, control: false, pinRequired: Boolean(config.facilitatorPin) });
           return;
         }
         const control = manager.keyMatches(session, data.key);
         attachDisplay(socket, session, { control });
-        reply(ack, { ok: true, game: session.summary(), control });
+        reply(ack, {
+          ok: true,
+          game: session.summary(),
+          control,
+          pinRequired: Boolean(config.facilitatorPin),
+        });
       });
     });
 
@@ -313,15 +334,29 @@ export function attachSocketServer(io, { manager, config, logger }) {
         if (!guard(socket, 'display-create', 6, 10_000)) return;
         const data = displayCreateSchema.parse(payload ?? {});
         const existing = manager.current();
-        if (existing) {
-          const allowed = manager.keyMatches(existing, data.key) || data.force === true;
-          if (!allowed) {
-            throw new AppError(
-              'GAME_EXISTS',
-              'A game is already running. Use the game screen that started it.',
-              409,
-            );
+        const holdsKey = Boolean(existing) && manager.keyMatches(existing, data.key);
+        // The facilitator PIN guards starting a game and replacing a running one.
+        // The screen that already holds the control key does not need it.
+        if (config.facilitatorPin && !holdsKey) {
+          const ip = socket.handshake.address || 'unknown';
+          if (pinLocked(ip)) {
+            throw new AppError('PIN_LOCKED', 'Too many wrong PINs. Wait a minute and try again.', 429);
           }
+          if (!data.pin) {
+            throw new AppError('PIN_REQUIRED', 'Enter the facilitator PIN to start a game.', 401);
+          }
+          if (!safeEqual(data.pin.toLowerCase(), config.facilitatorPin.toLowerCase())) {
+            pinFailed(ip);
+            throw new AppError('WRONG_PIN', 'That PIN is not right.', 401);
+          }
+          pinOk(ip);
+        }
+        if (existing && !holdsKey && data.force !== true) {
+          throw new AppError(
+            'GAME_EXISTS',
+            'A game is already running. Use the game screen that started it.',
+            409,
+          );
         }
         const baseUrl = baseUrlFromHeaders(socket.handshake.headers, config);
         const { session, controlKey } = await manager.createGame({ baseUrl });

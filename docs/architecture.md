@@ -49,6 +49,20 @@ Modes are presets that define the sides and their size.
 | `squad` (3 v 3) | ALPHA, BRAVO × 3 | Each side attacks the other |
 | `duel` (1 v 1) | ALPHA, BRAVO × 1 | Each side attacks the other |
 | `cpu` | CREW × 20 | The crew attacks the CPU fleet |
+| `fleet` (3 teams) | ALPHA, BRAVO, CHARLIE × 20 | Each side may attack either other side (`targetIds`); a captain passes `targetId` with each shot |
+
+In `fleet` mode a side earns one missile per `correctPerMissile` (3) correct answers;
+the remainder is kept in `state.ammoProgress[teamId]`. A side whose fleet is fully
+sunk is eliminated (`team.eliminated`); the game ends when one fleet is left.
+
+During a battle `rotateCaptains` runs from the tick every `TIMING.captainSwapMs`
+(30 s, `round.captainSwapAt`). A captain may also call `passCaptain`.
+
+The question vault stores extra sets in `question_sets` under ids `vault-<hex>`,
+managed by `POST /api/vault` and `DELETE /api/vault/:id` (control key, lobby only).
+
+Starting or replacing a game needs the facilitator PIN (`config.facilitatorPin`)
+unless the socket holds the control key; wrong PINs are rate limited per address.
 
 Changing mode in the lobby rebuilds the sides and re-seats players, keeping each
 on their side where possible. The change is refused if more players are present

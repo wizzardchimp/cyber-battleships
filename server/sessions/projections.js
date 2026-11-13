@@ -193,7 +193,10 @@ export function playerProjection(session, playerId) {
       missiles: team ? session.arsenalFor(team.id) : 0,
       answered: entry.answered || 0,
       correct: entry.correct || 0,
-      question: state.phase === PHASES.QUIZ ? questionForPlayer(entry.current) : null,
+      question:
+        state.phase === PHASES.QUIZ && !session.fleetDestroyed(player.teamId)
+          ? questionForPlayer(entry.current)
+          : null,
       targetId,
       targetName: targetCombatant?.name || null,
       targetBoard:
