@@ -47,7 +47,9 @@ export const MODE_PRESETS = Object.freeze({
     teams: Object.freeze(['ALPHA', 'BRAVO']),
     perTeam: 20,
     versusCpu: false,
-    blurb: 'Two teams of up to 20 players head to head. A captain fires for each team.',
+    // Big teams: every third correct answer earns the team one missile.
+    correctPerMissile: 3,
+    blurb: 'Two teams of up to 20 head to head. Every 3 correct answers earn a missile. A captain fires for each team.',
   }),
   fleet: Object.freeze({
     id: 'fleet',

@@ -47,7 +47,7 @@ Modes are presets that define the sides and their size.
 | Mode | Sides | Targets |
 | --- | --- | --- |
 | `squad` (3 v 3) | ALPHA, BRAVO × 3 | Each side attacks the other |
-| `duel` (team vs team) | ALPHA, BRAVO × 20 | Each side attacks the other |
+| `duel` (team vs team) | ALPHA, BRAVO × 20 | Each side attacks the other; one missile per 3 correct answers (`correctPerMissile`) |
 | `cpu` | CREW × 20 | The crew attacks the CPU fleet |
 | `fleet` (3 teams) | ALPHA, BRAVO, CHARLIE × 20 | Each side may attack either other side (`targetIds`); a captain passes `targetId` with each shot |
 

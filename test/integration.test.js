@@ -163,7 +163,7 @@ test('a full game: quiz, briefing, battle and result over real sockets', async (
   sockets.push(screen.socket);
   const code = screen.game.joinCode;
   const ready = await emitAck(screen.socket, EVENTS.DISPLAY_SETTINGS, {
-    patch: { mode: 'duel', quizMinutes: 1, battleSeconds: 30 },
+    patch: { mode: 'squad', quizMinutes: 1, battleSeconds: 30 },
   });
   assert.equal(ready.ok, true, JSON.stringify(ready));
 

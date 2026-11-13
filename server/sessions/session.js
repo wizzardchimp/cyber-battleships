@@ -97,6 +97,13 @@ export class GameSession extends EventEmitter {
   ensureShape() {
     const state = this.state;
     state.teams = Array.isArray(state.teams) ? state.teams : [];
+    // A game saved before a mode grew (e.g. 1 v 1 became team vs team) gets the new team size.
+    const perTeam = MODE_PRESETS[state.config?.mode]?.perTeam;
+    if (perTeam) {
+      for (const team of state.teams) {
+        if (Number(team.maxPlayers) < perTeam) team.maxPlayers = perTeam;
+      }
+    }
     state.players = Array.isArray(state.players) ? state.players : [];
     state.recentEvents = Array.isArray(state.recentEvents) ? state.recentEvents : [];
     state.version = Number(state.version) || 0;

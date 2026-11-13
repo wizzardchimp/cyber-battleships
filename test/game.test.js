@@ -58,7 +58,7 @@ async function expectReject(fn, code) {
 
 /** A started 3v3-style game with one player per side. */
 async function startedDuel(config = {}) {
-  const { session, repository } = makeSession({ mode: MODES.DUEL, ...config });
+  const { session, repository } = makeSession({ mode: MODES.SQUAD, ...config });
   const [alpha, bravo] = session.state.teams;
   const a = session.join({ name: 'Alice' });
   const b = session.join({ name: 'Bob' });
@@ -245,7 +245,7 @@ test('the next question arrives immediately and questions do not repeat', async 
 test('questions recycle once the whole set has been seen', async () => {
   const small = defaultQuestionsFor('easy').slice(0, 8);
   const { session, a } = await (async () => {
-    const { session: s } = makeSession({ mode: MODES.DUEL }, { easy: small });
+    const { session: s } = makeSession({ mode: MODES.SQUAD }, { easy: small });
     const player = s.join({ name: 'Solo' });
     await s.advance();
     return { session: s, a: player.player };
@@ -267,7 +267,7 @@ test('stale or invalid answers are rejected', async () => {
 test('answer positions are shuffled rather than always the same slot', async () => {
   const positions = new Set();
   for (let index = 0; index < 30; index += 1) {
-    const { session } = makeSession({ mode: MODES.DUEL });
+    const { session } = makeSession({ mode: MODES.SQUAD });
     const { player } = session.join({ name: 'Solo' });
     await session.advance();
     positions.add(currentQuestion(session, player.id).answerIndex);
@@ -585,7 +585,7 @@ test('older four-answer questions are trimmed to three when they are served', as
     answerIndex: 0,
     explanation: '',
   }));
-  const { session } = makeSession({ mode: MODES.DUEL }, { easy: legacy });
+  const { session } = makeSession({ mode: MODES.SQUAD }, { easy: legacy });
   const { player } = session.join({ name: 'Legacy' });
   await session.advance();
   const current = currentQuestion(session, player.id);
@@ -1055,4 +1055,34 @@ test('the first battle opens after the intro cut scene, later ones straight away
   const again = Date.now();
   await session.advance(); // battle
   assert.ok(Date.parse(session.state.round.battleOpensAt) <= again + 50);
+});
+
+test('team vs team earns a missile for every three correct answers', async () => {
+  const { session } = makeSession({ mode: MODES.DUEL });
+  const [alpha] = session.state.teams;
+  const crew = ['One', 'Two', 'Three', 'Four'].map((n) => session.join({ name: `Crew ${n}`, teamId: alpha.id }).player);
+  session.join({ name: 'Rival', teamId: session.state.teams[1].id });
+  await session.advance();
+  const first = await answerCorrectly(session, crew[0]);
+  assert.equal(first.reward, 0);
+  assert.equal(first.perMissile, 3);
+  await answerCorrectly(session, crew[1]);
+  const third = await answerCorrectly(session, crew[2]);
+  assert.equal(third.reward, 1);
+  assert.equal(session.arsenalFor(alpha.id), 1);
+});
+
+test('a game saved when 1 v 1 held one player a side takes up to twenty after a restart', async () => {
+  const { session } = makeSession({ mode: MODES.DUEL });
+  for (const team of session.state.teams) team.maxPlayers = 1; // as an older saved game had it
+  const reloaded = new GameSession({
+    state: session.state,
+    repository: new MemoryRepository(),
+    logger: null,
+    questions: session.questions,
+  });
+  assert.deepEqual(reloaded.state.teams.map((team) => team.maxPlayers), [20, 20]);
+  const alpha = reloaded.state.teams[0];
+  for (let i = 1; i <= 12; i += 1) reloaded.join({ name: `Player ${i}`, teamId: alpha.id });
+  assert.equal(reloaded.playersOnTeam(alpha.id).length, 12);
 });
