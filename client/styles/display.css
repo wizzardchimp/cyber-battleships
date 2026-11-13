@@ -1662,3 +1662,70 @@ body.display-page {
   gap: 1rem;
   width: min(24rem, 90vw);
 }
+
+/* -------------------------------------- three-team lobby: equal, compact columns */
+
+.sides--multi .side {
+  min-width: 0;
+}
+
+.sides--multi .side__head {
+  gap: 0.6rem;
+  padding: 0.7rem 1rem;
+  min-height: 4.2rem;
+}
+
+.sides--multi .side__name {
+  min-width: 0;
+  font-size: clamp(1rem, 1.55vw, 1.6rem);
+  overflow-wrap: normal;
+  white-space: nowrap;
+}
+
+.sides--multi .side__count {
+  flex: 0 0 auto;
+  font-size: clamp(0.85rem, 1.1vw, 1.2rem);
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.sides--multi .slots {
+  padding: 0.7rem 0.8rem;
+  gap: 0.4rem;
+}
+
+.sides--multi .slot {
+  min-height: 2.6rem;
+  padding: 0.3rem 0.7rem;
+  font-size: clamp(0.95rem, 1.2vw, 1.4rem);
+}
+
+.sides--multi .slot__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Many players per side: use two columns inside each team when there is room. */
+@media (min-width: 1700px) {
+  .sides--multi .slots--wrap {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Short laptop screens: keep the whole join card in view. */
+@media (max-height: 820px) {
+  .join-card {
+    gap: 0.6rem;
+    padding: 1rem;
+  }
+
+  .join-card__qr {
+    width: min(100%, 30vh);
+  }
+
+  .join-card__code {
+    font-size: 2rem;
+  }
+}

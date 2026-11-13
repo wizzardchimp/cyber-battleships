@@ -65,6 +65,8 @@ export function toast(message, level = 'info', root = '#toast-root') {
   const item = el('div', { className: `toast toast--${level}`, role: 'status' });
   item.innerHTML = `<span class="toast__dot"></span><span>${escapeHtml(message)}</span>`;
   container.append(item);
+  // A burst of events (e.g. a class joining) must not bury the screen.
+  while (container.children.length > 4) container.firstElementChild?.remove();
   requestAnimationFrame(() => item.classList.add('is-visible'));
   setTimeout(() => {
     item.classList.remove('is-visible');
