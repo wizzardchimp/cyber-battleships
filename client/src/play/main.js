@@ -271,6 +271,7 @@ function renderQuiz() {
     body = `
       <div class="q-meta">${(round.cycle || 1) > 1 ? `Round ${round.cycle} · ` : ''}Question ${question.number} · ${escapeHtml(question.category)}</div>
       <h1 class="q-text">${escapeHtml(question.prompt)}</h1>
+      <p class="key-hint">Click an answer, or press <b>1</b> <b>2</b> <b>3</b> or <b>A</b> <b>B</b> <b>C</b>.</p>
       <div class="answers">
         ${question.options
           .map(
@@ -374,7 +375,7 @@ function renderBattle() {
       <span class="target__name">${escapeHtml(me.targetName || board.name)}</span>
     </div>
     <div class="fire-grid ${captain ? '' : 'fire-grid--watch'}">
-      ${renderGrid({ size: board.gridSize, shots: board.shots, interactive: captain, disabled: !canFire || firing, axes: false, label: 'Target grid' })}
+      ${renderGrid({ size: board.gridSize, shots: board.shots, interactive: captain, disabled: !canFire || firing, axes: false, label: 'Target grid', color: targetColor, shotColor: color })}
     </div>
     ${message}
     <p class="p-foot">Ships sunk <b>${board.shipsSunk} / ${board.shipsTotal}</b> · ${escapeHtml(playerState.me.teamName || '')} <b>${round.scores.find((score) => score.id === playerState.me.teamId)?.points ?? 0} pts</b></p>`,
@@ -894,6 +895,22 @@ app.addEventListener('click', (event) => {
   } else if (action === 'home') {
     window.location.href = '/';
   }
+});
+
+// Laptops and Chromebooks: answer with 1, 2, 3 or A, B, C.
+document.addEventListener('keydown', (event) => {
+  if (event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
+  if (!joined || playerState?.session?.phase !== PHASES.QUIZ || answering) return;
+  const tag = document.activeElement?.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+  const question = playerState?.round?.me?.question;
+  if (!question || (feedback && Date.now() < feedback.until)) return;
+  const key = event.key.toLowerCase();
+  const index = '123'.includes(key) && key ? Number(key) - 1 : 'abc'.indexOf(key);
+  if (key.length !== 1 || index < 0 || index >= question.options.length) return;
+  event.preventDefault();
+  unlockAudio();
+  submitAnswer(index);
 });
 
 app.addEventListener('submit', (event) => {

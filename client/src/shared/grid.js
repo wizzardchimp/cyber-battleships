@@ -17,6 +17,8 @@ export function renderGrid({
   disabled = false,
   axes = true,
   label = 'battle grid',
+  color = null,
+  shotColor = null,
 } = {}) {
   const shotMap = new Map();
   for (const shot of shots) shotMap.set(`${shot.x},${shot.y}`, shot);
@@ -28,7 +30,7 @@ export function renderGrid({
 
   const columns = axes ? size + 1 : size;
   const parts = [
-    `<div class="battle-grid" style="--grid-size:${columns}" role="grid" aria-label="${label}">`,
+    `<div class="battle-grid" style="--grid-size:${columns}${color ? `;--side:${color}` : ''}${shotColor ? `;--shot:${shotColor}` : ''}" role="grid" aria-label="${label}">`,
   ];
 
   if (axes) {
