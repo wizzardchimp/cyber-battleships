@@ -15,7 +15,7 @@ import { SessionManager } from '../server/sessions/manager.js';
  * Boot the real HTTP + Socket.IO server against an isolated database.
  * Pass a directory to pgliteDir to test persistence across restarts.
  */
-export async function bootTestServer({ pgliteDir = 'memory://' } = {}) {
+export async function bootTestServer({ pgliteDir = 'memory://', facilitatorPin = '' } = {}) {
   const config = loadConfig({
     nodeEnv: 'test',
     port: 0,
@@ -23,6 +23,7 @@ export async function bootTestServer({ pgliteDir = 'memory://' } = {}) {
     clientDist: '/nonexistent-cyber-battleships-client',
     publicUrl: 'http://127.0.0.1',
     logLevel: 'silent',
+    facilitatorPin,
     databaseUrl: '',
   });
   const logger = pino({ level: 'silent' });

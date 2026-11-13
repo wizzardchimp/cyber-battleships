@@ -42,6 +42,7 @@ let menuOpen = false;
 let joinOpen = false;
 let vaultOpen = false;
 let vaultName = '';
+let pinGate = null;
 let importUi = null;
 let armed = null; // { action, timer } for two-step confirmations
 let lastPhase = null;
@@ -124,7 +125,7 @@ async function subscribe() {
     const wantsNew = new URLSearchParams(window.location.search).has('new');
     const result = await request(socket, EVENTS.DISPLAY_SUBSCRIBE, { key: controlKey() || null });
     if (!result.game || wantsNew) {
-      await createGame({ force: wantsNew });
+      await startWithPin({ force: wantsNew });
       if (wantsNew) window.history.replaceState({}, '', '/display');
     }
   } catch (error) {
@@ -133,12 +134,42 @@ async function subscribe() {
   }
 }
 
-async function createGame({ force = false } = {}) {
+/** Start a game, asking for the facilitator PIN when the server wants one. */
+async function startWithPin({ force = false } = {}) {
+  try {
+    await createGame({ force });
+  } catch (error) {
+    if (error.code !== 'PIN_REQUIRED' && error.code !== 'WRONG_PIN') throw error;
+    pinGate = { force, error: '' };
+    renderPinGate();
+  }
+}
+
+function renderPinGate() {
+  if (state) return;
+  app.innerHTML = `
+    <div class="boot-screen">
+      <img class="boot-screen__mark" src="/brand/mark-256.png" alt="" />
+      <div class="boot-screen__logo">FACILITATOR</div>
+      <form id="pin-form" class="pin-form" novalidate>
+        <label class="field">
+          <span class="field__label">Facilitator PIN</span>
+          <input class="input input--code" name="pin" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="40" autofocus />
+        </label>
+        ${pinGate?.error ? `<p class="form-error">${escapeHtml(pinGate.error)}</p>` : ''}
+        <button class="btn btn--primary btn--wide" type="submit">START GAME</button>
+      </form>
+    </div>`;
+  app.querySelector('input[name="pin"]')?.focus();
+}
+
+async function createGame({ force = false, pin = null } = {}) {
   creating = true;
   try {
     const result = await request(socket, EVENTS.DISPLAY_CREATE, {
       key: controlKey() || null,
       force,
+      pin,
     });
     localStorage.setItem(KEY_STORAGE, result.key);
     settingsOpen = false;
@@ -466,6 +497,7 @@ function maxCorrect(teams) {
 }
 
 function progressCard(team, scale, many) {
+  const out = Boolean(team.eliminated);
   const rows = team.players
     .map(
       (player) => `
@@ -477,10 +509,10 @@ function progressCard(team, scale, many) {
     )
     .join('');
   return `
-    <article class="progress" style="--side:${team.color}">
-      <header class="progress__head"><h2 class="progress__name">${escapeHtml(team.name)}</h2></header>
+    <article class="progress ${out ? 'is-eliminated' : ''}" style="--side:${team.color}">
+      <header class="progress__head"><h2 class="progress__name">${escapeHtml(team.name)}${out ? ' · OUT' : ''}</h2></header>
       <div class="stats">
-        <div class="stat stat--missiles"><span class="stat__value">${team.missiles}</span><span class="stat__label">Missiles</span></div>
+        <div class="stat stat--missiles"><span class="stat__value">${team.missiles}</span><span class="stat__label">Missiles${team.perMissile > 1 ? ` · +${team.ammoProgress}/${team.perMissile}` : ''}</span></div>
         <div class="stat"><span class="stat__value">${team.correct}</span><span class="stat__label">Correct</span></div>
         <div class="stat"><span class="stat__value">${team.answered}</span><span class="stat__label">Answered</span></div>
         <div class="stat"><span class="stat__value">${team.accuracy}%</span><span class="stat__label">Accuracy</span></div>
@@ -1138,7 +1170,14 @@ async function runAction(action, node) {
     case 'new-game':
     case 'take-control':
       try {
-        await createGame({ force: action === 'take-control' });
+        try {
+          await createGame({ force: action === 'take-control' });
+        } catch (error) {
+          if (error.code !== 'PIN_REQUIRED' && error.code !== 'WRONG_PIN') throw error;
+          const pin = window.prompt('Facilitator PIN');
+          if (!pin) throw new Error('A PIN is needed to take control.');
+          await createGame({ force: action === 'take-control', pin });
+        }
       } catch (error) {
         ok = false;
         toast(error.message, 'error', '#toast-root');
@@ -1296,6 +1335,22 @@ async function resetSet(id) {
     toast(error.message, 'error', '#toast-root');
   }
 }
+
+document.addEventListener('submit', async (event) => {
+  const form = event.target.closest?.('#pin-form');
+  if (!form) return;
+  event.preventDefault();
+  const pin = String(new FormData(form).get('pin') || '').trim();
+  if (!pin) return;
+  try {
+    await createGame({ force: Boolean(pinGate?.force), pin });
+    pinGate = null;
+    if (new URLSearchParams(window.location.search).has('new')) window.history.replaceState({}, '', '/display');
+  } catch (error) {
+    pinGate = { ...pinGate, error: error.message };
+    renderPinGate();
+  }
+});
 
 document.addEventListener('click', (event) => {
   unlockAudio();

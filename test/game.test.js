@@ -985,3 +985,17 @@ test('a side with only one player keeps its captain', async () => {
   await session.tick(Date.now() + 31_000);
   assert.equal(alpha.captainPlayerId, solo.id);
 });
+
+test('a sunk team gets no more questions, and the briefing counts the missiles really earned', async () => {
+  const { session, alpha, bravo, a, b } = await startedFleet();
+  for (const player of a) for (let i = 0; i < 3; i += 1) await answerCorrectly(session, player);
+  const brief = session.teamProgress().find((team) => team.id === alpha.id);
+  assert.equal(brief.won, session.arsenalFor(alpha.id), 'won matches the missiles earned, not an estimate');
+  assert.equal(brief.perMissile, 3);
+
+  for (const ship of session.state.fleets[bravo.id].ships) ship.sunk = true;
+  const view = playerProjection(session, b[0].id);
+  assert.equal(view.round.me.eliminated, true);
+  assert.equal(view.round.me.question, null);
+  await expectReject(() => session.answer(b[0].id, 1, 0), 'ELIMINATED');
+});

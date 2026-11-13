@@ -65,6 +65,8 @@ export function loadConfig(overrides = {}) {
     dataDir,
     clientDist: path.resolve(overrides.clientDist || path.join(ROOT, 'dist', 'client')),
     publicUrl,
+    // Needed to start a game or replace a running one. Empty turns it off.
+    facilitatorPin: String(overrides.facilitatorPin ?? process.env.FACILITATOR_PIN ?? 'rocu').trim(),
     sessionRetentionHours: Number(
       overrides.sessionRetentionHours ?? process.env.SESSION_RETENTION_HOURS ?? 24,
     ),

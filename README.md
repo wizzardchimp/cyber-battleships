@@ -37,6 +37,10 @@ There is no facilitator dashboard. The big screen **is** the control surface.
 | **3 vs 3** | ALPHA and BRAVO, 3 players each | Teammates share one missile pool |
 | **1 vs 1** | ALPHA and BRAVO, 1 player each | Head to head |
 | **Everyone vs CPU** | One crew of up to 20 | All players attack the CPU fleet |
+| **3 teams** | ALPHA, BRAVO and CHARLIE, up to 20 players each | Every **3 correct answers** earn the team one missile. Each team may attack either other fleet; the captain picks one with tabs on their phone. A team with every ship sunk is out, and the last fleet afloat wins |
+
+On the big screen every board is tinted in the colour of the fleet under attack,
+and each shot is coloured by the team that fired it.
 
 ## Quick start
 
@@ -152,13 +156,14 @@ lobby to result, including restart recovery.
 
 ## Configuration
 
-Copy `.env.example` to `.env` if you need to change anything. No facilitator PIN
-or cookie secret is needed.
+Copy `.env.example` to `.env` if you need to change anything. No cookie secret is
+needed.
 
 | Variable | Default | Notes |
 | --- | --- | --- |
 | `PORT` | `3000` | HTTP port |
 | `PUBLIC_URL` | Railway domain / LAN | Base URL used in QR codes and join links |
+| `FACILITATOR_PIN` | `rocu` | PIN to start or replace a game; empty turns it off |
 | `DATABASE_URL` | empty | PostgreSQL URL; empty uses embedded PGlite |
 | `PGSSL` | on in production | Set `false` for a local Postgres without TLS |
 | `DATA_DIR` | `./data` | PGlite data directory |
@@ -176,7 +181,8 @@ or cookie secret is needed.
 
 The game and the question sets live in PostgreSQL, so a redeploy keeps an active
 game and its players, and phones reconnect on their own. Old `ADMIN_PIN` and
-`COOKIE_SECRET` variables are no longer used and can be deleted.
+`COOKIE_SECRET` variables are no longer used and can be deleted. Set
+`FACILITATOR_PIN` in Railway so the PIN is not just the default in the source.
 
 ## Run with Docker
 
@@ -226,10 +232,44 @@ docs/architecture.md     # design notes
   every question round, and a different player is chosen each time, so everyone
   gets a turn before anyone repeats. If the captain goes offline during a battle,
   a teammate takes over.
+- **Controls swap every 30 seconds.** During a battle the controls pass to a random,
+  different, connected teammate every 30 seconds. The new captain gets a green
+  "you have the controls" pop-up and the old one an amber "controls passed" pop-up.
+  A captain can also press **PASS CONTROLS TO A TEAMMATE** at any time. A side with
+  only one player online keeps its captain.
+- When questions start, a short 5 second animation on the big screen and the phones
+  shows each side's captain being drawn.
 - Three correct answers in a row earn a bonus missile, and so do the fourth and
   fifth. The bonus is shown on the player's phone. From the sixth in a row, and
   after any wrong answer, there is no further bonus until a new streak of three.
   Streaks start again with each question round.
+
+## Joining and playing from a laptop
+
+- Players can join during the lobby **and during a question round**; a late joiner
+  gets a question straight away. Joining closes during the battle and reopens
+  with the next question round. The **JOIN** button in the top banner shows the QR
+  code, join code and link during a question round.
+- Players can also join by going to the site's address and typing the six-character
+  code on the welcome page, or by typing the short link shown on the big screen.
+- On a laptop or Chromebook, answer with **1 / 2 / 3** or **A / B / C**, or click.
+  The captain fires by clicking a square with the mouse or trackpad.
+
+## Question vault
+
+Under **SETTINGS → QUESTION SET**, the **VAULT** card opens a pop-up listing saved
+question lists. **IMPORT A NEW LIST** takes a name and a CSV file in the same format
+as the built-in sets, previews it, saves it to the database and selects it for the
+game. Saved lists can be picked again for later games, exported or deleted (lobby
+only, up to 50 lists). Easy and Complex cannot be deleted.
+
+## Facilitator PIN
+
+Starting a game, or replacing a running one, asks for a facilitator PIN, so a stranger
+who opens `/display` cannot take over the room. The screen that started a game keeps
+control without the PIN. Five wrong tries lock that address for a minute. Set the PIN
+with the `FACILITATOR_PIN` variable (the default is `rocu`; set it to an empty value to
+turn the PIN off). Players are never asked for it.
 
 ## Background music
 

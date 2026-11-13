@@ -1650,3 +1650,15 @@ body.display-page {
 .board.is-eliminated .board__title small {
   color: var(--red);
 }
+
+.progress.is-eliminated {
+  opacity: 0.45;
+}
+
+/* --------------------------------------------------------- facilitator PIN */
+
+.pin-form {
+  display: grid;
+  gap: 1rem;
+  width: min(24rem, 90vw);
+}

@@ -81,6 +81,7 @@ export const displaySubscribeSchema = z.object({
 export const displayCreateSchema = z.object({
   key: controlKeySchema.nullable().optional(),
   force: z.boolean().optional(),
+  pin: z.string().trim().max(40).nullable().optional(),
 });
 
 export const displaySettingsSchema = z.object({
