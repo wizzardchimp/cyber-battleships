@@ -802,7 +802,9 @@ function renderControls() {
     switch (phase) {
       case PHASES.LOBBY:
         hint = `${players} of ${state.counts.capacity} players joined`;
-        buttons = button('START GAME', { action: 'advance', kind: 'btn--go', main: true });
+        buttons =
+          (players > 0 ? button('RESET PLAYERS', { action: 'reset-players', kind: 'btn--ghost', confirm: true }) : '') +
+          button('START GAME', { action: 'advance', kind: 'btn--go', main: true });
         break;
       case PHASES.QUIZ:
         hint = 'The quiz timer is running.';
@@ -1044,8 +1046,9 @@ function menuModal() {
       <section class="modal hud" role="dialog" aria-modal="true" aria-label="Game menu" style="max-width:36rem">
         <header class="modal__head"><h2 class="modal__title">GAME MENU</h2></header>
         <div class="modal__body">
-          <p class="setting__help" style="font-size:1.15rem">Settings can only be changed in the lobby. Go back to the lobby to adjust them, or start a new game with a fresh join code.</p>
+          <p class="setting__help" style="font-size:1.15rem">Settings can only be changed in the lobby. Go back to the lobby to adjust them, remove every player but keep this join code, or start a new game with a fresh join code.</p>
           ${button('BACK TO LOBBY', { action: 'lobby', kind: 'btn--wide', confirm: true })}
+          ${button('RESET PLAYERS (KEEP CODE)', { action: 'reset-players', kind: 'btn--wide', confirm: true })}
           ${button('NEW GAME (NEW CODE)', { action: 'new-game', kind: 'btn--wide btn--danger', confirm: true })}
         </div>
         <footer class="modal__foot"><button class="btn btn--primary" type="button" data-modal="close">CLOSE</button></footer>
@@ -1166,6 +1169,13 @@ async function runAction(action, node) {
     case 'lobby':
       ok = await send(EVENTS.DISPLAY_LOBBY);
       if (ok) menuOpen = false;
+      break;
+    case 'reset-players':
+      ok = await send(EVENTS.DISPLAY_RESET_PLAYERS);
+      if (ok) {
+        menuOpen = false;
+        toast('All players removed. The join code is unchanged.', 'success', '#toast-root');
+      }
       break;
     case 'new-game':
     case 'take-control':

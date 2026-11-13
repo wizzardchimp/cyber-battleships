@@ -310,6 +310,35 @@ export class GameSession extends EventEmitter {
     await this.commit();
   }
 
+  /**
+   * Facilitator: remove every player and reopen the lobby. The game keeps its join
+   * code, QR code, settings and control key, so people can scan in again.
+   */
+  async resetPlayers() {
+    const removed = this.state.players.splice(0, this.state.players.length);
+    this.state.phase = PHASES.LOBBY;
+    this.state.startedAt = null;
+    this.state.endedAt = null;
+    this.state.round = null;
+    this.state.fleets = {};
+    this.state.arsenal = {};
+    this.state.ammoProgress = {};
+    this.state.scores = {};
+    for (const team of this.state.teams) {
+      team.missiles = 0;
+      team.eliminated = false;
+      team.captainPlayerId = null;
+      team.captainHistory = [];
+    }
+    this.recordEvent('players_reset', { count: removed.length });
+    this.bump();
+    for (const player of removed) {
+      this.emit('playerRemoved', { playerId: player.id, name: player.displayName, reason: 'reset' });
+    }
+    await this.commit();
+    return removed.length;
+  }
+
   async removePlayer(playerId) {
     const index = this.state.players.findIndex((player) => player.id === playerId);
     assert(index >= 0, 'PLAYER_NOT_FOUND', 'Player not found.');

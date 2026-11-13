@@ -32,6 +32,8 @@ function toastFor(event) {
       return { level: 'move', message: `${event.name} moved to ${event.teamName}` };
     case 'player_removed':
       return { level: 'leave', message: `${event.name} was removed` };
+    case 'players_reset':
+      return { level: 'leave', message: `All ${event.count} player${event.count === 1 ? '' : 's'} removed` };
     case 'captain_rotated':
     case 'captain_passed':
       return { level: 'move', message: `${event.teamName}: ${event.name} takes the controls` };
@@ -124,11 +126,11 @@ export function attachSocketServer(io, { manager, config, logger }) {
       const toast = toastFor(event);
       if (toast) io.to(roomFor(session.id)).emit(EVENTS.TOAST, toast);
     });
-    session.on('playerRemoved', ({ playerId, name }) => {
+    session.on('playerRemoved', ({ playerId, name, reason = 'removed' }) => {
       const sockets = playerSockets.get(playerId);
       if (sockets) {
         for (const target of sockets) {
-          target.emit(EVENTS.PLAYER_REMOVED, { reason: 'removed', name });
+          target.emit(EVENTS.PLAYER_REMOVED, { reason, name });
           target.data.playerId = null;
           target.data.role = null;
         }
@@ -418,6 +420,15 @@ export function attachSocketServer(io, { manager, config, logger }) {
         const data = displayRemoveSchema.parse(payload ?? {});
         await sessionFromSocket(socket).removePlayer(data.playerId);
         reply(ack, { ok: true });
+      });
+    });
+
+    socket.on(EVENTS.DISPLAY_RESET_PLAYERS, (payload, ack) => {
+      run(socket, ack, async () => {
+        controlOnly(socket);
+        if (!guard(socket, 'control', 10)) return;
+        const removed = await sessionFromSocket(socket).resetPlayers();
+        reply(ack, { ok: true, removed });
       });
     });
 
