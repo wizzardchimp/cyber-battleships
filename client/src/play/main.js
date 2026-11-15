@@ -367,7 +367,7 @@ function renderBriefing() {
     </section>
     <div class="waiting">
       <img class="waiting__pulse" src="/brand/mark-128.png" alt="" />
-      <p>${me.isCaptain ? 'You are the captain. You will fire the missiles.' : `${escapeHtml(me.captainName || 'Your captain')} is the captain and will fire the missiles.`}<br />The battle starts when the facilitator is ready.</p>
+      <p>A captain is chosen at random when the battle starts, and fires the missiles.<br />The battle starts when the facilitator is ready.</p>
     </div>`,
     { side: color },
   );
@@ -424,6 +424,34 @@ function targetTabsMarkup(boards, board) {
     </div>`;
 }
 
+/** Shown on every phone while a video plays on the big screen: who the captain is. */
+function renderCaptainCard({ heading, until }) {
+  const me = playerState.round.me;
+  const color = playerState.me.teamColor || '#19e3ff';
+  const who = me.isCaptain
+    ? '<div class="captain-card__you">YOU ARE THE CAPTAIN</div>'
+    : `<div class="captain-card__label">YOUR CAPTAIN</div><div class="captain-card__name">${escapeHtml(me.captainName || '...')}</div>`;
+  shell(
+    `
+    <section class="captain-card hud" style="--bracket:${escapeHtml(color)}">
+      <div class="captain-card__heading">${escapeHtml(heading)}</div>
+      ${who}
+      ${until ? `<p class="captain-card__note">${escapeHtml(me.isCaptain ? 'Get ready to fire.' : 'Watch the big screen.')} <b data-countdown="${escapeHtml(until)}">${formatCountdown(until)}</b></p>` : ''}
+    </section>`,
+    { side: color },
+  );
+}
+
+/** True while a video is playing on the big screen and the board should stay hidden. */
+function sceneUntil() {
+  const round = playerState?.round;
+  if (!round) return null;
+  const phase = playerState.session.phase;
+  const key = phase === PHASES.BATTLE ? round.battleOpensAt : phase === PHASES.RESUPPLY || phase === PHASES.RESULT ? round.sceneEndsAt : null;
+  if (!key) return null;
+  return Date.parse(key) > serverNow() ? key : null;
+}
+
 function renderBattle() {
   const round = playerState.round;
   const me = round.me;
@@ -433,6 +461,13 @@ function renderBattle() {
 
   if (!board) {
     renderMessage('STAND BY', 'No target has been assigned to you.');
+    return;
+  }
+
+  const pre = sceneUntil();
+  if (pre) {
+    window.setTimeout(() => render(true), Date.parse(pre) - serverNow() + 80);
+    renderCaptainCard({ heading: 'BATTLE STARTING', until: pre });
     return;
   }
 
@@ -459,10 +494,16 @@ function renderBattle() {
     ? `<div class="captain-tag">YOU ARE THE CAPTAIN · YOU FIRE THE MISSILES</div>${swapNote(round)}${passControlsMarkup()}`
     : `<div class="captain-tag captain-tag--watch">${escapeHtml(me.captainName || 'Your captain')} is the captain and fires the missiles. You are watching.</div>${swapNote(round)}`;
   const shotColors = Object.fromEntries(round.combatants.map((entry) => [entry.id, entry.color]));
+  const handover = me.becomingCaptain
+    ? `<div class="handover handover--in" role="alert">GET READY: YOU BECOME CAPTAIN IN <b data-countdown="${escapeHtml(round.captainSwapAt || '')}">${formatCountdown(round.captainSwapAt)}</b></div>`
+    : me.isCaptain && me.nextCaptainName
+      ? `<div class="handover handover--out" role="alert">${escapeHtml(me.nextCaptainName)} TAKES THE CONTROLS IN <b data-countdown="${escapeHtml(round.captainSwapAt || '')}">${formatCountdown(round.captainSwapAt)}</b></div>`
+      : '';
 
   shell(
     `
     ${topBar(round.battleEndsAt, me.missiles, me, round.battleOpensAt)}
+    ${handover}
     ${role}
     ${targetTabsMarkup(boards, board)}
     <div class="target" style="--side:${targetColor}">
@@ -612,6 +653,9 @@ function signature() {
         firing,
         passOpen,
         round?.captainSwapAt,
+        round?.battleOpensAt,
+        me?.becomingCaptain,
+        me?.nextCaptainName,
         JSON.stringify(me?.isCaptain ? myTeam()?.players?.map((player) => [player.id, player.connected]) : null),
         round?.scores?.map((score) => score.points),
       ]);
@@ -619,12 +663,14 @@ function signature() {
       return JSON.stringify([
         phase,
         round?.battleEndReason,
+        round?.sceneEndsAt,
+        me?.captainName,
         me?.missiles,
         me?.targetBoard?.shipsSunk,
         round?.scores?.map((score) => score.points),
       ]);
     case PHASES.RESULT:
-      return JSON.stringify([phase, round?.outcome, round?.scores?.map((score) => score.points)]);
+      return JSON.stringify([phase, round?.outcome, round?.sceneEndsAt, me?.captainName, round?.scores?.map((score) => score.points)]);
     default:
       return phase;
   }
@@ -655,6 +701,13 @@ function render(force = false) {
   if (!joined || !playerState?.me) {
     if (joined) renderLoading('Loading your game…');
     else renderJoin();
+    return;
+  }
+
+  const scene = sceneUntil();
+  if (scene && (playerState.session.phase === PHASES.RESUPPLY || playerState.session.phase === PHASES.RESULT)) {
+    window.setTimeout(() => render(true), Date.parse(scene) - serverNow() + 80);
+    renderCaptainCard({ heading: playerState.session.phase === PHASES.RESULT ? 'GAME OVER' : 'REGROUP', until: scene });
     return;
   }
 
@@ -910,22 +963,25 @@ function announceControlChange(before, after) {
   popup.className = `control-popup ${now ? 'control-popup--gain' : 'control-popup--lose'}`;
   popup.setAttribute('role', 'alert');
   popup.innerHTML = now
-    ? '<span>YOU HAVE THE CONTROLS</span><strong>You are now the captain. Fire!</strong>'
+    ? '<span>YOU ARE NOW THE CAPTAIN</span><strong>You have the controls. Fire!</strong>'
     : `<span>CONTROLS PASSED</span><strong>${escapeHtml(after.round.me.captainName || 'A teammate')} is now the captain.</strong>`;
   document.body.append(popup);
-  window.setTimeout(() => popup.remove(), 2600);
+  window.setTimeout(() => popup.remove(), 3600);
   const flash = document.createElement('div');
-  flash.className = `hit-flash control-flash ${now ? 'control-flash--gain' : 'control-flash--lose'}`;
+  flash.className = `hit-flash control-flash control-flash--pulse ${now ? 'control-flash--gain' : 'control-flash--lose'}`;
   flash.setAttribute('aria-hidden', 'true');
   document.body.append(flash);
-  window.setTimeout(() => flash.remove(), 450);
+  window.setTimeout(() => flash.remove(), 1500);
   if (now) sfx.alert();
 }
 
-/** A short reveal of who the captain is when a question round begins. */
+/** The draw reveal when a battle starts: who is captain, before the board appears. */
 function maybeDrawCaptain(before, after) {
-  if (!before || !after?.round || !after.me || after.session.phase !== PHASES.QUIZ) return;
-  if (before.session.phase === PHASES.QUIZ && before.round?.cycle === after.round.cycle) return;
+  if (!before || !after?.round || !after.me) return;
+  if (!(before.session.phase === PHASES.REVIEW && after.session.phase === PHASES.BATTLE)) return;
+  const introAt = Date.parse(after.round.battleIntroAt || '');
+  const drawMs = Number.isFinite(introAt) ? introAt - serverNow() : 0;
+  if (drawMs <= 1000) return;
   const team = after.teams?.find((entry) => entry.id === after.me.teamId);
   if (!team) return;
   runCaptainDraw(
@@ -937,7 +993,7 @@ function maybeDrawCaptain(before, after) {
         captain: team.players.find((player) => player.captain)?.name || '',
       },
     ],
-    { compact: true, sound: after.session?.config?.soundEnabled !== false },
+    { compact: true, duration: drawMs, sound: after.session?.config?.soundEnabled !== false },
   );
 }
 

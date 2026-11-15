@@ -90,6 +90,9 @@ function roundProjection(session) {
     quizEndsAt: round.quizEndsAt,
     battleEndsAt: round.battleEndsAt,
     battleOpensAt: round.battleOpensAt || null,
+    battleIntroAt: round.battleIntroAt || null,
+    sceneEndsAt:
+      state.phase === PHASES.RESUPPLY || state.phase === PHASES.RESULT ? round.sceneEndsAt || null : null,
     battleEndReason: round.battleEndReason || null,
     captainSwapAt: state.phase === PHASES.BATTLE ? round.captainSwapAt || null : null,
     teams: session.teamProgress(),
@@ -191,6 +194,9 @@ export function playerProjection(session, playerId) {
     round.me = {
       isCaptain: Boolean(captain && captain.id === player.id),
       captainName: captain?.displayName || null,
+      // Set for the last five seconds before the controls change hands.
+      becomingCaptain: Boolean(team && state.round.nextCaptains?.[team.id] === player.id),
+      nextCaptainName: team ? session.playerById(state.round.nextCaptains?.[team.id])?.displayName || null : null,
       missiles: team ? session.arsenalFor(team.id) : 0,
       answered: entry.answered || 0,
       correct: entry.correct || 0,

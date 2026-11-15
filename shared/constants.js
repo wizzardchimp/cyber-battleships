@@ -142,6 +142,11 @@ export const TIMING = Object.freeze({
   correctFeedbackMs: 1300,
   bonusFeedbackMs: 2300,
   captainSwapMs: 30_000,
+  // The incoming and outgoing captain are told this long before controls change hands.
+  captainWarnMs: 5_000,
+  // How long the regroup and end videos cover the big screen (phones show the captain meanwhile).
+  regroupSceneMs: 6_000,
+  endSceneMs: 13_000,
 });
 
 export const DEFAULT_CONFIG = Object.freeze({

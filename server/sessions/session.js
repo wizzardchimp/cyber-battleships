@@ -73,8 +73,10 @@ export function createSessionState({
 }
 
 export class GameSession extends EventEmitter {
-  constructor({ state, repository, logger, questions, introMs = 0 }) {
+  constructor({ state, repository, logger, questions, introMs = 0, drawMs = 0 }) {
     super();
+    // How long the captain draw covers the screens when a battle begins.
+    this.drawMs = Math.max(0, Number(drawMs) || 0);
     // How long the opening cut scene covers the big screen before firing opens.
     this.introMs = Math.max(0, Number(introMs) || 0);
     this.state = state;
@@ -319,6 +321,28 @@ export class GameSession extends EventEmitter {
     await this.commit();
   }
 
+  /** Facilitator: give a side a custom name (lobby only), e.g. "RED DRAGONS" instead of ALPHA. */
+  async renameTeam(teamId, name) {
+    assert(this.state.phase === PHASES.LOBBY, 'NOT_IN_LOBBY', 'Team names can only be changed in the lobby.');
+    const team = this.teamById(teamId);
+    assert(team, 'INVALID_TEAM', 'That side no longer exists.');
+    const clean = cleanText(name, LIMITS.maxNameLength).toUpperCase();
+    assert(clean.length >= LIMITS.minNameLength, 'INVALID_NAME', 'Use at least two characters for a team name.');
+    assert(
+      !this.state.teams.some((other) => other.id !== team.id && other.name.toUpperCase() === clean),
+      'NAME_TAKEN',
+      'Another side already has that name.',
+    );
+    if (team.name === clean) return clean;
+    const from = team.name;
+    team.name = clean;
+    team.customName = true;
+    this.recordEvent('team_renamed', { teamId: team.id, fromName: from, teamName: clean });
+    this.bump();
+    await this.commit();
+    return clean;
+  }
+
   /**
    * Facilitator: remove every player and reopen the lobby. The game keeps its join
    * code, QR code, settings and control key, so people can scan in again.
@@ -389,7 +413,16 @@ export class GameSession extends EventEmitter {
     );
 
     const oldOrder = new Map(this.state.teams.map((team) => [team.id, team.sortOrder]));
+    const oldTeams = [...this.state.teams].sort((a, b) => a.sortOrder - b.sortOrder);
     const teams = buildTeams(mode);
+    // Names the facilitator typed carry over to the same place in the new mode.
+    teams.forEach((team, index) => {
+      const old = oldTeams[index];
+      if (old?.customName) {
+        team.name = old.name;
+        team.customName = true;
+      }
+    });
     const counts = new Map(teams.map((team) => [team.id, 0]));
     const pending = [];
 
@@ -509,7 +542,9 @@ export class GameSession extends EventEmitter {
       this.issueQuestion(player.id, now);
     }
 
-    this.assignCaptains();
+    // Captains are drawn when the battle starts, after the questions.
+    for (const team of this.state.teams) team.captainPlayerId = null;
+    round.nextCaptains = null;
 
     this.state.phase = PHASES.QUIZ;
     if (round.cycle > 1) {
@@ -565,11 +600,13 @@ export class GameSession extends EventEmitter {
   }
 
   /**
-   * Hand every side's controls to a different connected teammate at random.
-   * Sides with nobody else online keep their captain.
+   * Five seconds before the controls change hands, choose each side's next
+   * captain so both players can be told. Sides with nobody else online keep
+   * their captain.
    */
-  rotateCaptains(now = Date.now()) {
+  planRotation() {
     const round = this.state.round;
+    round.nextCaptains = {};
     for (const team of this.state.teams) {
       if (this.fleetDestroyed(team.id)) continue;
       const before = team.captainPlayerId;
@@ -577,17 +614,33 @@ export class GameSession extends EventEmitter {
         (player) => player.connected && player.id !== before,
       );
       if (others.length === 0) continue;
-      const chosen = this.assignCaptain(team);
-      if (chosen && chosen.id !== before) {
-        this.recordEvent('captain_rotated', {
-          fromId: before,
-          playerId: chosen.id,
-          name: chosen.displayName,
-          teamId: team.id,
-          teamName: team.name,
-        });
-      }
+      const chosen = this.pickCaptain(team);
+      if (chosen && chosen.id !== before) round.nextCaptains[team.id] = chosen.id;
     }
+    this.bump();
+  }
+
+  /** Hand every side's controls to the captain chosen in planRotation. */
+  rotateCaptains(now = Date.now()) {
+    const round = this.state.round;
+    if (!round.nextCaptains) this.planRotation();
+    for (const team of this.state.teams) {
+      const planned = this.playerById(round.nextCaptains?.[team.id]);
+      if (!planned) continue;
+      // Skip anyone who has left or gone offline since the warning.
+      if (planned.teamId !== team.id || !planned.connected) continue;
+      const before = team.captainPlayerId;
+      if (planned.id === before) continue;
+      team.captainPlayerId = planned.id;
+      this.recordEvent('captain_rotated', {
+        fromId: before,
+        playerId: planned.id,
+        name: planned.displayName,
+        teamId: team.id,
+        teamName: team.name,
+      });
+    }
+    round.nextCaptains = null;
     round.captainSwapAt = new Date(now + TIMING.captainSwapMs).toISOString();
     this.bump();
   }
@@ -612,6 +665,7 @@ export class GameSession extends EventEmitter {
     );
     assert(to.connected, 'PLAYER_OFFLINE', `${to.displayName} is offline.`);
     team.captainPlayerId = to.id;
+    if (this.state.round?.nextCaptains) delete this.state.round.nextCaptains[team.id];
     team.captainHistory = Array.isArray(team.captainHistory) ? team.captainHistory : [];
     if (!team.captainHistory.includes(to.id)) team.captainHistory.push(to.id);
     this.recordEvent('captain_passed', {
@@ -770,16 +824,23 @@ export class GameSession extends EventEmitter {
   enterBattle(now = Date.now()) {
     const round = this.state.round;
     assert(round, 'NOT_IN_ROUND', 'No game is running.');
-    // The first battle of a game opens after the intro cut scene has played.
-    const first = this.state.phase === PHASES.REVIEW && !round.introPlayed;
-    const opensAt = now + (first ? this.introMs : 0);
+    // Coming from the briefing: draw fresh captains, reveal them, and (the first
+    // time) play the intro cut scene before firing opens. Resuming a paused
+    // battle keeps the captains it had.
+    const fresh = this.state.phase === PHASES.REVIEW;
+    const first = fresh && !round.introPlayed;
+    const introAt = now + (fresh ? this.drawMs : 0);
+    const opensAt = introAt + (first ? this.introMs : 0);
     round.introPlayed = true;
+    round.battleIntroAt = new Date(introAt).toISOString();
     round.battleOpensAt = new Date(opensAt).toISOString();
     round.battleStartedAt = new Date(opensAt).toISOString();
     round.battleEndsAt = new Date(opensAt + this.config.battleSeconds * 1000).toISOString();
     round.battleEndReason = null;
     round.captainSwapAt = new Date(opensAt + TIMING.captainSwapMs).toISOString();
-    this.ensureCaptains();
+    round.nextCaptains = null;
+    if (fresh) this.assignCaptains();
+    else this.ensureCaptains();
     this.state.phase = PHASES.BATTLE;
     this.recordEvent('battle_started', { round: round.number });
     this.bump();
@@ -794,6 +855,8 @@ export class GameSession extends EventEmitter {
     const round = this.state.round;
     assert(round, 'NOT_IN_ROUND', 'No game is running.');
     round.battleEndReason = reason;
+    round.sceneEndsAt = new Date(Date.now() + TIMING.regroupSceneMs).toISOString();
+    round.nextCaptains = null;
     this.state.phase = PHASES.RESUPPLY;
     this.recordEvent('battle_paused', { round: round.number, reason });
     this.bump();
@@ -953,6 +1016,8 @@ export class GameSession extends EventEmitter {
     const round = this.state.round;
     assert(round, 'NOT_IN_ROUND', 'No game is running.');
     round.endedAt = new Date(now).toISOString();
+    round.sceneEndsAt = new Date(now + TIMING.endSceneMs).toISOString();
+    round.nextCaptains = null;
     this.state.phase = PHASES.RESULT;
     this.state.endedAt = round.endedAt;
 
@@ -1048,15 +1113,16 @@ export class GameSession extends EventEmitter {
         changed = true;
       }
 
-      // Controls pass to a different teammate every so often.
-      if (
-        !changed &&
-        this.state.phase === PHASES.BATTLE &&
-        round.captainSwapAt &&
-        now >= Date.parse(round.captainSwapAt)
-      ) {
-        this.rotateCaptains(now);
-        changed = true;
+      // Controls pass to a different teammate every so often, with a warning first.
+      if (!changed && this.state.phase === PHASES.BATTLE && round.captainSwapAt) {
+        const swapAt = Date.parse(round.captainSwapAt);
+        if (now >= swapAt) {
+          this.rotateCaptains(now);
+          changed = true;
+        } else if (!round.nextCaptains && now >= swapAt - TIMING.captainWarnMs) {
+          this.planRotation();
+          changed = true;
+        }
       }
 
       if (changed) await this.commit();

@@ -3,6 +3,12 @@ import { escapeHtml } from './dom.js';
 
 export const DRAW_MS = 5000;
 
+let drawing = false;
+
+export function captainDrawActive() {
+  return drawing;
+}
+
 /**
  * A short slot-machine style reveal of each side's randomly chosen captain.
  * Names flicker past, slowing down, and settle on the captain at the end.
@@ -10,9 +16,13 @@ export const DRAW_MS = 5000;
  *
  * teams: [{ name, color, players: [name], captain: name }]
  */
-export function runCaptainDraw(teams, { duration = DRAW_MS, sound = true, compact = false } = {}) {
+export function runCaptainDraw(teams, { duration = DRAW_MS, sound = true, compact = false, onDone = null } = {}) {
   const draws = teams.filter((team) => team.captain && team.players.length > 0);
-  if (draws.length === 0) return;
+  if (draws.length === 0) {
+    onDone?.();
+    return;
+  }
+  drawing = true;
   document.getElementById('captain-draw')?.remove();
 
   const root = document.createElement('div');
@@ -67,6 +77,10 @@ export function runCaptainDraw(teams, { duration = DRAW_MS, sound = true, compac
   window.setTimeout(() => {
     done = true;
     root.classList.add('is-leaving');
-    window.setTimeout(() => root.remove(), 350);
+    window.setTimeout(() => {
+      root.remove();
+      drawing = false;
+      onDone?.();
+    }, 350);
   }, duration);
 }

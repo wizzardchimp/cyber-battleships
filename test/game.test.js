@@ -799,13 +799,14 @@ test('each side gets exactly one captain, and only the captain can fire', async 
 
 test('a new captain is chosen for each question round', async () => {
   const { session, alpha, alphaPlayers } = await startedSquad();
-  const seen = [alpha.captainPlayerId];
-  for (let cycle = 0; cycle < 2; cycle += 1) {
+  assert.equal(alpha.captainPlayerId, null, 'no captain is drawn while the questions run');
+  const seen = [];
+  for (let cycle = 0; cycle < 3; cycle += 1) {
     await session.advance(); // briefing
-    await session.advance(); // battle
+    await session.advance(); // battle: the captain is drawn now
+    seen.push(alpha.captainPlayerId);
     await session.advance(); // paused
     await session.advance(); // next question round
-    seen.push(alpha.captainPlayerId);
   }
   assert.notEqual(seen[0], seen[1]);
   assert.notEqual(seen[1], seen[2]);
@@ -815,6 +816,8 @@ test('a new captain is chosen for each question round', async () => {
 
 test('a lone player is always the captain', async () => {
   const { session, alpha, a } = await startedDuel();
+  await session.advance(); // briefing
+  await session.advance(); // battle
   assert.equal(alpha.captainPlayerId, a.id);
 });
 
@@ -832,6 +835,8 @@ test('in a crew game against the CPU one player fires for everybody', async () =
   const { session } = makeSession({ mode: MODES.CPU });
   const players = ['One', 'Two', 'Three', 'Four'].map((name) => session.join({ name }).player);
   await session.advance();
+  await session.advance(); // briefing
+  await session.advance(); // battle
   const crew = session.state.teams[0];
   assert.ok(players.some((player) => player.id === crew.captainPlayerId));
 });
@@ -1102,16 +1107,18 @@ test('a captain with no teammate online stays in place', async () => {
 
 test('a stand-in captain does not use up anyone\'s turn in the rotation', async () => {
   const { session, alpha, alphaPlayers } = await startedSquad();
+  await session.advance();
+  await session.advance();
   const first = alpha.captainPlayerId;
-  await session.advance();
-  await session.advance();
   await session.setConnected(first, false);
   const standIn = alpha.captainPlayerId;
   assert.notEqual(standIn, first);
   assert.deepEqual(alpha.captainHistory, [first], 'only real turns are recorded');
 
   await session.advance(); // pause
-  await session.advance(); // next question round picks the next captain in turn
+  await session.advance(); // next question round
+  await session.advance(); // briefing
+  await session.advance(); // battle: the next captain in turn is drawn
   assert.notEqual(alpha.captainPlayerId, first);
   assert.ok(alphaPlayers.some((player) => player.id === alpha.captainPlayerId));
 });
@@ -1145,4 +1152,67 @@ test('streaks start again with each question round', async () => {
   assert.equal((await answerCorrectly(session, a)).bonus, 0);
   assert.equal((await answerCorrectly(session, a)).bonus, 0);
   assert.equal((await answerCorrectly(session, a)).bonus, 1);
+});
+
+test('the captain draw happens when the battle starts, and firing opens after it', async () => {
+  const { session, alpha, alphaPlayers } = await startedSquad();
+  session.drawMs = 5_000;
+  for (const player of alphaPlayers) await answerCorrectly(session, player);
+  assert.equal(alpha.captainPlayerId, null, 'no captain while the questions run');
+  await session.advance(); // briefing
+  assert.equal(alpha.captainPlayerId, null, 'no captain at the briefing either');
+  const before = Date.now();
+  await session.advance(); // battle
+  const round = session.state.round;
+  assert.ok(alpha.captainPlayerId, 'a captain is drawn as the battle starts');
+  assert.ok(Date.parse(round.battleIntroAt) >= before + 4_900, 'the draw runs first');
+  assert.equal(round.battleIntroAt, round.battleOpensAt, 'with no intro video, firing opens as the draw ends');
+  await expectReject(() => session.attack(alpha.captainPlayerId, 0, 0), 'BATTLE_NOT_OPEN');
+});
+
+test('the next captain is announced five seconds before controls change hands', async () => {
+  const { session, alpha, alphaPlayers } = await startedSquad();
+  for (const player of alphaPlayers) await answerCorrectly(session, player);
+  await session.advance();
+  await session.advance();
+  const round = session.state.round;
+  const first = alpha.captainPlayerId;
+  const swapAt = Date.parse(round.captainSwapAt);
+
+  assert.equal(await session.tick(swapAt - 10_000), false, 'nothing happens early');
+  assert.equal(round.nextCaptains, null);
+
+  assert.equal(await session.tick(swapAt - 4_000), true, 'the warning window opens');
+  const incoming = round.nextCaptains[alpha.id];
+  assert.ok(incoming && incoming !== first, 'a different teammate is lined up');
+  assert.equal(alpha.captainPlayerId, first, 'the controls have not moved yet');
+  const incomingView = playerProjection(session, incoming).round.me;
+  assert.equal(incomingView.becomingCaptain, true);
+  const outgoingView = playerProjection(session, first).round.me;
+  assert.equal(outgoingView.becomingCaptain, false);
+  assert.equal(outgoingView.nextCaptainName, session.playerById(incoming).displayName);
+
+  assert.equal(await session.tick(swapAt + 10), true);
+  assert.equal(alpha.captainPlayerId, incoming, 'the announced player takes the controls');
+  assert.equal(round.nextCaptains, null);
+});
+
+test('team names can be customised in the lobby, and survive a mode change', async () => {
+  const { session } = makeSession({ mode: MODES.SQUAD });
+  const [alpha, bravo] = session.state.teams;
+  assert.equal(await session.renameTeam(alpha.id, '  red dragons '), 'RED DRAGONS');
+  assert.equal(alpha.name, 'RED DRAGONS');
+  await expectReject(() => session.renameTeam(bravo.id, 'red dragons'), 'NAME_TAKEN');
+  await expectReject(() => session.renameTeam(bravo.id, 'x'), 'INVALID_NAME');
+  await expectReject(() => session.renameTeam('nope', 'Blue Sharks'), 'INVALID_TEAM');
+  await session.renameTeam(bravo.id, 'Blue Sharks');
+
+  await session.updateConfig({ mode: MODES.DUEL });
+  assert.deepEqual(session.state.teams.map((team) => team.name), ['RED DRAGONS', 'BLUE SHARKS']);
+  await session.updateConfig({ mode: MODES.FLEET });
+  assert.deepEqual(session.state.teams.map((team) => team.name), ['RED DRAGONS', 'BLUE SHARKS', 'CHARLIE']);
+
+  session.join({ name: 'Solo' });
+  await session.advance();
+  await expectReject(() => session.renameTeam(session.state.teams[0].id, 'Too Late'), 'NOT_IN_LOBBY');
 });

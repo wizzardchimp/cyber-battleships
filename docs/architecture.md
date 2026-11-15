@@ -55,8 +55,15 @@ In `fleet` mode a side earns one missile per `correctPerMissile` (3) correct ans
 the remainder is kept in `state.ammoProgress[teamId]`. A side whose fleet is fully
 sunk is eliminated (`team.eliminated`); the game ends when one fleet is left.
 
-During a battle `rotateCaptains` runs from the tick every `TIMING.captainSwapMs`
-(30 s, `round.captainSwapAt`). A captain may also call `passCaptain`.
+Captains are drawn when a battle starts from the briefing (`enterBattle`), not while the
+questions run; a paused battle that resumes keeps its captains. `round.battleIntroAt` is
+when the intro video starts (after the `drawMs` captain draw) and `round.battleOpensAt`
+when firing opens. During a battle the tick runs `planRotation` at
+`captainSwapAt - TIMING.captainWarnMs` (5 s) and `rotateCaptains` at `captainSwapAt`
+(every `TIMING.captainSwapMs`, 30 s), so the outgoing and incoming captains can be told
+(`me.nextCaptainName`, `me.becomingCaptain`). `round.sceneEndsAt` marks how long the regroup
+and end videos cover the big screen. A captain may also call `passCaptain`.
+Team names are editable in the lobby (`renameTeam`) and carry over mode changes.
 
 The question vault stores extra sets in `question_sets` under ids `vault-<hex>`,
 managed by `POST /api/vault` and `DELETE /api/vault/:id` (control key, lobby only).

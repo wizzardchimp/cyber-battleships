@@ -1937,3 +1937,20 @@ body.display-page {
   color: #fff;
   letter-spacing: 0.06em;
 }
+
+/* ------------------------------------------------------------- team names */
+
+.team-names {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.8rem;
+}
+
+.team-name .input {
+  width: 100%;
+  border-color: color-mix(in srgb, var(--side, var(--cyan)) 60%, transparent);
+  color: var(--side, var(--cyan));
+  font-family: var(--font-pixel);
+  font-size: 0.9rem;
+  text-transform: uppercase;
+}

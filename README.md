@@ -68,7 +68,8 @@ npm start
 Open `/` on the room screen and press **START GAME**. It opens `/display`, creates a game and shows
 the QR code. That browser remembers the game, so a refresh keeps control.
 
-- **SETTINGS** (lobby only): game mode, quiz time (1–3 min), battle time
+- **SETTINGS** (lobby only): game mode, **team names** (type your own, such as class or
+  department names, instead of ALPHA and BRAVO; they stay when you change mode), quiz time (1–3 min), battle time
   (30–180 s), grid size, question set, sound, and question import/export.
 - **During a game** the bottom bar changes with the phase: **SKIP TIMER**,
   **START BATTLE**, **END BATTLE ROUND**, **MORE QUESTIONS**, **RESUME BATTLE**,
@@ -164,7 +165,8 @@ needed.
 | `PORT` | `3000` | HTTP port |
 | `PUBLIC_URL` | Railway domain / LAN | Base URL used in QR codes and join links |
 | `FACILITATOR_PIN` | `rocu` | PIN to start or replace a game; empty turns it off |
-| `BATTLE_INTRO_MS` | `11000` | Delay before the first battle opens while the intro plays; `0` removes it |
+| `BATTLE_INTRO_MS` | `10600` | Delay before the first battle opens while the intro video plays; `0` removes it |
+| `CAPTAIN_DRAW_MS` | `5000` | Length of the captain draw at the start of every battle; `0` removes it |
 | `DATABASE_URL` | empty | PostgreSQL URL; empty uses embedded PGlite |
 | `PGSSL` | on in production | Set `false` for a local Postgres without TLS |
 | `DATA_DIR` | `./data` | PGlite data directory |
@@ -238,8 +240,16 @@ docs/architecture.md     # design notes
   "you have the controls" pop-up and the old one an amber "controls passed" pop-up.
   A captain can also press **PASS CONTROLS TO A TEAMMATE** at any time. A side with
   only one player online keeps its captain.
-- When questions start, a short 5 second animation on the big screen and the phones
-  shows each side's captain being drawn.
+- **When the battle starts** (after the questions and the briefing), each side's captain is
+  drawn with a 5 second "CHOOSING CAPTAINS" reveal on the big screen and every phone, then
+  straight into the battle. Nobody is captain while the questions run. The first battle
+  then plays the intro video; while any video plays on the big screen, phones show who
+  their captain is ("YOUR CAPTAIN: …" or "YOU ARE THE CAPTAIN") and the board appears only
+  when the video ends. The big screen shows each team's captain under the video too.
+- **Hand-overs are announced.** Five seconds before the 30 second swap, the outgoing captain
+  sees "NAME TAKES THE CONTROLS IN 5" and the incoming captain sees "GET READY: YOU BECOME
+  CAPTAIN IN 5". At the swap the new captain's phone flashes three times with "YOU ARE NOW
+  THE CAPTAIN".
 - Three correct answers in a row earn a bonus missile, and so do the fourth and
   fifth. The bonus is shown on the player's phone. From the sixth in a row, and
   after any wrong answer, there is no further bonus until a new streak of three.

@@ -11,7 +11,7 @@ import {
   preloadBattleSounds,
   setBattleSoundsEnabled,
 } from '../shared/battleSounds.js';
-import { runCaptainDraw } from '../shared/captainDraw.js';
+import { captainDrawActive, runCaptainDraw } from '../shared/captainDraw.js';
 import { cutsceneActive, playCutscene, skipCutscene } from './cutscene.js';
 import { setMusic, setMusicEnabled } from '../shared/music.js';
 import { formatCountdown, msRemaining, serverNow, syncClock } from '../shared/clock.js';
@@ -43,6 +43,7 @@ let menuOpen = false;
 let joinOpen = false;
 let vaultOpen = false;
 let vaultName = '';
+const teamNameDrafts = new Map();
 let pinGate = null;
 let importUi = null;
 let armed = null; // { action, timer } for two-step confirmations
@@ -250,27 +251,25 @@ function showSunkPopups(previous, after) {
   }
 }
 
-/** Show the captain draw whenever a question round begins. */
-function maybeDrawCaptains(before, after) {
-  if (!before || !after?.round || after.session.phase !== PHASES.QUIZ) return;
-  const fresh = before.session.phase !== PHASES.QUIZ || before.round?.cycle !== after.round.cycle;
-  if (!fresh) return;
-  runCaptainDraw(
-    after.teams.map((team) => ({
-      name: team.name,
-      color: team.color,
-      players: team.players.map((player) => player.name),
-      captain: team.players.find((player) => player.captain)?.name || '',
-    })),
-    { sound: configOf().soundEnabled !== false && !isMuted() },
-  );
-}
-
 // ---------------------------------------------------------------- cut scenes
+
+function sceneOn() {
+  return cutsceneActive() || captainDrawActive();
+}
 
 function restoreMusic() {
   const phase = state?.session?.phase;
-  setMusic(cutsceneActive() ? 'battle' : (MUSIC_BY_PHASE[phase] ?? 'menu'));
+  setMusic(sceneOn() ? 'battle' : (MUSIC_BY_PHASE[phase] ?? 'menu'));
+}
+
+/** Every team with its current captain, for the draw and the cut-scene captions. */
+function captainTeams(next) {
+  return (next.teams || []).map((team) => ({
+    name: team.name,
+    color: team.color,
+    players: team.players.map((player) => player.name),
+    captain: team.players.find((player) => player.captain)?.name || '',
+  }));
 }
 
 /** Random hit sounds spread across the end scene, as the fleet goes down. */
@@ -294,14 +293,28 @@ function maybePlayCutscene(previous, next) {
   const round = next.round;
 
   if (phase === PHASES.BATTLE && previous === PHASES.REVIEW) {
+    // First the captains are drawn, then (the first battle only) the intro plays.
+    const introAt = Date.parse(round?.battleIntroAt || '');
     const opens = Date.parse(round?.battleOpensAt || '');
     if (!Number.isFinite(opens) || opens <= serverNow() + 1000) return;
-    playCutscene({ src: '/video/intro.mp4', title: 'BATTLE', subtitle: 'FIRE AT WILL', onEnd: restoreMusic });
+    const hasVideo = Number.isFinite(introAt) && opens - introAt > 1000;
+    const teams = captainTeams(next);
+    const intro = () => {
+      if (!hasVideo) return restoreMusic();
+      return playCutscene({ src: '/video/intro.mp4', title: 'BATTLE', subtitle: 'FIRE AT WILL', teams, onEnd: restoreMusic });
+    };
+    const drawMs = Number.isFinite(introAt) ? introAt - serverNow() : 0;
+    if (drawMs > 1000) {
+      runCaptainDraw(teams, { duration: drawMs, sound: configOf().soundEnabled !== false && !isMuted(), onDone: intro });
+    } else {
+      intro();
+    }
   } else if (phase === PHASES.RESUPPLY && previous === PHASES.BATTLE) {
     playCutscene({
       src: '/video/regroup.mp4',
       title: 'REGROUP',
       subtitle: 'COLLECT MORE QUESTIONS FOR MORE MISSILES',
+      teams: captainTeams(next),
       onEnd: restoreMusic,
     });
   } else if (phase === PHASES.RESULT) {
@@ -313,11 +326,7 @@ function maybePlayCutscene(previous, next) {
       subtitle,
       color: outcome.winnerColor || '',
       // Each team with its current captain, shown along the bottom.
-      teams: (next.teams || []).map((team) => ({
-        name: team.name,
-        color: team.color,
-        captain: team.players.find((player) => player.captain)?.name || '',
-      })),
+      teams: captainTeams(next),
       onEnd: restoreMusic,
     });
     endScenePlayHits();
@@ -329,12 +338,11 @@ function applyState(next) {
   setBattleSoundsEnabled(next.session?.config?.soundEnabled !== false);
   preloadBattleSounds();
   battleSoundsFor(state, next);
-  maybeDrawCaptains(state, next);
   state = next;
   const phase = next.session.phase;
   setMusicEnabled(next.session?.config?.soundEnabled !== false);
   maybePlayCutscene(previous, next);
-  setMusic(cutsceneActive() ? 'battle' : (MUSIC_BY_PHASE[phase] ?? 'menu'));
+  setMusic(sceneOn() ? 'battle' : (MUSIC_BY_PHASE[phase] ?? 'menu'));
   if (previous !== null && previous !== phase) {
     if (phase !== PHASES.LOBBY) settingsOpen = false;
     if (phase === PHASES.QUIZ || phase === PHASES.BATTLE) play('alert');
@@ -1064,6 +1072,20 @@ function settingsModal() {
             <span class="setting__label">GAME MODE</span>
             <div class="mode-cards">${modeCards}</div>
           </div>
+          <div class="setting">
+            <span class="setting__label">TEAM NAMES</span>
+            <div class="team-names">
+              ${state.teams
+                .map(
+                  (team) => `
+                <label class="team-name" style="--side:${escapeHtml(team.color)}">
+                  <input class="input" type="text" maxlength="${LIMITS.maxNameLength}" value="${escapeHtml(teamNameDrafts.get(team.id) ?? team.name)}" data-team-name="${escapeHtml(team.id)}" aria-label="Name for ${escapeHtml(team.name)}" />
+                </label>`,
+                )
+                .join('')}
+            </div>
+            <p class="setting__help">Rename the teams, for example to your department or class names. Press Enter or click away to save.</p>
+          </div>
           <div class="setting-grid">
             <div class="setting">
               <span class="setting__label">QUIZ TIME</span>
@@ -1165,6 +1187,7 @@ function renderModal() {
     configOf(),
     state.questionSets,
     state.counts.players,
+    state.teams.map((team) => team.name),
     importUi,
     armed?.action,
   ]);
@@ -1392,6 +1415,26 @@ async function deleteVaultList(id) {
 
 document.addEventListener('input', (event) => {
   if (event.target?.matches?.('[data-vault-name]')) vaultName = event.target.value;
+  if (event.target?.matches?.('[data-team-name]')) {
+    teamNameDrafts.set(event.target.dataset.teamName, event.target.value);
+  }
+});
+
+document.addEventListener('change', async (event) => {
+  const input = event.target?.closest?.('[data-team-name]');
+  if (!input) return;
+  const teamId = input.dataset.teamName;
+  const ok = await send(EVENTS.DISPLAY_RENAME_TEAM, { teamId, name: input.value });
+  if (ok) {
+    teamNameDrafts.delete(teamId);
+    play('click');
+  }
+  modalSig = '';
+  render();
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' && event.target?.matches?.('[data-team-name]')) event.target.blur();
 });
 
 async function resetSet(id) {

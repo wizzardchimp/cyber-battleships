@@ -10,6 +10,7 @@ import {
   displaySubscribeSchema,
   playerAnswerSchema,
   passCaptainSchema,
+  renameTeamSchema,
   playerAttackSchema,
   playerJoinSchema,
   playerResumeSchema,
@@ -420,6 +421,16 @@ export function attachSocketServer(io, { manager, config, logger }) {
         const data = displayRemoveSchema.parse(payload ?? {});
         await sessionFromSocket(socket).removePlayer(data.playerId);
         reply(ack, { ok: true });
+      });
+    });
+
+    socket.on(EVENTS.DISPLAY_RENAME_TEAM, (payload, ack) => {
+      run(socket, ack, async () => {
+        controlOnly(socket);
+        if (!guard(socket, 'control', 30)) return;
+        const data = renameTeamSchema.parse(payload ?? {});
+        const name = await sessionFromSocket(socket).renameTeam(data.teamId, data.name);
+        reply(ack, { ok: true, name });
       });
     });
 

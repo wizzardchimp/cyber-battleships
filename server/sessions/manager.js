@@ -78,6 +78,7 @@ export class SessionManager extends EventEmitter {
       logger: this.logger,
       questions: this.questions,
       introMs: this.config.battleIntroMs,
+      drawMs: this.config.captainDrawMs,
     });
   }
 

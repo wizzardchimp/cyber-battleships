@@ -74,6 +74,11 @@ export const passCaptainSchema = z.object({
   playerId: z.string().trim().min(8).max(80),
 });
 
+export const renameTeamSchema = z.object({
+  teamId: z.string().trim().min(1).max(80),
+  name: z.string().max(60),
+});
+
 export const displaySubscribeSchema = z.object({
   key: controlKeySchema.nullable().optional(),
 });

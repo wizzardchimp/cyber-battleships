@@ -948,3 +948,102 @@ body.play-page {
 .control-flash--lose {
   background: radial-gradient(circle, rgba(255, 194, 71, 0.5), rgba(255, 194, 71, 0.2));
 }
+
+/* --------------------------------- captain card (while videos play on screen) */
+
+.captain-card {
+  display: grid;
+  gap: 1.2rem;
+  align-content: center;
+  justify-items: center;
+  min-height: 62vh;
+  padding: 1.6rem 1.2rem;
+  text-align: center;
+  background: var(--panel);
+}
+
+.captain-card__heading {
+  color: var(--muted);
+  font-family: var(--font-pixel);
+  font-size: 0.95rem;
+  letter-spacing: 0.12em;
+}
+
+.captain-card__label {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  letter-spacing: 0.3em;
+}
+
+.captain-card__name {
+  color: var(--ink);
+  font-family: var(--font-pixel);
+  font-size: clamp(1.4rem, 8vw, 2.6rem);
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  text-shadow: 0 0 24px rgba(25, 227, 255, 0.5);
+}
+
+.captain-card__you {
+  color: var(--green);
+  font-family: var(--font-pixel);
+  font-size: clamp(1.3rem, 7vw, 2.2rem);
+  line-height: 1.4;
+  text-shadow: 0 0 24px rgba(125, 255, 107, 0.6);
+  animation: handover-pulse 1s ease-in-out infinite;
+}
+
+.captain-card__note {
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 1.05rem;
+}
+
+.captain-card__note b {
+  color: var(--ink);
+}
+
+/* ------------------------------------------- five-second hand-over warning */
+
+.handover {
+  padding: 0.8rem 1rem;
+  text-align: center;
+  font-family: var(--font-pixel);
+  font-size: 0.8rem;
+  line-height: 1.6;
+  border: 2px solid var(--amber);
+  background: rgba(255, 194, 71, 0.14);
+  color: var(--amber);
+  animation: handover-pulse 1s ease-in-out infinite;
+}
+
+.handover--in {
+  border-color: var(--green);
+  background: rgba(125, 255, 107, 0.14);
+  color: var(--green);
+}
+
+.handover b {
+  color: #fff;
+  font-size: 1.2em;
+}
+
+@keyframes handover-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* A hand-over flashes the phone three times. */
+.control-flash--pulse {
+  animation: control-pulse 1.4s ease-out both;
+}
+
+@keyframes control-pulse {
+  0% { opacity: 0.95; }
+  15% { opacity: 0.1; }
+  30% { opacity: 0.95; }
+  45% { opacity: 0.1; }
+  60% { opacity: 0.95; }
+  100% { opacity: 0; }
+}
