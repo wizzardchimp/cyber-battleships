@@ -69,7 +69,8 @@ Open `/` on the room screen and press **START GAME**. It opens `/display`, creat
 the QR code. That browser remembers the game, so a refresh keeps control.
 
 - **SETTINGS** (lobby only): game mode, **team names** (type your own, such as class or
-  department names, instead of ALPHA and BRAVO; they stay when you change mode), quiz time (1–3 min), battle time
+  department names, instead of ALPHA and BRAVO; they stay when you change mode). In the
+  lobby, the small **spanner** beside each team name opens a pop-up listing every team to rename, quiz time (1–3 min), battle time
   (30–180 s), grid size, question set, sound, and question import/export.
 - **During a game** the bottom bar changes with the phase: **SKIP TIMER**,
   **START BATTLE**, **END BATTLE ROUND**, **MORE QUESTIONS**, **RESUME BATTLE**,

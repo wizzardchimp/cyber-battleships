@@ -1954,3 +1954,41 @@ body.display-page {
   font-size: 0.9rem;
   text-transform: uppercase;
 }
+
+/* --------------------------------------- team-name spanner in the lobby */
+
+.side__title {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-width: 0;
+}
+
+.side__edit {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  color: var(--side);
+  font-size: 1.1rem;
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--side) 50%, transparent);
+  opacity: 0.75;
+  cursor: pointer;
+}
+
+.side__edit:hover,
+.side__edit:focus-visible {
+  opacity: 1;
+  background: color-mix(in srgb, var(--side) 18%, transparent);
+}
+
+.team-names--stack {
+  grid-template-columns: 1fr;
+}
+
+.teams-modal {
+  width: min(32rem, 100%);
+}

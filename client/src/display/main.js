@@ -42,6 +42,7 @@ let settingsOpen = false;
 let menuOpen = false;
 let joinOpen = false;
 let vaultOpen = false;
+let teamsOpen = false;
 let vaultName = '';
 const teamNameDrafts = new Map();
 let pinGate = null;
@@ -178,6 +179,7 @@ async function createGame({ force = false, pin = null } = {}) {
     menuOpen = false;
     joinOpen = false;
     vaultOpen = false;
+    teamsOpen = false;
     importUi = null;
     fatal = '';
   } finally {
@@ -465,6 +467,33 @@ function slotMarkup(player, { wrap }) {
     </div>`;
 }
 
+// A small spanner icon for the team-name editor button.
+const SPANNER =
+  '<svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.2L3.5 17.3a1.9 1.9 0 0 0 2.7 2.7l5.8-5.8a4 4 0 0 0 5.2-5.4l-2.4 2.4-2.1-.6-.6-2.1z"/></svg>';
+
+function teamsModal() {
+  return `
+    <div class="modal-backdrop" data-backdrop>
+      <section class="modal hud teams-modal" role="dialog" aria-modal="true" aria-label="Team names">
+        <header class="modal__head"><h2 class="modal__title">TEAM NAMES</h2></header>
+        <div class="modal__body">
+          <div class="team-names team-names--stack">
+            ${state.teams
+              .map(
+                (team) => `
+              <label class="team-name" style="--side:${escapeHtml(team.color)}">
+                <input class="input" type="text" maxlength="${LIMITS.maxNameLength}" value="${escapeHtml(teamNameDrafts.get(team.id) ?? team.name)}" data-team-name="${escapeHtml(team.id)}" aria-label="Name for ${escapeHtml(team.name)}" />
+              </label>`,
+              )
+              .join('')}
+          </div>
+          <p class="setting__help">Type a new name for each team, for example your class or department. Press Enter or click away to save each one.</p>
+        </div>
+        <footer class="modal__foot"><button class="btn btn--primary" type="button" data-modal="close">DONE</button></footer>
+      </section>
+    </div>`;
+}
+
 function sideCard(team, { wrap }) {
   const slots = wrap
     ? team.players.map((player) => slotMarkup(player, { wrap })).join('')
@@ -476,7 +505,14 @@ function sideCard(team, { wrap }) {
   return `
     <article class="side" style="--side:${team.color}">
       <header class="side__head">
-        <h2 class="side__name">${escapeHtml(team.name)}</h2>
+        <div class="side__title">
+          <h2 class="side__name">${escapeHtml(team.name)}</h2>
+          ${
+            hasControl()
+              ? `<button class="side__edit" type="button" data-action="teams-open" title="Edit team names" aria-label="Edit team names">${SPANNER}</button>`
+              : ''
+          }
+        </div>
         <span class="side__count">${team.playerCount} / ${team.maxPlayers}</span>
       </header>
       <div class="slots ${wrap ? 'slots--wrap' : ''}">
@@ -1163,6 +1199,15 @@ function joinModal() {
 }
 
 function renderModal() {
+  if (teamsOpen && (state.session.phase !== PHASES.LOBBY || !hasControl())) teamsOpen = false;
+  if (teamsOpen) {
+    const sig = `teams|${JSON.stringify(state.teams.map((team) => [team.id, team.name]))}`;
+    if (sig !== modalSig) {
+      modalSig = sig;
+      modalRoot.innerHTML = teamsModal();
+    }
+    return;
+  }
   if (joinOpen && state.session.phase !== PHASES.QUIZ) joinOpen = false;
   if (joinOpen) {
     const sig = `join|${state.join.qrUrl}|${state.join.code}`;
@@ -1434,7 +1479,12 @@ document.addEventListener('change', async (event) => {
 });
 
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Enter' && event.target?.matches?.('[data-team-name]')) event.target.blur();
+  if (event.key === 'Enter' && event.target?.matches?.('[data-team-name]')) {
+    // Save the name; this Enter must not also count as the "next" key.
+    event.stopImmediatePropagation();
+    event.preventDefault();
+    event.target.blur();
+  }
 });
 
 async function resetSet(id) {
@@ -1474,6 +1524,7 @@ document.addEventListener('click', (event) => {
     menuOpen = false;
     joinOpen = false;
     vaultOpen = false;
+    teamsOpen = false;
     importUi = null;
     chromeSig = '';
     render();
@@ -1486,6 +1537,7 @@ document.addEventListener('click', (event) => {
     menuOpen = false;
     joinOpen = false;
     vaultOpen = false;
+    teamsOpen = false;
     importUi = null;
     chromeSig = '';
     render();
@@ -1588,6 +1640,11 @@ document.addEventListener('click', (event) => {
       modalSig = '';
       render();
       return;
+    case 'teams-open':
+      teamsOpen = true;
+      modalSig = '';
+      render();
+      return;
     case 'vault-open':
       vaultOpen = true;
       modalSig = '';
@@ -1621,11 +1678,12 @@ document.addEventListener('click', (event) => {
 });
 
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape' && (settingsOpen || menuOpen || joinOpen)) {
+  if (event.key === 'Escape' && (settingsOpen || menuOpen || joinOpen || teamsOpen)) {
     settingsOpen = false;
     menuOpen = false;
     joinOpen = false;
     vaultOpen = false;
+    teamsOpen = false;
     importUi = null;
     chromeSig = '';
     render();
@@ -1645,7 +1703,7 @@ function nextAction() {
     skipCutscene();
     return;
   }
-  if (!hasControl() || settingsOpen || menuOpen || joinOpen || vaultOpen) return;
+  if (!hasControl() || settingsOpen || menuOpen || joinOpen || vaultOpen || teamsOpen) return;
   const main = document.querySelector('#controls .btn--main');
   if (!main || main.disabled) return;
   const phase = state.session.phase;
