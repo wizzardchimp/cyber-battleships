@@ -646,32 +646,65 @@ function quizScreen() {
     </section>`;
 }
 
-function topPlayer(team) {
-  const best = [...team.players].sort((a, b) => b.correct - a.correct)[0];
-  return best && best.correct > 0 ? best : null;
+/** Players ranked by correct answers, then accuracy, for the briefing leaderboard. */
+function rankedPlayers(team) {
+  return team.players
+    .map((player) => ({
+      ...player,
+      accuracy: player.answered > 0 ? Math.round((player.correct / player.answered) * 100) : 0,
+    }))
+    .filter((player) => player.answered > 0)
+    .sort((a, b) => b.correct - a.correct || b.accuracy - a.accuracy || a.answered - b.answered || a.name.localeCompare(b.name));
 }
 
 function briefingScreen() {
   const round = state.round;
   const teams = round.teams;
   const cpu = round.boards.find((board) => board.kind === 'cpu');
+  const columns = teams.length + (cpu ? 1 : 0);
+  const rows = 8; // as many as fit are shown, never a half-cut row
+  const wide = columns <= 2;
   const cards = teams
     .map((team) => {
-      const best = topPlayer(team);
+      const ranked = rankedPlayers(team);
+      const best = ranked[0] && ranked[0].correct > 0 ? ranked[0] : null;
+      const list = ranked
+        .slice(0, rows)
+        .map(
+          (player, index) => `
+          <li class="top-row ${index === 0 && best ? 'is-best' : ''}">
+            <span class="top-row__rank">${index + 1}</span>
+            <span class="top-row__name">${escapeHtml(player.name)}</span>
+            <span class="top-row__score"><b>${player.correct}</b><small>/${player.answered}</small></span>
+            <span class="top-row__acc">${player.accuracy}%</span>
+          </li>`,
+        )
+        .join('');
       return `
-      <article class="brief hud" style="--side:${team.color};--bracket:${team.color}">
-        <h2 class="brief__name">${escapeHtml(team.name)}</h2>
-        <div>
-          <div class="brief__missiles">${team.won}</div>
-          <div class="brief__missiles-label">MISSILES WON</div>
-        </div>
+      <article class="brief ${wide ? 'brief--wide' : ''} hud" style="--side:${team.color};--bracket:${team.color}">
+        <header class="brief__head">
+          <h2 class="brief__name">${escapeHtml(team.name)}</h2>
+          <div class="brief__won"><strong>${team.won}</strong><span>MISSILES WON</span></div>
+        </header>
         <div class="brief__facts">
           <div class="brief__fact"><strong>${team.correct}</strong><span>CORRECT</span></div>
           <div class="brief__fact"><strong>${team.accuracy}%</strong><span>ACCURACY</span></div>
           <div class="brief__fact"><strong>${team.answered}</strong><span>ANSWERED</span></div>
         </div>
-        <p class="brief__top">${best ? `Top operative: <b>${escapeHtml(best.name)}</b> (${best.correct} correct)` : 'No correct answers'}</p>
-        <p class="brief__top">Ready to fire: <b>${team.missiles}</b> missile${team.missiles === 1 ? '' : 's'}</p>
+        <div class="brief__best">
+          <span class="brief__best-label">BEST PLAYER</span>
+          ${
+            best
+              ? `<strong class="brief__best-name">${escapeHtml(best.name)}</strong>
+                 <span class="brief__best-stats">${best.correct} correct · ${best.accuracy}% accuracy · ${best.answered} answered</span>`
+              : '<span class="brief__best-stats">No correct answers yet</span>'
+          }
+        </div>
+        <div class="brief__list">
+          <div class="brief__list-head"><span>TOP PLAYERS</span><span>CORRECT</span><span>ACC</span></div>
+          ${list ? `<ol class="top-list">${list}</ol>` : '<p class="muted">Nobody has answered yet.</p>'}
+        </div>
+        <p class="brief__ready">Ready to fire: <b>${team.missiles}</b> missile${team.missiles === 1 ? '' : 's'}${team.perMissile > 1 ? ` <small>(+${team.ammoProgress}/${team.perMissile})</small>` : ''}</p>
       </article>`;
     })
     .join('');
@@ -687,7 +720,6 @@ function briefingScreen() {
        </article>`
     : '';
 
-  const columns = teams.length + (cpu ? 1 : 0);
   return `
     <section class="screen" style="grid-template-rows:auto minmax(0,1fr) auto">
       <header class="screen-head">

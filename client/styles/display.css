@@ -606,14 +606,168 @@ body.display-page {
 .brief {
   --side: var(--cyan);
   display: grid;
-  align-content: center;
-  justify-items: center;
-  gap: 1.1rem;
-  padding: 1.6rem;
-  text-align: center;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  align-content: start;
+  justify-items: stretch;
+  gap: 0.8rem;
+  min-height: 0;
+  padding: 1.1rem 1.3rem;
   background-color: var(--panel);
   border: 1px solid color-mix(in srgb, var(--side) 45%, transparent);
   box-shadow: 0 0 34px color-mix(in srgb, var(--side) 14%, transparent);
+}
+
+/* The CPU card has no player list, so it keeps its centred layout. */
+.brief:not(:has(.brief__list)) {
+  grid-template-rows: none;
+  align-content: center;
+  justify-items: center;
+  text-align: center;
+}
+
+.brief__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.brief__won {
+  display: grid;
+  justify-items: end;
+  line-height: 1;
+}
+
+.brief__won strong {
+  color: var(--amber);
+  font-family: var(--font-mono);
+  font-size: clamp(2.6rem, 4.4vw, 4.2rem);
+  font-weight: 700;
+  text-shadow: 0 0 34px rgba(255, 194, 71, 0.55);
+}
+
+.brief__won span {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.25em;
+}
+
+.brief__best {
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.6rem 0.9rem;
+  background: color-mix(in srgb, var(--side) 12%, transparent);
+  border-left: 5px solid var(--side);
+}
+
+.brief__best-label {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  letter-spacing: 0.3em;
+}
+
+.brief__best-name {
+  color: var(--ink);
+  font-family: var(--font-pixel);
+  font-size: clamp(1rem, 1.7vw, 1.5rem);
+  overflow-wrap: anywhere;
+}
+
+.brief__best-stats {
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+}
+
+.brief__list {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0.4rem;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.brief__list-head,
+.top-row {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr) 5.5rem 4rem;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.brief__list-head {
+  grid-template-columns: minmax(0, 1fr) 5.5rem 4rem;
+  padding: 0 0.4rem 0.3rem;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.22em;
+  border-bottom: 1px solid color-mix(in srgb, var(--side) 35%, transparent);
+}
+
+.brief__list-head span:nth-child(n + 2) {
+  text-align: right;
+}
+
+.top-list {
+  display: grid;
+  align-content: start;
+  gap: 0.22rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.top-row {
+  padding: 0.28rem 0.4rem;
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 1.02rem;
+}
+
+.top-row.is-best {
+  background: color-mix(in srgb, var(--side) 18%, transparent);
+}
+
+.top-row__rank {
+  color: var(--side);
+  font-family: var(--font-pixel);
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.top-row__name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.top-row__score,
+.top-row__acc {
+  font-family: var(--font-mono);
+  text-align: right;
+}
+
+.top-row__score small {
+  color: var(--muted);
+}
+
+.top-row__acc {
+  color: var(--ink-soft);
+}
+
+.brief__ready {
+  color: var(--ink-soft);
+  font-size: 1rem;
+  text-align: center;
+}
+
+.brief__ready b {
+  color: var(--amber);
 }
 
 .brief__name {
@@ -642,14 +796,15 @@ body.display-page {
 .brief__facts {
   display: grid;
   grid-template-columns: repeat(3, auto);
-  gap: 2.2rem;
-  margin-top: 0.6rem;
+  justify-content: start;
+  gap: 1.6rem;
 }
 
 .brief__fact strong {
   display: block;
   font-family: var(--font-mono);
-  font-size: 2.2rem;
+  font-size: 1.9rem;
+  line-height: 1.1;
 }
 
 .brief__fact span {
@@ -1991,4 +2146,37 @@ body.display-page {
 
 .teams-modal {
   width: min(32rem, 100%);
+}
+
+/* A wide briefing box (two teams) puts the player list in a second column. */
+.brief--wide {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    'head head'
+    'facts list'
+    'best list'
+    'ready ready';
+  column-gap: 1.4rem;
+}
+
+.brief--wide .brief__head { grid-area: head; }
+.brief--wide .brief__facts { grid-area: facts; }
+.brief--wide .brief__best { grid-area: best; align-self: start; }
+.brief--wide .brief__list { grid-area: list; }
+.brief--wide .brief__ready { grid-area: ready; }
+
+/* Show only as many players as fit: extra rows wrap out of sight, so none is cut in half. */
+.top-list {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  height: 100%;
+  overflow: hidden;
+}
+
+.top-row {
+  flex: 0 0 auto;
+  width: 100%;
 }

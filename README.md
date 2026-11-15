@@ -16,8 +16,9 @@ There is no facilitator dashboard. The big screen **is** the control surface.
    answers**. Each correct answer earns the team **1 missile** and 10 points. The
    big screen shows live progress for every side and player. **SKIP TIMER** ends
    it early.
-3. **Briefing.** The big screen shows what each side won: missiles, correct
-   answers, accuracy and top player. The facilitator presses **START BATTLE**.
+3. **Briefing.** The big screen shows a box for each side: missiles won, correct
+   answers, accuracy and answers given, the best player with their stats, and a
+   ranked list of the team's top players (correct, answered, accuracy). The facilitator presses **START BATTLE**.
 4. **Battle.** Players tap a square on their phone to fire. Hits score 25 points
    and sinking a ship adds 50. The player list sits on the left of the screen so
    the boards stay clear.
