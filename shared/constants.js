@@ -19,7 +19,6 @@ export const PHASES = Object.freeze({
 export const MODES = Object.freeze({
   CPU: 'cpu',
   DUEL: 'duel',
-  SQUAD: 'squad',
   FLEET: 'fleet',
 });
 
@@ -62,24 +61,21 @@ export const MODE_PRESETS = Object.freeze({
     correctPerMissile: 3,
     blurb: 'Three teams of up to 20. Every 3 correct answers earn a missile. Last fleet afloat wins.',
   }),
-  squad: Object.freeze({
-    id: 'squad',
-    label: '3 VS 3',
-    short: '3 v 3',
-    teams: Object.freeze(['ALPHA', 'BRAVO']),
-    perTeam: 3,
-    versusCpu: false,
-    blurb: 'Two squads of three share missiles and fight for the sea.',
-  }),
 });
 
-/** How many correct answers a side needs for one missile in a mode. */
-export function correctPerMissile(mode) {
+/**
+ * How many correct answers a side needs for one missile. Takes a game config
+ * (or a mode name). A config may carry its own correctPerMissile, which only
+ * tests use; players can never set it.
+ */
+export function correctPerMissile(configOrMode) {
+  const own = typeof configOrMode === 'object' ? Number(configOrMode?.correctPerMissile) : NaN;
+  if (Number.isFinite(own) && own >= 1) return Math.floor(own);
+  const mode = typeof configOrMode === 'object' ? configOrMode?.mode : configOrMode;
   return Math.max(1, Number(MODE_PRESETS[mode]?.correctPerMissile) || 1);
 }
 
 export const MODE_LIST = Object.freeze([
-  MODE_PRESETS.squad,
   MODE_PRESETS.duel,
   MODE_PRESETS.cpu,
   MODE_PRESETS.fleet,
@@ -150,7 +146,7 @@ export const TIMING = Object.freeze({
 });
 
 export const DEFAULT_CONFIG = Object.freeze({
-  mode: MODES.SQUAD,
+  mode: MODES.DUEL,
   quizMinutes: 2,
   battleSeconds: 60,
   gridSize: 10,

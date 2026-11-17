@@ -104,7 +104,7 @@ export function makeFleet(gridSize) {
 
 /** The sides for a mode, ready to be stored on the session. */
 export function buildTeams(mode, now = new Date().toISOString()) {
-  const preset = MODE_PRESETS[mode] || MODE_PRESETS.squad;
+  const preset = MODE_PRESETS[mode] || MODE_PRESETS.duel;
   return preset.teams.map((name, index) => ({
     id: `t_${crypto.randomUUID()}`,
     name,
@@ -126,7 +126,7 @@ export function buildTeams(mode, now = new Date().toISOString()) {
  * "everyone vs CPU" the single crew targets the CPU firewall.
  */
 export function buildCombatants(state) {
-  const preset = MODE_PRESETS[state.config.mode] || MODE_PRESETS.squad;
+  const preset = MODE_PRESETS[state.config.mode] || MODE_PRESETS.duel;
   const teams = [...state.teams].sort((a, b) => a.sortOrder - b.sortOrder);
   const combatants = teams.map((team) => ({
     id: team.id,

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { DEFAULT_CONFIG, MODES, PHASES, SCORING, TIMING } from '../shared/constants.js';
+import { DEFAULT_CONFIG, MODES, MODE_LIST, PHASES, SCORING, TIMING } from '../shared/constants.js';
 import { defaultQuestionsFor } from '../shared/questions.js';
 import { createStaticQuestions } from '../server/questions/store.js';
 import { playerProjection, publicProjection } from '../server/sessions/projections.js';
@@ -23,12 +23,26 @@ class MemoryRepository {
   }
 }
 
+/**
+ * Most tests use a small "classic" game: two sides of three, one missile per
+ * correct answer. That is not a player-facing mode any more, so it is built from
+ * team vs team with the rules overridden. Pass a real mode (DUEL, CPU, FLEET)
+ * to test the shipped rules.
+ */
+const CLASSIC = 'classic';
+
 function makeSession(config = {}, questionOverrides = {}) {
   const repository = new MemoryRepository();
+  const classic = config.mode === undefined || config.mode === CLASSIC;
   const state = createSessionState({
     id: 's_test-game-0001',
     joinCode: 'ABC234',
-    config: { ...DEFAULT_CONFIG, ...config },
+    config: {
+      ...DEFAULT_CONFIG,
+      ...(classic ? { mode: MODES.DUEL, correctPerMissile: 1 } : {}),
+      ...config,
+      ...(classic ? { mode: MODES.DUEL } : {}),
+    },
     joinBaseUrl: 'http://localhost/play?code=ABC234',
     displayBaseUrl: 'http://localhost/display?code=ABC234',
     controlKeyHash: 'secret-hash-value',
@@ -39,6 +53,7 @@ function makeSession(config = {}, questionOverrides = {}) {
     logger: null,
     questions: createStaticQuestions(questionOverrides),
   });
+  if (classic) for (const team of state.teams) team.maxPlayers = 3;
   return { session, repository };
 }
 
@@ -58,7 +73,7 @@ async function expectReject(fn, code) {
 
 /** A started 3v3-style game with one player per side. */
 async function startedDuel(config = {}) {
-  const { session, repository } = makeSession({ mode: MODES.SQUAD, ...config });
+  const { session, repository } = makeSession({ mode: CLASSIC, ...config });
   const [alpha, bravo] = session.state.teams;
   const a = session.join({ name: 'Alice' });
   const b = session.join({ name: 'Bob' });
@@ -246,7 +261,7 @@ test('the next question arrives immediately and questions do not repeat', async 
 test('questions recycle once the whole set has been seen', async () => {
   const small = defaultQuestionsFor('easy').slice(0, 8);
   const { session, a } = await (async () => {
-    const { session: s } = makeSession({ mode: MODES.SQUAD }, { easy: small });
+    const { session: s } = makeSession({ mode: CLASSIC }, { easy: small });
     const player = s.join({ name: 'Solo' });
     await s.advance();
     return { session: s, a: player.player };
@@ -268,7 +283,7 @@ test('stale or invalid answers are rejected', async () => {
 test('answer positions are shuffled rather than always the same slot', async () => {
   const positions = new Set();
   for (let index = 0; index < 30; index += 1) {
-    const { session } = makeSession({ mode: MODES.SQUAD });
+    const { session } = makeSession({ mode: CLASSIC });
     const { player } = session.join({ name: 'Solo' });
     await session.advance();
     positions.add(currentQuestion(session, player.id).answerIndex);
@@ -586,7 +601,7 @@ test('older four-answer questions are trimmed to three when they are served', as
     answerIndex: 0,
     explanation: '',
   }));
-  const { session } = makeSession({ mode: MODES.SQUAD }, { easy: legacy });
+  const { session } = makeSession({ mode: CLASSIC }, { easy: legacy });
   const { player } = session.join({ name: 'Legacy' });
   await session.advance();
   const current = currentQuestion(session, player.id);
@@ -765,7 +780,7 @@ test('the briefing counts bonus missiles in what a side won', async () => {
 // ------------------------------------------------------------------ captains
 
 async function startedSquad() {
-  const { session, repository } = makeSession({ mode: MODES.SQUAD });
+  const { session, repository } = makeSession({ mode: CLASSIC });
   const [alpha, bravo] = session.state.teams;
   const alphaPlayers = ['A One', 'A Two', 'A Three'].map(
     (name) => session.join({ name, teamId: alpha.id }).player,
@@ -861,7 +876,7 @@ test('the captain can pass the controls to a teammate, and nobody else can', asy
 });
 
 test('players can join while questions are running, but not during the battle', async () => {
-  const { session } = makeSession({ mode: MODES.SQUAD });
+  const { session } = makeSession({ mode: CLASSIC });
   const alpha = session.state.teams[0];
   session.join({ name: 'First', teamId: alpha.id });
   await session.advance();
@@ -986,7 +1001,7 @@ test('controls swap to another teammate every 30 seconds of battle', async () =>
 });
 
 test('a side with only one player keeps its captain', async () => {
-  const { session } = makeSession({ mode: MODES.SQUAD });
+  const { session } = makeSession({ mode: CLASSIC });
   const [alpha, bravo] = session.state.teams;
   const solo = session.join({ name: 'Solo', teamId: alpha.id }).player;
   session.join({ name: 'B One', teamId: bravo.id });
@@ -1198,7 +1213,7 @@ test('the next captain is announced five seconds before controls change hands', 
 });
 
 test('team names can be customised in the lobby, and survive a mode change', async () => {
-  const { session } = makeSession({ mode: MODES.SQUAD });
+  const { session } = makeSession({ mode: CLASSIC });
   const [alpha, bravo] = session.state.teams;
   assert.equal(await session.renameTeam(alpha.id, '  red dragons '), 'RED DRAGONS');
   assert.equal(alpha.name, 'RED DRAGONS');
@@ -1215,4 +1230,26 @@ test('team names can be customised in the lobby, and survive a mode change', asy
   session.join({ name: 'Solo' });
   await session.advance();
   await expectReject(() => session.renameTeam(session.state.teams[0].id, 'Too Late'), 'NOT_IN_LOBBY');
+});
+
+test('the 3 v 3 mode is gone: only team vs team, CPU and 3 teams remain', async () => {
+  assert.deepEqual(MODE_LIST.map((mode) => mode.id), ['duel', 'cpu', 'fleet']);
+  assert.equal(DEFAULT_CONFIG.mode, MODES.DUEL);
+  assert.equal(MODES.SQUAD, undefined);
+  const { session } = makeSession({ mode: MODES.DUEL });
+  await expectReject(() => session.updateConfig({ mode: 'squad' }), 'INVALID_MODE');
+});
+
+test('a game saved in the retired 3 v 3 mode carries on as team vs team', async () => {
+  const { session } = makeSession({ mode: MODES.DUEL });
+  session.state.config.mode = 'squad';
+  for (const team of session.state.teams) team.maxPlayers = 3;
+  const reloaded = new GameSession({
+    state: session.state,
+    repository: new MemoryRepository(),
+    logger: null,
+    questions: session.questions,
+  });
+  assert.equal(reloaded.state.config.mode, MODES.DUEL);
+  assert.deepEqual(reloaded.state.teams.map((team) => team.maxPlayers), [20, 20]);
 });

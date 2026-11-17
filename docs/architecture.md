@@ -46,10 +46,14 @@ Modes are presets that define the sides and their size.
 
 | Mode | Sides | Targets |
 | --- | --- | --- |
-| `squad` (3 v 3) | ALPHA, BRAVO × 3 | Each side attacks the other |
 | `duel` (team vs team) | ALPHA, BRAVO × 20 | Each side attacks the other; one missile per 3 correct answers (`correctPerMissile`) |
 | `cpu` | CREW × 20 | The crew attacks the CPU fleet |
 | `fleet` (3 teams) | ALPHA, BRAVO, CHARLIE × 20 | Each side may attack either other side (`targetIds`); a captain passes `targetId` with each shot |
+
+The old 3 v 3 mode (`squad`) was retired. A game saved in it is moved to `duel` when it
+loads (`ensureShape`), and team sizes are raised to the new preset. The default mode is `duel`.
+A game config may carry its own `correctPerMissile`; only the tests use it, to get the classic
+one-missile-per-answer rule in small games.
 
 In `fleet` mode a side earns one missile per `correctPerMissile` (3) correct answers;
 the remainder is kept in `state.ammoProgress[teamId]`. A side whose fleet is fully

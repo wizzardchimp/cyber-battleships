@@ -4,6 +4,7 @@ import { EventEmitter } from 'node:events';
 import {
   DEFAULT_CONFIG,
   LIMITS,
+  MODES,
   MODE_PRESETS,
   OPTIONS_PER_QUESTION,
   PHASES,
@@ -99,6 +100,8 @@ export class GameSession extends EventEmitter {
   ensureShape() {
     const state = this.state;
     state.teams = Array.isArray(state.teams) ? state.teams : [];
+    // The 3 v 3 mode has been retired: a game saved in it carries on as team vs team.
+    if (state.config?.mode === 'squad') state.config.mode = MODES.DUEL;
     // A game saved before a mode grew (e.g. 1 v 1 became team vs team) gets the new team size.
     const perTeam = MODE_PRESETS[state.config?.mode]?.perTeam;
     if (perTeam) {
@@ -138,7 +141,7 @@ export class GameSession extends EventEmitter {
   }
 
   get preset() {
-    return MODE_PRESETS[this.state.config.mode] || MODE_PRESETS.squad;
+    return MODE_PRESETS[this.state.config.mode] || MODE_PRESETS.duel;
   }
 
   playerById(playerId) {
@@ -764,7 +767,7 @@ export class GameSession extends EventEmitter {
         ? SCORING.streakBonusMissiles
         : 0;
     // Big teams earn a missile for every few correct answers; others one each.
-    const perMissile = correctPerMissile(this.config.mode);
+    const perMissile = correctPerMissile(this.config);
     const credits = correct ? SCORING.missilesPerCorrect + bonus : 0;
     let reward = credits;
     let progress = 0;
@@ -1241,10 +1244,10 @@ export class GameSession extends EventEmitter {
           // Missiles actually earned since this question round began.
           won: round.quizStartEarned
             ? (Number(this.state.scores[team.id]?.missilesEarned) || 0) - (round.quizStartEarned[team.id] || 0)
-            : Math.floor((correct * SCORING.missilesPerCorrect + bonus) / correctPerMissile(this.config.mode)),
+            : Math.floor((correct * SCORING.missilesPerCorrect + bonus) / correctPerMissile(this.config)),
           missiles: this.arsenalFor(team.id),
           ammoProgress: Number(this.state.ammoProgress?.[team.id]) || 0,
-          perMissile: correctPerMissile(this.config.mode),
+          perMissile: correctPerMissile(this.config),
           eliminated: this.fleetDestroyed(team.id),
           points: Number(this.state.scores[team.id]?.points) || 0,
           players,

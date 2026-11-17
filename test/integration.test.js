@@ -49,7 +49,7 @@ test('the game screen creates one game and phones join it by code', async (t) =>
     label: 'game screen lobby',
   });
   assert.equal(lobby.viewer.control, true);
-  assert.equal(lobby.session.mode, 'squad');
+  assert.equal(lobby.session.mode, 'duel');
   assert.equal(lobby.join.url, `${h.config.publicUrl}/${code}`);
 
   const summary = await fetch(`${h.baseUrl}/api/sessions/${code}`).then((response) => response.json());
@@ -163,9 +163,11 @@ test('a full game: quiz, briefing, battle and result over real sockets', async (
   sockets.push(screen.socket);
   const code = screen.game.joinCode;
   const ready = await emitAck(screen.socket, EVENTS.DISPLAY_SETTINGS, {
-    patch: { mode: 'squad', quizMinutes: 1, battleSeconds: 30 },
+    patch: { mode: 'duel', quizMinutes: 1, battleSeconds: 30 },
   });
   assert.equal(ready.ok, true, JSON.stringify(ready));
+  // This walk-through counts one missile per answer; team vs team really needs three.
+  h.manager.current().state.config.correctPerMissile = 1;
 
   const alpha = await joinPlayer(h.baseUrl, EVENTS, code, 'Alpha One');
   const bravo = await joinPlayer(h.baseUrl, EVENTS, code, 'Bravo One');

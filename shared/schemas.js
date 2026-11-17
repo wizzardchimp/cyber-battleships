@@ -20,7 +20,7 @@ export const joinCodeSchema = z
 const controlKeySchema = z.string().trim().min(10).max(120);
 
 const configShape = {
-  mode: z.enum([MODES.CPU, MODES.DUEL, MODES.SQUAD, MODES.FLEET]),
+  mode: z.enum([MODES.CPU, MODES.DUEL, MODES.FLEET]),
   quizMinutes: z.coerce.number().int().min(LIMITS.minQuizMinutes).max(LIMITS.maxQuizMinutes),
   battleSeconds: z.coerce.number().int().min(LIMITS.minBattleSeconds).max(LIMITS.maxBattleSeconds),
   gridSize: z.coerce.number().int().min(LIMITS.minGridSize).max(LIMITS.maxGridSize),

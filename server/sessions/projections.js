@@ -44,7 +44,7 @@ function scoreFor(session, combatant) {
     answered: Number(score.answered) || 0,
     missiles: combatant.kind === 'cpu' ? 0 : session.arsenalFor(combatant.id),
     ammoProgress: Number(state.ammoProgress?.[combatant.id]) || 0,
-    perMissile: correctPerMissile(state.config.mode),
+    perMissile: correctPerMissile(state.config),
     eliminated: shipsTotal > 0 && shipsSunk >= shipsTotal,
     shipsTotal,
     shipsSunk,
@@ -215,7 +215,7 @@ export function playerProjection(session, playerId) {
       targetIds,
       eliminated: session.fleetDestroyed(player.teamId),
       ammoProgress: team ? Number(state.ammoProgress?.[team.id]) || 0 : 0,
-      perMissile: correctPerMissile(state.config.mode),
+      perMissile: correctPerMissile(state.config),
       targetBoards:
         state.phase === PHASES.BATTLE || state.phase === PHASES.RESUPPLY || revealShips
           ? targetIds
