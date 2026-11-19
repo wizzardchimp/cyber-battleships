@@ -35,6 +35,17 @@ function emptyStats() {
   return { answered: 0, correct: 0, attacks: 0, hits: 0, fastestMs: null };
 }
 
+/** Older games stored a single `questionSet`; it becomes a one-item selection. */
+export function normalizeConfig(config) {
+  const next = { ...config };
+  if (!Array.isArray(next.questionSets) || !next.questionSets.length) {
+    next.questionSets = [next.questionSet || 'easy'];
+  }
+  delete next.questionSet;
+  next.questionSets = [...new Set(next.questionSets)];
+  return next;
+}
+
 export function createSessionState({
   id,
   joinCode,
@@ -45,7 +56,7 @@ export function createSessionState({
   controlKeyHash = null,
 }) {
   const now = new Date().toISOString();
-  const merged = { ...DEFAULT_CONFIG, ...config };
+  const merged = normalizeConfig({ ...DEFAULT_CONFIG, ...config });
   return {
     schemaVersion: SCHEMA_VERSION,
     id,
@@ -103,6 +114,7 @@ export class GameSession extends EventEmitter {
     state.teams = Array.isArray(state.teams) ? state.teams : [];
     // The 3 v 3 mode has been retired: a game saved in it carries on as team vs team.
     if (state.config?.mode === 'squad') state.config.mode = MODES.DUEL;
+    if (state.config) state.config = normalizeConfig(state.config);
     // A game saved before a mode grew (e.g. 1 v 1 became team vs team) gets the new team size.
     const perTeam = MODE_PRESETS[state.config?.mode]?.perTeam;
     if (perTeam) {
@@ -395,8 +407,14 @@ export class GameSession extends EventEmitter {
 
   async updateConfig(patch) {
     assert(this.state.phase === PHASES.LOBBY, 'NOT_IN_LOBBY', 'Settings are locked during a game.');
-    if ('questionSet' in patch) {
-      assert(this.questions.has(patch.questionSet), 'UNKNOWN_SET', 'That question set does not exist.');
+    if ('questionSets' in patch) {
+      patch = { ...patch, questionSets: [...new Set(patch.questionSets)] };
+      assert(patch.questionSets.length > 0, 'NO_QUESTIONS', 'Pick at least one question list.');
+      assert(
+        patch.questionSets.every((id) => this.questions.has(id)),
+        'UNKNOWN_SET',
+        'One of those question lists does not exist.',
+      );
     }
     if (patch.mode && patch.mode !== this.state.config.mode) this.changeMode(patch.mode);
     this.state.config = { ...this.state.config, ...patch };
@@ -701,7 +719,7 @@ export class GameSession extends EventEmitter {
   issueQuestion(playerId, now = Date.now()) {
     const entry = this.state.round?.quiz?.[playerId];
     if (!entry) return null;
-    const pool = this.questions.questionsFor(this.config.questionSet);
+    const pool = this.questions.questionsForMany(this.config.questionSets);
     if (!pool.length) {
       entry.current = null;
       return null;

@@ -8,7 +8,7 @@ function safeConfig(config) {
     quizMinutes: config.quizMinutes,
     battleSeconds: config.battleSeconds,
     gridSize: config.gridSize,
-    questionSet: config.questionSet,
+    questionSets: config.questionSets,
     soundEnabled: config.soundEnabled,
   };
 }
@@ -156,6 +156,7 @@ export function publicProjection(session, { control = false } = {}) {
       qrUrl: `/api/sessions/${encodeURIComponent(state.joinCode)}/qr.svg`,
     },
     questionSets: session.questions.summaries(),
+    questionTopics: session.questions.topics(),
     round: roundProjection(session),
     viewer: { control: Boolean(control) },
     meta: {

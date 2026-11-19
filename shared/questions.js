@@ -887,8 +887,8 @@ export const QUESTION_BANK = Object.freeze([
  * hard and expert. The database copy can be edited through CSV import.
  */
 export const DEFAULT_SET_DEFS = Object.freeze([
-  { id: 'easy', name: 'Easy', difficulties: ['easy', 'medium'] },
-  { id: 'complex', name: 'Complex', difficulties: ['hard', 'expert'] },
+  { id: 'easy', name: 'Essentials', topic: 'Cyber', difficulties: ['easy', 'medium'] },
+  { id: 'complex', name: 'Advanced', topic: 'Cyber', difficulties: ['hard', 'expert'] },
 ]);
 
 /**

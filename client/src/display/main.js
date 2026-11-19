@@ -41,9 +41,12 @@ let fatal = '';
 let settingsOpen = false;
 let menuOpen = false;
 let joinOpen = false;
-let vaultOpen = false;
+const openTopics = new Set(['Cyber']);
+let draftTopics = [];
+let newTopicName = '';
+let importTopic = '';
+const listDrafts = new Map();
 let teamsOpen = false;
-let vaultName = '';
 const teamNameDrafts = new Map();
 let pinGate = null;
 let importUi = null;
@@ -69,7 +72,15 @@ const controlKey = () => localStorage.getItem(KEY_STORAGE) || '';
 const hasControl = () => Boolean(state?.viewer?.control);
 const configOf = () => state?.session?.config || {};
 
-/** The shown name of a question set, including vault lists. */
+/** "Essentials questions" for one list, "3 lists · 140 questions" for a mix. */
+function questionsBadge(config) {
+  const ids = config.questionSets || [];
+  if (ids.length === 1) return `${setName(ids[0])} questions`;
+  const total = ids.reduce((sum, id) => sum + (state?.questionSets?.find((set) => set.id === id)?.count || 0), 0);
+  return `${ids.length} lists · ${total} questions`;
+}
+
+/** The shown name of a question list. */
 function setName(id) {
   return state?.questionSets?.find((set) => set.id === id)?.name || setLabel(id);
 }
@@ -178,7 +189,6 @@ async function createGame({ force = false, pin = null } = {}) {
     settingsOpen = false;
     menuOpen = false;
     joinOpen = false;
-    vaultOpen = false;
     teamsOpen = false;
     importUi = null;
     fatal = '';
@@ -587,7 +597,7 @@ function lobbyScreen() {
           <span class="badge badge--mode">${escapeHtml(preset?.label || session.mode)}</span>
           <span class="badge">Quiz ${config.quizMinutes} min</span>
           <span class="badge">Battle ${config.battleSeconds} sec</span>
-          <span class="badge">${escapeHtml(setName(config.questionSet))} questions</span>
+          <span class="badge">${escapeHtml(questionsBadge(config))}</span>
           <span class="badge">Grid ${grid} × ${grid}</span>
         </div>
         ${sides}
@@ -1041,90 +1051,76 @@ function renderControls() {
 
 // ------------------------------------------------------------------- modal
 
-function vaultCardMarkup(config) {
-  const lists = state.questionSets.filter((set) => set.vault);
-  const active = lists.find((set) => set.id === config.questionSet);
-  return `
-    <div class="set-card set-card--vault ${active ? 'is-selected' : ''}">
-      <div class="set-card__head">
-        <span class="set-card__name">VAULT</span>
-        <button class="btn btn--small ${active ? 'btn--primary' : ''}" type="button" data-action="vault-open">${active ? 'IN USE' : 'OPEN VAULT'}</button>
-      </div>
-      <p class="set-card__meta">${active ? `${escapeHtml(active.name)} · ${active.count} questions` : `${lists.length} saved list${lists.length === 1 ? '' : 's'}`}</p>
-      <div class="set-card__actions">
-        <button class="btn btn--small btn--ghost" type="button" data-action="vault-open">${active ? 'CHANGE LIST' : 'IMPORT A LIST'}</button>
-      </div>
-    </div>`;
+/** Lists grouped by topic, plus topics the host has just made but not filled yet. */
+function topicGroups() {
+  const names = [...(state.questionTopics || []), ...draftTopics.filter((t) => !(state.questionTopics || []).includes(t))];
+  return names.map((name) => ({ name, lists: state.questionSets.filter((set) => set.topic === name) }));
 }
 
-function vaultModal() {
-  const config = configOf();
-  const lists = state.questionSets.filter((set) => set.vault);
-  const rows = lists
-    .map((set) => {
-      const using = set.id === config.questionSet;
-      const id = escapeHtml(set.id);
-      const deleting = armed?.action === `vault-delete:${set.id}`;
+function topicsMarkup(config) {
+  const chosen = new Set(config.questionSets || []);
+  const picked = state.questionSets.filter((set) => chosen.has(set.id));
+  const total = picked.reduce((sum, set) => sum + set.count, 0);
+  const groups = topicGroups()
+    .map(({ name, lists }) => {
+      const open = openTopics.has(name);
+      const on = lists.filter((set) => chosen.has(set.id));
+      const state_ = !lists.length ? '' : on.length === lists.length ? 'is-on' : on.length ? 'is-part' : '';
+      const questions = on.reduce((sum, set) => sum + set.count, 0);
+      const rows = lists
+        .map((set) => {
+          const id = escapeHtml(set.id);
+          const using = chosen.has(set.id);
+          const deleting = armed?.action === `vault-delete:${set.id}`;
+          const resetting = armed?.action === `reset:${set.id}`;
+          return `
+            <div class="list-row ${using ? 'is-on' : ''}">
+              <button class="tick ${using ? 'is-on' : ''}" type="button" role="checkbox" aria-checked="${using}" data-list-toggle="${id}"></button>
+              <button class="list-row__name" type="button" data-list-toggle="${id}">${escapeHtml(set.name)}</button>
+              <span class="list-row__count">${set.count} Q</span>
+              <span class="list-row__actions">
+                <button class="btn btn--small btn--ghost" type="button" data-export="${id}">EXPORT</button>
+                ${
+                  set.vault
+                    ? `<button class="btn btn--small btn--ghost ${deleting ? 'is-confirm' : ''}" type="button" data-vault-delete="${id}">${deleting ? 'TAP AGAIN' : 'DELETE'}</button>`
+                    : `<button class="btn btn--small btn--ghost" type="button" data-import="${id}">REPLACE CSV</button>${set.custom ? `<button class="btn btn--small btn--ghost ${resetting ? 'is-confirm' : ''}" type="button" data-reset="${id}">${resetting ? 'TAP AGAIN' : 'RESET'}</button>` : ''}`
+                }
+              </span>
+            </div>`;
+        })
+        .join('');
+      const importingHere = importUi && importUi.topic === name;
       return `
-        <tr class="${using ? 'is-using' : ''}">
-          <td class="vault-table__name">${escapeHtml(set.name)}</td>
-          <td>${set.count}</td>
-          <td>${escapeHtml(new Date(set.updatedAt).toLocaleDateString())}</td>
-          <td class="vault-table__actions">
-            <button class="btn btn--small ${using ? 'btn--primary' : ''}" type="button" data-key="questionSet" data-value="${id}">${using ? 'IN USE' : 'USE'}</button>
-            <button class="btn btn--small btn--ghost" type="button" data-export="${id}">EXPORT</button>
-            <button class="btn btn--small btn--ghost ${deleting ? 'is-confirm' : ''}" type="button" data-vault-delete="${id}">${deleting ? 'TAP AGAIN' : 'DELETE'}</button>
-          </td>
-        </tr>`;
+        <div class="topic ${open ? 'is-open' : ''} ${state_}">
+          <div class="topic__head">
+            <button class="tick tick--topic ${state_}" type="button" role="checkbox" aria-checked="${state_ === 'is-on'}" aria-label="Use every ${escapeHtml(name)} list" data-topic-all="${escapeHtml(name)}"></button>
+            <button class="topic__title" type="button" aria-expanded="${open}" data-topic-toggle="${escapeHtml(name)}">
+              <span class="topic__name">${escapeHtml(name.toUpperCase())}</span>
+              <span class="topic__meta">${lists.length ? `${on.length}/${lists.length} lists${on.length ? ` · ${questions} Q` : ''}` : 'no lists yet'}</span>
+              <span class="topic__chevron" aria-hidden="true">${open ? '▾' : '▸'}</span>
+            </button>
+          </div>
+          ${
+            open
+              ? `<div class="topic__body">
+                  ${rows || '<p class="setting__help">Nothing here yet. Add a CSV below.</p>'}
+                  <div class="vault-import">
+                    <input class="input" type="text" maxlength="40" placeholder="New list name, e.g. 70's hits" value="${escapeHtml(listDrafts.get(name) || '')}" data-list-name="${escapeHtml(name)}" />
+                    <button class="btn btn--small" type="button" data-vault-import="${escapeHtml(name)}">ADD CSV TO ${escapeHtml(name.toUpperCase())}</button>
+                  </div>
+                  ${importingHere ? importPanelMarkup() : ''}
+                </div>`
+              : ''
+          }
+        </div>`;
     })
     .join('');
   return `
-    <div class="modal-backdrop" data-backdrop>
-      <section class="modal hud" role="dialog" aria-modal="true" aria-label="Question vault">
-        <header class="modal__head">
-          <h2 class="modal__title">QUESTION VAULT</h2>
-          <span class="badge">${lists.length} saved</span>
-        </header>
-        <div class="modal__body">
-          ${
-            lists.length
-              ? `<table class="vault-table">
-                   <thead><tr><th>LIST</th><th>QUESTIONS</th><th>ADDED</th><th></th></tr></thead>
-                   <tbody>${rows}</tbody>
-                 </table>`
-              : '<p class="setting__help" style="font-size:1.1rem">Nothing saved yet. Import a CSV below and it is kept here, ready to pick again in future games.</p>'
-          }
-          <div class="setting">
-            <span class="setting__label">IMPORT A NEW LIST</span>
-            <div class="vault-import">
-              <input class="input" type="text" maxlength="40" placeholder="List name, e.g. Phishing week" value="${escapeHtml(vaultName)}" data-vault-name />
-              <button class="btn btn--small" type="button" data-vault-import>CHOOSE CSV FILE</button>
-            </div>
-            ${importPanelMarkup()}
-            <p class="setting__help">The list is saved to the vault and used for this game straight away. Columns: category, question, option_a, option_b, option_c, correct (A, B or C), explanation.</p>
-          </div>
-        </div>
-        <footer class="modal__foot">
-          <button class="btn btn--primary" type="button" data-action="vault-close">BACK TO SETTINGS</button>
-        </footer>
-      </section>
-    </div>`;
-}
-
-function setCardMarkup(set, selected) {
-  const edited = set.custom;
-  return `
-    <div class="set-card ${selected ? 'is-selected' : ''}">
-      <div class="set-card__head">
-        <span class="set-card__name">${escapeHtml(setName(set.id))}</span>
-        <button class="btn btn--small ${selected ? 'btn--primary' : ''}" type="button" data-key="questionSet" data-value="${escapeHtml(set.id)}">${selected ? 'IN USE' : 'USE THIS SET'}</button>
-      </div>
-      <p class="set-card__meta">${set.count} questions · ${edited ? 'your edited version' : 'built-in'}</p>
-      <div class="set-card__actions">
-        <button class="btn btn--small btn--ghost" type="button" data-export="${escapeHtml(set.id)}">EXPORT CSV</button>
-        <button class="btn btn--small btn--ghost" type="button" data-import="${escapeHtml(set.id)}">IMPORT CSV</button>
-        ${edited ? `<button class="btn btn--small btn--ghost ${armed?.action === `reset:${set.id}` ? 'is-confirm' : ''}" type="button" data-reset="${escapeHtml(set.id)}">${armed?.action === `reset:${set.id}` ? 'TAP AGAIN' : 'RESET'}</button>` : ''}
-      </div>
+    <p class="topics__summary"><b>${picked.length}</b> list${picked.length === 1 ? '' : 's'} chosen · <b>${total}</b> questions in the mix</p>
+    <div class="topics">${groups}</div>
+    <div class="vault-import topics__new">
+      <input class="input" type="text" maxlength="30" placeholder="New topic, e.g. Sport" value="${escapeHtml(newTopicName)}" data-new-topic />
+      <button class="btn btn--small btn--ghost" type="button" data-topic-add>ADD TOPIC</button>
     </div>`;
 }
 
@@ -1132,12 +1128,12 @@ function importPanelMarkup() {
   if (!importUi) return '';
   const name = escapeHtml(importUi.fileName || 'file');
   const isVault = importUi.setId === VAULT_TARGET;
-  const label = escapeHtml(isVault ? importUi.listName || 'the vault' : setName(importUi.setId));
+  const label = escapeHtml(isVault ? importUi.listName || 'the new list' : setName(importUi.setId));
   if (importUi.status === 'checking') {
     return `<div class="import-panel"><p class="import-panel__title">Checking ${name}…</p></div>`;
   }
   if (importUi.status === 'saving') {
-    return `<div class="import-panel"><p class="import-panel__title">Saving ${isVault ? `${label} to the vault` : `to the ${label} set`}…</p></div>`;
+    return `<div class="import-panel"><p class="import-panel__title">Saving ${isVault ? `${label} to ${escapeHtml(importUi.topic || 'the vault')}` : `to the ${label} list`}…</p></div>`;
   }
   if (importUi.status === 'error') {
     return `
@@ -1152,7 +1148,7 @@ function importPanelMarkup() {
   return `
     <div class="import-panel">
       <p class="import-panel__title" style="color:var(--green)">${isVault ? `READY TO SAVE ${label.toUpperCase()}` : `READY TO IMPORT INTO ${label}`}</p>
-      <p><b>${importUi.count}</b> valid questions found in ${name}. ${isVault ? 'It is saved to the vault and used for this game.' : `This replaces all <b>${current?.count ?? 0}</b> questions currently in the ${label} set.`}</p>
+      <p><b>${importUi.count}</b> valid questions found in ${name}. ${isVault ? 'It is saved and added to this game.' : `This replaces all <b>${current?.count ?? 0}</b> questions currently in ${label}.`}</p>
       <ul>${importUi.preview.map((entry) => `<li>${escapeHtml(entry.prompt)}</li>`).join('')}</ul>
       ${importUi.warnings.length ? `<ul>${importUi.warnings.map((entry) => `<li><b>${entry.row ? `Row ${entry.row}` : 'Note'}:</b> ${escapeHtml(entry.message)}</li>`).join('')}</ul>` : ''}
       <div class="import-panel__actions">
@@ -1223,13 +1219,10 @@ function settingsModal() {
             </div>
           </div>
           <div class="setting">
-            <span class="setting__label">QUESTION SET</span>
-            <div class="setting-grid" style="grid-template-columns:repeat(3,minmax(0,1fr))">
-              ${state.questionSets.filter((set) => !set.vault).map((set) => setCardMarkup(set, set.id === config.questionSet)).join('')}
-              ${vaultCardMarkup(config)}
-            </div>
-            ${importPanelMarkup()}
-            <p class="setting__help">Export a set to get a CSV file, edit it in Excel or Google Sheets, then import it back. Each row is one question with three answers and the columns below. Import replaces only the set you choose.</p>
+            <span class="setting__label">QUESTIONS</span>
+            ${topicsMarkup(config)}
+            ${importUi && !importUi.topic ? importPanelMarkup() : ''}
+            <p class="setting__help">Tick the lists to mix together, or open a topic to pick individual lists. Add your own CSV to any topic. Export a list to edit it in Excel or Google Sheets. Each row is one question with three answers.</p>
             <div class="code-block">category, question, option_a, option_b, option_c, correct (A, B or C), explanation</div>
           </div>
           <div class="setting">
@@ -1314,7 +1307,10 @@ function renderModal() {
   const sig = JSON.stringify([
     settingsOpen,
     menuOpen,
-    vaultOpen,
+    openTopics.size,
+    [...openTopics].join('|'),
+    draftTopics,
+    state.questionTopics,
     configOf(),
     state.questionSets,
     state.counts.players,
@@ -1326,7 +1322,7 @@ function renderModal() {
   const body = $('.modal__body', modalRoot);
   const scroll = body ? body.scrollTop : 0;
   modalSig = sig;
-  modalRoot.innerHTML = settingsOpen ? (vaultOpen ? vaultModal() : settingsModal()) : menuModal();
+  modalRoot.innerHTML = settingsOpen ? settingsModal() : menuModal();
   const next = $('.modal__body', modalRoot);
   if (next) next.scrollTop = scroll;
 }
@@ -1470,17 +1466,19 @@ fileInput.addEventListener('change', async () => {
     return;
   }
   const csv = await file.text();
-  const listName = setId === VAULT_TARGET ? vaultName.trim() || file.name.replace(/\.[^.]+$/, '').slice(0, 40) : '';
-  importUi = { status: 'checking', setId, fileName: file.name, listName };
+  const topic = setId === VAULT_TARGET ? importTopic : '';
+  const listName = setId === VAULT_TARGET ? (listDrafts.get(topic) || '').trim() || file.name.replace(/\.[^.]+$/, '').slice(0, 40) : '';
+  importUi = { status: 'checking', setId, fileName: file.name, listName, topic };
   modalSig = '';
   render();
   try {
-    const result = await importRequest(setId, { csv, dryRun: true, name: listName });
+    const result = await importRequest(setId, { csv, dryRun: true, name: listName, topic });
     importUi = {
       status: 'preview',
       setId,
       fileName: file.name,
       listName,
+      topic,
       csv,
       count: result.count,
       preview: result.preview || [],
@@ -1493,6 +1491,7 @@ fileInput.addEventListener('change', async () => {
         setId,
         fileName: file.name,
         listName,
+        topic,
         errors: error.payload.errors,
         warnings: error.payload.warnings || [],
       };
@@ -1507,20 +1506,20 @@ fileInput.addEventListener('change', async () => {
 
 async function confirmImport() {
   if (!importUi || importUi.status !== 'preview') return;
-  const { setId, csv, count, listName } = importUi;
+  const { setId, csv, count, listName, topic } = importUi;
   importUi = { ...importUi, status: 'saving' };
   modalSig = '';
   render();
   try {
-    await importRequest(setId, { csv, name: listName });
+    await importRequest(setId, { csv, name: listName, topic });
     toast(
       setId === VAULT_TARGET
-        ? `${listName} saved to the vault (${count} questions) and selected.`
+        ? `${listName} added to ${topic} (${count} questions) and selected.`
         : `${setName(setId)} set replaced with ${count} questions.`,
       'success',
       '#toast-root',
     );
-    if (setId === VAULT_TARGET) vaultName = '';
+    if (setId === VAULT_TARGET) listDrafts.delete(topic);
     play('success');
     importUi = null;
   } catch (error) {
@@ -1538,14 +1537,15 @@ async function deleteVaultList(id) {
       method: 'DELETE',
       headers: { 'x-control-key': controlKey() },
     });
-    toast(`${name} removed from the vault.`, 'success', '#toast-root');
+    toast(`${name} deleted.`, 'success', '#toast-root');
   } catch (error) {
     toast(error.message, 'error', '#toast-root');
   }
 }
 
 document.addEventListener('input', (event) => {
-  if (event.target?.matches?.('[data-vault-name]')) vaultName = event.target.value;
+  if (event.target?.matches?.('[data-list-name]')) listDrafts.set(event.target.dataset.listName, event.target.value);
+  if (event.target?.matches?.('[data-new-topic]')) newTopicName = event.target.value;
   if (event.target?.matches?.('[data-team-name]')) {
     teamNameDrafts.set(event.target.dataset.teamName, event.target.value);
   }
@@ -1609,7 +1609,6 @@ document.addEventListener('click', (event) => {
     settingsOpen = false;
     menuOpen = false;
     joinOpen = false;
-    vaultOpen = false;
     teamsOpen = false;
     importUi = null;
     chromeSig = '';
@@ -1622,7 +1621,6 @@ document.addEventListener('click', (event) => {
     settingsOpen = false;
     menuOpen = false;
     joinOpen = false;
-    vaultOpen = false;
     teamsOpen = false;
     importUi = null;
     chromeSig = '';
@@ -1642,9 +1640,65 @@ document.addEventListener('click', (event) => {
     return;
   }
 
-  if (target.closest('[data-vault-import]')) {
+  const vaultImport = target.closest('[data-vault-import]');
+  if (vaultImport) {
     importTarget = VAULT_TARGET;
+    importTopic = vaultImport.dataset.vaultImport;
     fileInput.click();
+    return;
+  }
+
+  const topicToggle = target.closest('[data-topic-toggle]');
+  if (topicToggle) {
+    const name = topicToggle.dataset.topicToggle;
+    if (openTopics.has(name)) openTopics.delete(name);
+    else openTopics.add(name);
+    modalSig = '';
+    render();
+    return;
+  }
+
+  const listToggle = target.closest('[data-list-toggle]');
+  if (listToggle) {
+    const id = listToggle.dataset.listToggle;
+    const now = configOf().questionSets || [];
+    const next = now.includes(id) ? now.filter((entry) => entry !== id) : [...now, id];
+    if (!next.length) toast('Keep at least one list selected.', 'error', '#toast-root');
+    else patchSettings({ questionSets: next });
+    return;
+  }
+
+  const topicAll = target.closest('[data-topic-all]');
+  if (topicAll) {
+    const name = topicAll.dataset.topicAll;
+    const ids = state.questionSets.filter((set) => set.topic === name).map((set) => set.id);
+    if (!ids.length) {
+      openTopics.add(name);
+      modalSig = '';
+      render();
+      return;
+    }
+    const now = configOf().questionSets || [];
+    const allOn = ids.every((id) => now.includes(id));
+    const next = allOn ? now.filter((id) => !ids.includes(id)) : [...new Set([...now, ...ids])];
+    if (!next.length) toast('Keep at least one list selected.', 'error', '#toast-root');
+    else patchSettings({ questionSets: next });
+    return;
+  }
+
+  if (target.closest('[data-topic-add]')) {
+    const name = newTopicName.replace(/\s+/g, ' ').trim().slice(0, 30);
+    if (name.length < 2) {
+      toast('Give the topic a name of at least two characters.', 'error', '#toast-root');
+      return;
+    }
+    const known = topicGroups().find((group) => group.name.toLowerCase() === name.toLowerCase());
+    const label = known ? known.name : name;
+    if (!known) draftTopics.push(label);
+    openTopics.add(label);
+    newTopicName = '';
+    modalSig = '';
+    render();
     return;
   }
 
@@ -1663,6 +1717,7 @@ document.addEventListener('click', (event) => {
   const importButton = target.closest('[data-import]');
   if (importButton) {
     importTarget = importButton.dataset.import;
+    importTopic = '';
     fileInput.click();
     return;
   }
@@ -1731,17 +1786,6 @@ document.addEventListener('click', (event) => {
       modalSig = '';
       render();
       return;
-    case 'vault-open':
-      vaultOpen = true;
-      modalSig = '';
-      render();
-      return;
-    case 'vault-close':
-      vaultOpen = false;
-      importUi = null;
-      modalSig = '';
-      render();
-      return;
     case 'menu':
       menuOpen = true;
       modalSig = '';
@@ -1768,7 +1812,6 @@ document.addEventListener('keydown', (event) => {
     settingsOpen = false;
     menuOpen = false;
     joinOpen = false;
-    vaultOpen = false;
     teamsOpen = false;
     importUi = null;
     chromeSig = '';
@@ -1789,7 +1832,7 @@ function nextAction() {
     skipCutscene();
     return;
   }
-  if (!hasControl() || settingsOpen || menuOpen || joinOpen || vaultOpen || teamsOpen) return;
+  if (!hasControl() || settingsOpen || menuOpen || joinOpen || teamsOpen) return;
   const main = document.querySelector('#controls .btn--main');
   if (!main || main.disabled) return;
   const phase = state.session.phase;

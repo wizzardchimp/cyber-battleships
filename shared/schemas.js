@@ -24,10 +24,10 @@ const configShape = {
   quizMinutes: z.coerce.number().int().min(LIMITS.minQuizMinutes).max(LIMITS.maxQuizMinutes),
   battleSeconds: z.coerce.number().int().min(LIMITS.minBattleSeconds).max(LIMITS.maxBattleSeconds),
   gridSize: z.coerce.number().int().min(LIMITS.minGridSize).max(LIMITS.maxGridSize),
-  questionSet: z
-    .string()
-    .trim()
-    .regex(/^[a-z0-9_-]{1,24}$/, 'Choose a valid question set.'),
+  questionSets: z
+    .array(z.string().trim().regex(/^[a-z0-9_-]{1,24}$/, 'Choose a valid question list.'))
+    .min(1, 'Pick at least one question list.')
+    .max(50),
   soundEnabled: z.boolean(),
 };
 
@@ -39,7 +39,7 @@ export const configPatchSchema = z
     quizMinutes: configShape.quizMinutes.optional(),
     battleSeconds: configShape.battleSeconds.optional(),
     gridSize: configShape.gridSize.optional(),
-    questionSet: configShape.questionSet.optional(),
+    questionSets: configShape.questionSets.optional(),
     soundEnabled: configShape.soundEnabled.optional(),
   })
   .strict();

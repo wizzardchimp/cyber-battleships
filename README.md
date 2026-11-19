@@ -107,8 +107,9 @@ players cannot start or end the game even by sending messages directly.
 
 ## Editing the questions
 
-There are two question sets, **Easy** and **Complex**, stored in the database.
-The game uses whichever is selected in Settings.
+Questions live in **lists** (one CSV each), grouped under **topics**, all stored in
+the database. The game draws from every list ticked in Settings. The built-in
+**Essentials** and **Advanced** lists sit under the Cyber topic.
 
 1. Open **SETTINGS** in the lobby.
 2. Under **Question set**, press **EXPORT CSV** on the set you want to change.
@@ -286,13 +287,16 @@ docs/architecture.md     # design notes
   (SKIP TIMER, END BATTLE ROUND) or start an empty game, press twice within 2.5
   seconds.
 
-## Question vault
+## Question topics and lists
 
-Under **SETTINGS → QUESTION SET**, the **VAULT** card opens a pop-up listing saved
-question lists. **IMPORT A NEW LIST** takes a name and a CSV file in the same format
-as the built-in sets, previews it, saves it to the database and selects it for the
-game. Saved lists can be picked again for later games, exported or deleted (lobby
-only, up to 50 lists). Easy and Complex cannot be deleted.
+Under **SETTINGS → QUESTIONS**, lists are grouped into topics: Cyber, General
+Knowledge, Films, Music and News, plus any you add with **ADD TOPIC**. Tick a topic
+to use all of its lists, or open it to tick individual ones, so you can build a mix
+such as Cyber Essentials + 90's hits. **ADD CSV TO <topic>** takes a list name and a
+CSV file in the same format as the built-in lists, previews it, saves it to the
+database under that topic and adds it to the game. Saved lists can be exported or
+deleted (lobby only, up to 50 lists). The built-in lists cannot be deleted, and at
+least one list must stay ticked.
 
 ## Facilitator PIN
 

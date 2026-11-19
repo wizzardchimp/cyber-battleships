@@ -84,9 +84,14 @@ export const MODE_LIST = Object.freeze([
 export const QUESTION_SET_IDS = Object.freeze(['easy', 'complex']);
 
 export const QUESTION_SET_LABELS = Object.freeze({
-  easy: 'EASY',
-  complex: 'COMPLEX',
+  easy: 'ESSENTIALS',
+  complex: 'ADVANCED',
 });
+
+/** Topics always offered in settings, even before a list has been added to them. */
+export const DEFAULT_TOPICS = Object.freeze(['Cyber', 'General Knowledge', 'Films', 'Music', 'News']);
+export const MAX_TOPIC_LENGTH = 30;
+export const MAX_SELECTED_LISTS = 50;
 
 export const FLEET_TEMPLATE = Object.freeze([
   { key: 'carrier', name: 'Aircraft Carrier', length: 5 },
@@ -155,7 +160,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   quizMinutes: 2,
   battleSeconds: 60,
   gridSize: 10,
-  questionSet: 'easy',
+  questionSets: Object.freeze(['easy']),
   soundEnabled: true,
 });
 

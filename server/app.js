@@ -8,9 +8,10 @@ import pinoHttp from 'pino-http';
 import QRCode from 'qrcode';
 import { ZodError } from 'zod';
 
+import { MAX_SELECTED_LISTS } from '../shared/constants.js';
 import { AppError } from './errors.js';
 import { parseQuestionsCsv, serializeQuestions } from './questions/csv.js';
-import { MAX_VAULT_LISTS, isVaultId } from './questions/store.js';
+import { MAX_VAULT_LISTS, cleanTopic, isVaultId } from './questions/store.js';
 import { baseUrlFor, displayUrlFor, normaliseJoinCode, shortJoinUrlFor } from './util/security.js';
 
 function asyncHandler(fn) {
@@ -183,9 +184,9 @@ export function createApp({ config, manager, db, logger }) {
       if (manager.questions.vaultCount() >= MAX_VAULT_LISTS) {
         throw new AppError('VAULT_FULL', `The vault holds up to ${MAX_VAULT_LISTS} lists. Delete one first.`, 409);
       }
-      const id = await manager.questions.createVault(name, result.questions);
-      // A newly imported list is the one this game uses.
-      await session.updateConfig({ questionSet: id });
+      const id = await manager.questions.createVault(name, result.questions, cleanTopic(req.body?.topic));
+      // A newly imported list is added to the lists this game uses.
+      await session.updateConfig({ questionSets: [...session.config.questionSets, id].slice(-MAX_SELECTED_LISTS) });
       session.emit('change');
       res.json({ ok: true, id, count: result.total, warnings: result.warnings, preview, sets: manager.questions.summaries() });
     }),
@@ -202,7 +203,10 @@ export function createApp({ config, manager, db, logger }) {
       if (session.phase !== 'lobby') {
         throw new AppError('NOT_IN_LOBBY', 'Questions can only be changed in the lobby.', 409);
       }
-      if (session.config.questionSet === id) await session.updateConfig({ questionSet: 'easy' });
+      if (session.config.questionSets.includes(id)) {
+        const rest = session.config.questionSets.filter((entry) => entry !== id);
+        await session.updateConfig({ questionSets: rest.length ? rest : ['easy'] });
+      }
       await manager.questions.removeVault(id);
       session.emit('change');
       res.json({ ok: true, sets: manager.questions.summaries() });

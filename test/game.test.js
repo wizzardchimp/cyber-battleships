@@ -103,7 +103,7 @@ test('a new game starts in the lobby as a 3 v 3', () => {
   assert.deepEqual(session.state.teams.map((team) => team.name), ['ALPHA', 'BRAVO']);
   assert.deepEqual(session.state.teams.map((team) => team.maxPlayers), [3, 3]);
   assert.equal(session.capacity(), 6);
-  assert.equal(session.config.questionSet, 'easy');
+  assert.deepEqual(session.config.questionSets, ['easy']);
 });
 
 test('joining balances the sides, hashes the token and enforces unique names', () => {
@@ -186,9 +186,10 @@ test('changing mode keeps players seated and refuses when too many are present',
 
 test('settings are validated and locked once a game starts', async () => {
   const { session } = makeSession();
-  await expectReject(() => session.updateConfig({ questionSet: 'nope' }), 'UNKNOWN_SET');
-  await session.updateConfig({ questionSet: 'complex', quizMinutes: 3, battleSeconds: 90 });
-  assert.equal(session.config.questionSet, 'complex');
+  await expectReject(() => session.updateConfig({ questionSets: ['nope'] }), 'UNKNOWN_SET');
+  await expectReject(() => session.updateConfig({ questionSets: [] }), 'NO_QUESTIONS');
+  await session.updateConfig({ questionSets: ['complex', 'easy', 'easy'], quizMinutes: 3, battleSeconds: 90 });
+  assert.deepEqual(session.config.questionSets, ['complex', 'easy']);
   assert.equal(session.config.quizMinutes, 3);
 
   session.join({ name: 'Solo' });

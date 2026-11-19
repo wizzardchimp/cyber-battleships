@@ -122,7 +122,7 @@ test('players are served questions from the selected set', async (t) => {
     body: JSON.stringify({ csv: customCsv(10, 'Hard') }),
   });
 
-  assert.equal((await emitAck(screen.socket, EVENTS.DISPLAY_SETTINGS, { patch: { mode: 'duel', questionSet: 'complex' } })).ok, true);
+  assert.equal((await emitAck(screen.socket, EVENTS.DISPLAY_SETTINGS, { patch: { mode: 'duel', questionSets: ['complex'] } })).ok, true);
   const player = await joinPlayer(h.baseUrl, EVENTS, screen.game.joinCode, 'Reader');
   await emitAck(screen.socket, EVENTS.DISPLAY_ADVANCE, {});
   const state = await waitFor(() => player.states.latest()?.round?.me?.question && player.states.latest(), {
@@ -267,12 +267,31 @@ test('the vault keeps imported lists, selects them, and can delete them', async 
   assert.equal(entry.vault, true);
   assert.equal(entry.count, 12);
   assert.deepEqual(listed.sets.slice(0, 2).map((set) => set.id), ['easy', 'complex']);
-  assert.equal(h.manager.current().config.questionSet, body.id, 'the new list is selected for this game');
+  assert.deepEqual(h.manager.current().config.questionSets, ['easy', body.id], 'the new list is added to this game');
+  assert.equal(entry.topic, 'Other');
   assert.equal(h.manager.questions.questionsFor(body.id).length, 12);
 
   const gone = await fetch(`${h.baseUrl}/api/vault/${body.id}`, { method: 'DELETE', headers });
   assert.equal(gone.status, 200);
   assert.equal(h.manager.questions.has(body.id), false);
-  assert.equal(h.manager.current().config.questionSet, 'easy', 'deleting the active list falls back to easy');
+  assert.deepEqual(h.manager.current().config.questionSets, ['easy'], 'deleting a selected list drops it from the selection');
   assert.equal((await fetch(`${h.baseUrl}/api/vault/easy`, { method: 'DELETE', headers })).status, 404, 'built-in sets are not deletable');
+});
+
+test('lists are grouped by topic and several lists build one question pool', async (t) => {
+  const { h, screen } = await setup(t);
+  const headers = control(screen.key);
+  const post = (body) => fetch(`${h.baseUrl}/api/vault`, { method: 'POST', headers, body: JSON.stringify(body) });
+  const seventies = await (await post({ name: "70's hits", topic: 'Music', csv: customCsv(9) })).json();
+  const nineties = await (await post({ name: "90's hits", topic: 'Music', csv: customCsv(10) })).json();
+  const listed = await fetch(`${h.baseUrl}/api/questions`).then((response) => response.json());
+  assert.deepEqual(
+    listed.sets.filter((set) => set.topic === 'Music').map((set) => set.name).sort(),
+    ["70's hits", "90's hits"],
+  );
+  const session = h.manager.current();
+  assert.deepEqual(session.config.questionSets, ['easy', seventies.id, nineties.id]);
+  await session.updateConfig({ questionSets: [seventies.id, nineties.id] });
+  assert.equal(h.manager.questions.questionsForMany(session.config.questionSets).length, 19);
+  assert.ok(h.manager.questions.topics().includes('Music'));
 });
