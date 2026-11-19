@@ -165,6 +165,20 @@ export function publicProjection(session, { control = false } = {}) {
   };
 }
 
+/** Target voting as one player sees it; empty unless there is a real choice. */
+function voteView(session, combatant, player) {
+  const inBattle = session.state.phase === PHASES.BATTLE;
+  const live = combatant ? session.liveTargetsOf(combatant) : [];
+  if (!inBattle || live.length < 2) return { targetVotes: {}, myVote: null, canVote: false };
+  const votes = session.state.round.targetVotes?.[combatant.id] || {};
+  const voter = session.targetVotersOf(combatant).some((entry) => entry.id === player.id);
+  return {
+    targetVotes: session.targetTally(combatant),
+    myVote: live.includes(votes[player.id]) ? votes[player.id] : null,
+    canVote: voter && !session.fleetDestroyed(combatant.id),
+  };
+}
+
 export function playerProjection(session, playerId) {
   const state = session.state;
   const publicState = publicProjection(session);
@@ -185,7 +199,7 @@ export function playerProjection(session, playerId) {
   if (round) {
     const entry = state.round.quiz?.[player.id] || {};
     const combatant = state.round.combatants.find((item) => item.id === player.teamId) || null;
-    const targetId = combatant?.targetId || null;
+    const targetId = combatant ? session.chosenTargetFor(combatant) : null;
     const targetIds = combatant?.targetIds?.length ? combatant.targetIds : [targetId].filter(Boolean);
     const targetCombatant = state.round.combatants.find((item) => item.id === targetId) || null;
     const revealShips = state.phase === PHASES.RESULT;
@@ -213,6 +227,8 @@ export function playerProjection(session, playerId) {
           : null,
       isCpuTarget: targetId === CPU_ID,
       targetIds,
+      // Three-team games: how the side's teammates have voted, for the phone to show.
+      ...voteView(session, combatant, player),
       eliminated: session.fleetDestroyed(player.teamId),
       ammoProgress: team ? Number(state.ammoProgress?.[team.id]) || 0 : 0,
       perMissile: correctPerMissile(state.config),

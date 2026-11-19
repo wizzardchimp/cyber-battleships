@@ -520,6 +520,8 @@ export class GameSession extends EventEmitter {
   startQuizCycle(now = Date.now()) {
     const round = this.state.round;
     assert(round, 'NOT_IN_ROUND', 'No game is running.');
+    round.targetVotes = {};
+    round.chosenTargets = {};
     round.cycle = (round.cycle || 0) + 1;
     round.quizStartedAt = new Date(now).toISOString();
     round.quizEndsAt = new Date(now + this.config.quizMinutes * 60_000).toISOString();
@@ -872,7 +874,7 @@ export class GameSession extends EventEmitter {
     this.enterBattle(now);
   }
 
-  async attack(playerId, x, y, targetId = null) {
+  async attack(playerId, x, y) {
     assert(this.state.phase === PHASES.BATTLE, 'NOT_BATTLE', 'The battle is not running.');
     const round = this.state.round;
     const player = this.playerById(playerId);
@@ -883,16 +885,8 @@ export class GameSession extends EventEmitter {
     const opensAt = Date.parse(round.battleOpensAt);
     assert(!(opensAt > Date.now()), 'BATTLE_NOT_OPEN', 'The battle is about to begin. Get ready to fire.');
     assert(!this.fleetDestroyed(ownerId), 'ELIMINATED', 'Your fleet has been sunk. You are out of the battle.');
-    const targets = this.targetIdsOf(combatant);
-    let aimAt = combatant.targetId;
-    if (targetId) {
-      assert(targets.includes(targetId), 'INVALID_TARGET', 'You cannot fire at that fleet.');
-      aimAt = targetId;
-    } else if (targets.length > 1) {
-      const alive = targets.filter((id) => !this.fleetDestroyed(id));
-      assert(alive.length === 1, 'CHOOSE_TARGET', 'Choose which fleet to fire at.');
-      aimAt = alive[0];
-    }
+    // The captain does not choose the fleet: the teammates' vote does.
+    const aimAt = this.chosenTargetFor(combatant);
     assert(!this.fleetDestroyed(aimAt), 'TARGET_DESTROYED', 'That fleet has already been sunk.');
     const side = this.teamById(ownerId);
     if (side && !this.playerById(side.captainPlayerId)) {
@@ -996,6 +990,71 @@ export class GameSession extends EventEmitter {
       y: cy,
       missiles: this.arsenalFor(ownerId),
     };
+  }
+
+  /** The fleets a side can still fire at. */
+  liveTargetsOf(combatant) {
+    return this.targetIdsOf(combatant).filter((id) => !this.fleetDestroyed(id));
+  }
+
+  /**
+   * Who votes on a side's target: everyone except the captain. A captain with no
+   * teammates at all is left to choose, so a one-player side is never stuck.
+   */
+  targetVotersOf(combatant) {
+    const captainId = this.teamById(combatant.id)?.captainPlayerId;
+    const players = this.playersOnTeam(combatant.id);
+    const others = players.filter((player) => player.id !== captainId);
+    return others.length > 0 ? others : players;
+  }
+
+  /** Votes per fleet that is still afloat. */
+  targetTally(combatant) {
+    const tally = Object.fromEntries(this.liveTargetsOf(combatant).map((id) => [id, 0]));
+    const votes = this.state.round?.targetVotes?.[combatant.id] || {};
+    for (const voter of this.targetVotersOf(combatant)) {
+      const choice = votes[voter.id];
+      if (choice in tally) tally[choice] += 1;
+    }
+    return tally;
+  }
+
+  /** The fleet a side is firing at: the most votes, with a tie keeping the last choice. */
+  chosenTargetFor(combatant) {
+    const live = this.liveTargetsOf(combatant);
+    if (live.length === 0) return combatant.targetId;
+    if (live.length === 1) return live[0];
+    const tally = this.targetTally(combatant);
+    const top = Math.max(...live.map((id) => tally[id]));
+    const leaders = live.filter((id) => tally[id] === top);
+    const previous = this.state.round?.chosenTargets?.[combatant.id];
+    return leaders.includes(previous) ? previous : leaders[0];
+  }
+
+  /** A teammate votes for the fleet the captain should fire at. */
+  async voteTarget(playerId, targetId) {
+    assert(this.state.phase === PHASES.BATTLE, 'NOT_BATTLE', 'Voting opens when the battle starts.');
+    const round = this.state.round;
+    const player = this.playerById(playerId);
+    assert(player, 'PLAYER_NOT_FOUND', 'Player not found.');
+    const combatant = round.combatants.find((entry) => entry.id === player.teamId);
+    assert(combatant?.targetId, 'NO_TARGET', 'No target is assigned.');
+    assert(!this.fleetDestroyed(combatant.id), 'ELIMINATED', 'Your fleet has been sunk. You are out of the battle.');
+    const live = this.liveTargetsOf(combatant);
+    assert(live.length > 1, 'NO_CHOICE', 'There is only one fleet left to fire at.');
+    assert(live.includes(targetId), 'INVALID_TARGET', 'You cannot vote for that fleet.');
+    assert(
+      this.targetVotersOf(combatant).some((voter) => voter.id === player.id),
+      'CAPTAIN_DOES_NOT_VOTE',
+      'Your teammates choose the target. The captain fires at it.',
+    );
+    round.targetVotes = round.targetVotes || {};
+    round.chosenTargets = round.chosenTargets || {};
+    round.targetVotes[combatant.id] = { ...round.targetVotes[combatant.id], [player.id]: targetId };
+    round.chosenTargets[combatant.id] = this.chosenTargetFor(combatant);
+    this.bump();
+    await this.commit();
+    return { targetId: round.chosenTargets[combatant.id], votes: this.targetTally(combatant) };
   }
 
   /** Every fleet a side may fire at; older saved games only stored one. */

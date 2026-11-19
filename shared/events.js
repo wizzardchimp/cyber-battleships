@@ -7,6 +7,7 @@ export const EVENTS = Object.freeze({
   PLAYER_ANSWER: 'player:answer',
   PLAYER_ATTACK: 'player:attack',
   PLAYER_PASS_CAPTAIN: 'player:passCaptain',
+  PLAYER_VOTE_TARGET: 'player:voteTarget',
 
   // Game screen -> server
   DISPLAY_SUBSCRIBE: 'display:subscribe',

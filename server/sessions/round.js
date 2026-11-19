@@ -174,6 +174,8 @@ export function makeRound({ number, now, quizEndsAt, combatants }) {
     endedAt: null,
     combatants,
     attacks: [],
+    targetVotes: {},
+    chosenTargets: {},
     quiz: {},
     outcome: null,
     results: [],

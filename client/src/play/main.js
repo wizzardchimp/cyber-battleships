@@ -45,7 +45,7 @@ let shotMsg = null;
 let lastSig = '';
 let lastBeep = null;
 let passOpen = false;
-let selectedTarget = null;
+let voting = false;
 
 // ------------------------------------------------------------------ storage
 
@@ -403,30 +403,50 @@ function targetChoices() {
   const boards = me.targetBoards?.length ? me.targetBoards : me.targetBoard ? [me.targetBoard] : [];
   const live = boards.filter((entry) => entry.shipsSunk < entry.shipsTotal);
   const chosen =
-    boards.find((entry) => entry.id === selectedTarget && live.includes(entry)) || live[0] || boards[0] || null;
+    boards.find((entry) => entry.id === me.targetId && live.includes(entry)) || live[0] || boards[0] || null;
   return { boards, board: chosen };
 }
 
-function targetTabsMarkup(boards, board) {
+/**
+ * Three-team games: the captain does not choose who to attack. Everyone else on
+ * the side votes, and the captain fires at whichever fleet has the most votes.
+ */
+function voteMarkup(me, boards, board) {
   if (boards.length < 2) return '';
+  const live = boards.filter((entry) => entry.shipsSunk < entry.shipsTotal);
+  if (live.length < 2) return '';
+  const votes = me.targetVotes || {};
+  if (!me.canVote) {
+    const tally = live.map((entry) => `${escapeHtml(entry.name)} ${votes[entry.id] || 0}`).join(' · ');
+    return `
+    <div class="vote-note">
+      <strong>YOUR TEAM IS TARGETING <span style="color:${escapeHtml(board?.color || '#fff')}">${escapeHtml(board?.name || '')}</span></strong>
+      <small>Teammates vote for the target · ${tally}</small>
+    </div>`;
+  }
   return `
-    <div class="target-tabs" role="tablist" aria-label="Choose a fleet">
-      ${boards
-        .map((entry) => {
-          const out = entry.shipsSunk >= entry.shipsTotal;
-          return `
-          <button class="target-tab ${entry.id === board?.id ? 'is-active' : ''}" type="button" role="tab" style="--side:${escapeHtml(entry.color)}" data-target="${escapeHtml(entry.id)}" ${out ? 'disabled' : ''}>
+    <div class="vote-box">
+      <div class="field__label">VOTE: WHO DOES YOUR TEAM ATTACK?</div>
+      <div class="target-tabs" role="group" aria-label="Vote for a fleet">
+        ${live
+          .map(
+            (entry) => `
+          <button class="target-tab ${entry.id === me.myVote ? 'is-active' : ''} ${entry.id === board?.id ? 'is-leading' : ''}" type="button" style="--side:${escapeHtml(entry.color)}" data-vote="${escapeHtml(entry.id)}" ${voting ? 'disabled' : ''}>
             <strong>${escapeHtml(entry.name)}</strong>
-            <small>${out ? 'SUNK' : `${entry.shipsTotal - entry.shipsSunk}/${entry.shipsTotal} afloat`}</small>
-          </button>`;
-        })
-        .join('')}
+            <small>${votes[entry.id] || 0} vote${(votes[entry.id] || 0) === 1 ? '' : 's'}${entry.id === me.myVote ? ' · YOURS' : ''}</small>
+          </button>`,
+          )
+          .join('')}
+      </div>
+      <p class="vote-hint">${board ? `Leading: <b>${escapeHtml(board.name)}</b>. ` : ''}The captain fires at the fleet with the most votes.</p>
     </div>`;
 }
 
 /** Shown on every phone while a video plays on the big screen: who the captain is. */
 function renderCaptainCard({ heading, until }) {
   const me = playerState.round.me;
+  const { boards, board } = targetChoices();
+  const vote = me.isCaptain ? '' : voteMarkup(me, boards, board);
   const color = playerState.me.teamColor || '#19e3ff';
   const who = me.isCaptain
     ? '<div class="captain-card__you">YOU ARE THE CAPTAIN</div>'
@@ -436,8 +456,9 @@ function renderCaptainCard({ heading, until }) {
     <section class="captain-card hud" style="--bracket:${escapeHtml(color)}">
       <div class="captain-card__heading">${escapeHtml(heading)}</div>
       ${who}
-      ${until ? `<p class="captain-card__note">${escapeHtml(me.isCaptain ? 'Get ready to fire.' : 'Watch the big screen.')} <b data-countdown="${escapeHtml(until)}">${formatCountdown(until)}</b></p>` : ''}
-    </section>`,
+      ${until ? `<p class="captain-card__note">${escapeHtml(me.isCaptain ? 'Get ready to fire.' : vote ? 'Vote now, then watch the big screen.' : 'Watch the big screen.')} <b data-countdown="${escapeHtml(until)}">${formatCountdown(until)}</b></p>` : ''}
+    </section>
+    ${vote}`,
     { side: color },
   );
 }
@@ -485,7 +506,7 @@ function renderBattle() {
   } else if (shotMsg) {
     message = `<div class="shot-msg shot-msg--${shotMsg.kind}">${escapeHtml(shotMsg.text)}</div>`;
   } else if (canFire) {
-    message = `<div class="shot-msg">${boards.length > 1 ? `Firing at ${escapeHtml(board.name)}. Tap a square.` : 'Tap a square to fire.'}</div>`;
+    message = `<div class="shot-msg">${boards.length > 1 ? `Firing at ${escapeHtml(board.name)}, chosen by your team. Tap a square.` : 'Tap a square to fire.'}</div>`;
   }
   if (me.missiles === 0 && !out) {
     message = `<div class="shot-msg shot-msg--out">Out of missiles. Another round of questions is coming so you can earn more.</div>`;
@@ -505,9 +526,9 @@ function renderBattle() {
     ${topBar(round.battleEndsAt, me.missiles, me, round.battleOpensAt)}
     ${handover}
     ${role}
-    ${targetTabsMarkup(boards, board)}
+    ${voteMarkup(me, boards, board)}
     <div class="target" style="--side:${targetColor}">
-      <span class="target__label">${boards.length > 1 ? 'VIEWING' : 'FIRE AT'}</span>
+      <span class="target__label">${boards.length > 1 ? (captain ? 'FIRE AT' : 'WATCHING') : 'FIRE AT'}</span>
       <span class="target__name">${escapeHtml(boards.length > 1 ? board.name : me.targetName || board.name)}</span>
     </div>
     <div class="fire-grid ${captain ? '' : 'fire-grid--watch'}">
@@ -646,7 +667,11 @@ function signature() {
         me?.targetBoard?.shots?.length,
         me?.targetBoard?.shipsSunk,
         me?.targetBoards?.map((entry) => [entry.id, entry.shots.length, entry.shipsSunk]),
-        selectedTarget,
+        me?.targetId,
+        me?.myVote,
+        me?.canVote,
+        me?.targetVotes,
+        voting,
         me?.eliminated,
         me?.ammoProgress,
         shotMsg?.id,
@@ -767,7 +792,6 @@ function ensureSocket() {
       feedback = null;
       shotMsg = null;
       passOpen = false;
-      selectedTarget = null;
       if ([PHASES.QUIZ, PHASES.BATTLE, PHASES.RESUPPLY].includes(next.session.phase)) sfx.alert();
       if (next.session.phase === PHASES.RESULT) sfx.success();
     }
@@ -997,6 +1021,21 @@ function maybeDrawCaptain(before, after) {
   );
 }
 
+async function castVote(targetId) {
+  if (voting) return;
+  voting = true;
+  sfx.click();
+  try {
+    await request(socket, EVENTS.PLAYER_VOTE_TARGET, { targetId });
+  } catch (error) {
+    toast(error.message, 'error', '#toast-root');
+    sfx.error();
+  } finally {
+    voting = false;
+    render(true);
+  }
+}
+
 async function passControls(playerId) {
   try {
     await request(socket, EVENTS.PLAYER_PASS_CAPTAIN, { playerId });
@@ -1019,7 +1058,7 @@ async function fire(x, y) {
   playBattle('fire');
   const firedAt = performance.now();
   try {
-    const result = await request(socket, EVENTS.PLAYER_ATTACK, { x, y, targetId: targetChoices().board?.id || null });
+    const result = await request(socket, EVENTS.PLAYER_ATTACK, { x, y });
     const elapsed = (performance.now() - firedAt) / 1000;
     playShotResult(result, { delay: RESULT_DELAY - elapsed });
     const where = coordLabel(x, y);
@@ -1064,11 +1103,9 @@ app.addEventListener('click', (event) => {
     return;
   }
 
-  const tab = event.target.closest('[data-target]');
-  if (tab) {
-    selectedTarget = tab.dataset.target;
-    sfx.click();
-    render(true);
+  const vote = event.target.closest('[data-vote]');
+  if (vote) {
+    castVote(vote.dataset.vote);
     return;
   }
 

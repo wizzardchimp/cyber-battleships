@@ -12,6 +12,7 @@ import {
   passCaptainSchema,
   renameTeamSchema,
   playerAttackSchema,
+  voteTargetSchema,
   playerJoinSchema,
   playerResumeSchema,
 } from '../../shared/schemas.js';
@@ -524,7 +525,19 @@ export function attachSocketServer(io, { manager, config, logger }) {
           throw new AppError('UNAUTHORIZED', 'Join the game to fire.', 401);
         }
         const data = playerAttackSchema.parse(payload);
-        const result = await sessionFromSocket(socket).attack(socket.data.playerId, data.x, data.y, data.targetId);
+        const result = await sessionFromSocket(socket).attack(socket.data.playerId, data.x, data.y);
+        reply(ack, { ok: true, ...result });
+      });
+    });
+
+    socket.on(EVENTS.PLAYER_VOTE_TARGET, (payload, ack) => {
+      run(socket, ack, async () => {
+        if (!guard(socket, 'voteTarget', 20, 10_000)) return;
+        if (socket.data.role !== 'player' || !socket.data.playerId) {
+          throw new AppError('UNAUTHORIZED', 'Join the game to vote.', 401);
+        }
+        const data = voteTargetSchema.parse(payload);
+        const result = await sessionFromSocket(socket).voteTarget(socket.data.playerId, data.targetId);
         reply(ack, { ok: true, ...result });
       });
     });

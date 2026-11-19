@@ -924,25 +924,90 @@ test('the three-team mode holds three sides of twenty with a third of a missile 
   assert.equal(session.arsenalFor(alpha.id), 1);
 });
 
-test('a captain picks which of the two other fleets to fire at', async () => {
-  const { session, alpha, bravo, charlie, a, b, c } = await startedFleet();
+async function startedFleetBattle() {
+  const game = await startedFleet();
+  const { session, alpha, a, b, c } = game;
   for (const player of [...a, ...b, ...c]) {
     for (let i = 0; i < 3; i += 1) await answerCorrectly(session, player);
   }
   await session.advance(); // briefing
   await session.advance(); // battle
-
   const captain = a.find((player) => player.id === alpha.captainPlayerId);
+  const watchers = a.filter((player) => player.id !== captain.id);
+  return { ...game, captain, watchers };
+}
+
+test('teammates vote for the fleet to attack and the captain fires at the winner', async () => {
+  const { session, bravo, charlie, captain, watchers } = await startedFleetBattle();
   const view = playerProjection(session, captain.id);
   assert.deepEqual([...view.round.me.targetIds].sort(), [bravo.id, charlie.id].sort());
   assert.equal(view.round.me.targetBoards.length, 2);
+  assert.equal(view.round.me.canVote, false, 'the captain does not get a vote');
+  assert.equal(playerProjection(session, watchers[0].id).round.me.canVote, true);
 
-  await expectReject(() => session.attack(captain.id, 0, 0), 'CHOOSE_TARGET');
-  await expectReject(() => session.attack(captain.id, 0, 0, alpha.id), 'INVALID_TARGET');
-  const shot = await session.attack(captain.id, 0, 0, charlie.id);
-  assert.equal(shot.x, 0);
+  await expectReject(() => session.voteTarget(captain.id, charlie.id), 'CAPTAIN_DOES_NOT_VOTE');
+  await expectReject(() => session.voteTarget(watchers[0].id, session.state.teams[0].id), 'INVALID_TARGET');
+
+  await session.voteTarget(watchers[0].id, charlie.id);
+  const second = await session.voteTarget(watchers[1].id, charlie.id);
+  await session.voteTarget(watchers[2].id, bravo.id);
+  assert.equal(second.targetId, charlie.id);
+  assert.deepEqual(playerProjection(session, captain.id).round.me.targetVotes, {
+    [bravo.id]: 1,
+    [charlie.id]: 2,
+  });
+  assert.equal(playerProjection(session, watchers[2].id).round.me.myVote, bravo.id);
+  assert.equal(playerProjection(session, captain.id).round.me.targetId, charlie.id);
+
+  await session.attack(captain.id, 0, 0);
   assert.equal(session.state.fleets[charlie.id].shots.length, 1);
   assert.equal(session.state.fleets[bravo.id].shots.length, 0);
+});
+
+test('voting again changes a vote, and a tie keeps the fleet already chosen', async () => {
+  const { session, bravo, charlie, captain, watchers } = await startedFleetBattle();
+  await session.voteTarget(watchers[0].id, charlie.id);
+  const tied = await session.voteTarget(watchers[1].id, bravo.id);
+  assert.equal(tied.targetId, charlie.id, '1 to 1 keeps the earlier choice');
+
+  const switched = await session.voteTarget(watchers[0].id, bravo.id);
+  assert.equal(switched.targetId, bravo.id, 'two votes for Bravo now');
+  assert.deepEqual(switched.votes, { [bravo.id]: 2, [charlie.id]: 0 });
+  await session.attack(captain.id, 0, 0);
+  assert.equal(session.state.fleets[bravo.id].shots.length, 1);
+});
+
+test('the captain cannot pick a fleet; a client-supplied target is ignored', async () => {
+  const { session, bravo, charlie, captain, watchers } = await startedFleetBattle();
+  await session.voteTarget(watchers[0].id, bravo.id);
+  await session.attack(captain.id, 1, 1, charlie.id);
+  assert.equal(session.state.fleets[bravo.id].shots.length, 1);
+  assert.equal(session.state.fleets[charlie.id].shots.length, 0);
+});
+
+test('a captain who has no teammates is left to choose the fleet', async () => {
+  const { session } = makeSession({ mode: MODES.FLEET });
+  const [alpha, bravo, charlie] = session.state.teams;
+  const solo = session.join({ name: 'Solo A', teamId: alpha.id }).player;
+  session.join({ name: 'Solo B', teamId: bravo.id });
+  session.join({ name: 'Solo C', teamId: charlie.id });
+  await session.advance();
+  for (let i = 0; i < 3; i += 1) await answerCorrectly(session, solo);
+  await session.advance();
+  await session.advance();
+  assert.equal(playerProjection(session, solo.id).round.me.canVote, true);
+  await session.voteTarget(solo.id, charlie.id);
+  await session.attack(solo.id, 2, 2);
+  assert.equal(session.state.fleets[charlie.id].shots.length, 1);
+});
+
+test('votes only count during a battle and start fresh each question round', async () => {
+  const { session, charlie, watchers } = await startedFleetBattle();
+  await session.voteTarget(watchers[0].id, charlie.id);
+  await session.advance(); // paused
+  await expectReject(() => session.voteTarget(watchers[0].id, charlie.id), 'NOT_BATTLE');
+  await session.advance(); // next question round
+  assert.deepEqual(session.state.round.targetVotes, {});
 });
 
 test('a sunk fleet is out; the last fleet afloat wins', async () => {
@@ -955,10 +1020,14 @@ test('a sunk fleet is out; the last fleet afloat wins', async () => {
 
   const shoot = async (teamId, targetId) => {
     const team = session.teamById(teamId);
+    const voter = session.playersOnTeam(teamId).find((player) => player.id !== team.captainPlayerId);
+    if (session.liveTargetsOf(session.state.round.combatants.find((entry) => entry.id === teamId)).length > 1) {
+      await session.voteTarget(voter.id, targetId);
+    }
     for (const cell of session.state.fleets[targetId].ships.flatMap((ship) => ship.cells)) {
       if (session.fleetDestroyed(targetId)) break;
       session.addArsenal(teamId, 1);
-      await session.attack(team.captainPlayerId, cell.x, cell.y, targetId);
+      await session.attack(team.captainPlayerId, cell.x, cell.y);
     }
   };
 
@@ -966,11 +1035,9 @@ test('a sunk fleet is out; the last fleet afloat wins', async () => {
   assert.equal(session.fleetDestroyed(bravo.id), true);
   assert.equal(session.state.phase, 'battle', 'two fleets still afloat, so the battle goes on');
   assert.equal(bravo.eliminated, true);
-  await expectReject(
-    () => session.attack(bravo.captainPlayerId, 9, 9, alpha.id),
-    'ELIMINATED',
-  );
-  await expectReject(() => session.attack(alpha.captainPlayerId, 9, 9, bravo.id), 'TARGET_DESTROYED');
+  await expectReject(() => session.attack(bravo.captainPlayerId, 9, 9), 'ELIMINATED');
+  const spare = session.playersOnTeam(alpha.id).find((player) => player.id !== alpha.captainPlayerId);
+  await expectReject(() => session.voteTarget(spare.id, bravo.id), 'NO_CHOICE');
 
   await shoot(alpha.id, charlie.id);
   assert.equal(session.state.phase, 'result');

@@ -65,9 +65,12 @@ export const playerAnswerSchema = z.object({
 });
 
 export const playerAttackSchema = z.object({
-  targetId: z.string().trim().min(1).max(80).nullable().optional(),
   x: z.coerce.number().int().min(0).max(31),
   y: z.coerce.number().int().min(0).max(31),
+});
+
+export const voteTargetSchema = z.object({
+  targetId: z.string().trim().min(1).max(80),
 });
 
 export const passCaptainSchema = z.object({
