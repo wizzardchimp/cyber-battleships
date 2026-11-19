@@ -879,6 +879,59 @@ function resupplyScreen() {
     </section>`;
 }
 
+/** One award tile: who earned it, from which team, and the number behind it. */
+function awardTile({ label, icon, winner, stat, note, empty }) {
+  if (!winner) {
+    return `
+    <article class="award award--empty hud">
+      <span class="award__label">${icon} ${label}</span>
+      <span class="award__none">${escapeHtml(empty)}</span>
+    </article>`;
+  }
+  return `
+    <article class="award hud" style="--side:${escapeHtml(winner.teamColor || '#19e3ff')};--bracket:${escapeHtml(winner.teamColor || '#19e3ff')}">
+      <span class="award__label">${icon} ${label}</span>
+      <strong class="award__name">${escapeHtml(winner.name)}</strong>
+      <div class="award__line">
+        <span class="award__stat">${stat}</span>
+        <span class="award__meta"><b>${escapeHtml(winner.teamName)}</b><small>${note}</small></span>
+      </div>
+    </article>`;
+}
+
+/** Game-summary snapshot: standout players from every team. */
+function awardsMarkup(awards) {
+  if (!awards) return '';
+  const seconds = (ms) => `${(ms / 1000).toFixed(1)}s`;
+  return `
+    <section class="awards" aria-label="Game awards">
+      ${awardTile({
+        label: 'BEST PLAYER',
+        icon: '★',
+        winner: awards.best,
+        stat: awards.best ? `${awards.best.correct} correct` : '',
+        note: awards.best ? `${awards.best.accuracy}% accuracy · ${awards.best.answered} answered` : '',
+        empty: 'No correct answers',
+      })}
+      ${awardTile({
+        label: 'FASTEST ANSWER',
+        icon: '⚡',
+        winner: awards.fastest,
+        stat: awards.fastest ? seconds(awards.fastest.fastestMs) : '',
+        note: 'quickest correct answer',
+        empty: 'No correct answers',
+      })}
+      ${awardTile({
+        label: 'MOST ACCURATE',
+        icon: '◎',
+        winner: awards.accurate,
+        stat: awards.accurate ? `${awards.accurate.accuracy}%` : '',
+        note: awards.accurate ? `${awards.accurate.correct} of ${awards.accurate.answered} correct` : '',
+        empty: `Needs ${awards.minAnswers}+ answers`,
+      })}
+    </section>`;
+}
+
 function resultScreen() {
   const round = state.round;
   const outcome = round.outcome || {};
@@ -897,6 +950,7 @@ function resultScreen() {
         <h1 class="winner__name">${escapeHtml(outcome.winnerName || 'GAME OVER')}</h1>
         <span class="winner__reason">${escapeHtml(outcome.reason || '')}</span>
       </div>
+      ${awardsMarkup(round.awards)}
       <div class="battle-body">
         ${rosterPanel(round, { detailed: true })}
         <div class="boards">${targetBoards(round).map((board) => boardMarkup(round, board, { revealed: true })).join('')}</div>

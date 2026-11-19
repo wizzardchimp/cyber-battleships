@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
 
 import {
+  AWARDS,
   DEFAULT_CONFIG,
   LIMITS,
   MODES,
@@ -31,7 +32,7 @@ import {
 const SCHEMA_VERSION = 3;
 
 function emptyStats() {
-  return { answered: 0, correct: 0, attacks: 0, hits: 0 };
+  return { answered: 0, correct: 0, attacks: 0, hits: 0, fastestMs: null };
 }
 
 export function createSessionState({
@@ -790,6 +791,11 @@ export class GameSession extends EventEmitter {
       entry.correct += 1;
       entry.bonus = (entry.bonus || 0) + bonus;
       player.stats.correct += 1;
+      // Fastest correct answer, measured from when the question was issued.
+      const took = Math.max(0, now - Date.parse(current.issuedAt));
+      if (Number.isFinite(took) && (player.stats.fastestMs == null || took < player.stats.fastestMs)) {
+        player.stats.fastestMs = took;
+      }
       this.addArsenal(ownerId, reward);
       if (perMissile > 1) this.state.ammoProgress[ownerId] = progress;
     }
@@ -1267,6 +1273,45 @@ export class GameSession extends EventEmitter {
   }
 
   // ---------------------------------------------------------------- views
+
+  /**
+   * Game-summary awards across every team: most correct answers, quickest correct
+   * answer, and best accuracy (with enough answers behind it to be fair).
+   */
+  awards() {
+    const rows = this.state.players
+      .filter((player) => player.teamId)
+      .map((player) => {
+        const team = this.teamById(player.teamId);
+        const answered = Number(player.stats?.answered) || 0;
+        const correct = Number(player.stats?.correct) || 0;
+        return {
+          id: player.id,
+          name: player.displayName,
+          teamName: team?.name || '',
+          teamColor: team?.color || null,
+          answered,
+          correct,
+          accuracy: answered > 0 ? Math.round((correct / answered) * 100) : 0,
+          fastestMs: player.stats?.fastestMs ?? null,
+        };
+      });
+    const pick = (list, compare) => (list.length ? [...list].sort(compare)[0] : null);
+    const byName = (a, b) => a.name.localeCompare(b.name);
+    const best = pick(
+      rows.filter((row) => row.correct > 0),
+      (a, b) => b.correct - a.correct || b.accuracy - a.accuracy || a.answered - b.answered || byName(a, b),
+    );
+    const fastest = pick(
+      rows.filter((row) => row.fastestMs != null),
+      (a, b) => a.fastestMs - b.fastestMs || byName(a, b),
+    );
+    const accurate = pick(
+      rows.filter((row) => row.answered >= AWARDS.minAnswersForAccuracy && row.correct > 0),
+      (a, b) => b.accuracy - a.accuracy || b.correct - a.correct || byName(a, b),
+    );
+    return { best, fastest, accurate, minAnswers: AWARDS.minAnswersForAccuracy };
+  }
 
   /** Progress per side, shared by the quiz, briefing and result screens. */
   teamProgress() {

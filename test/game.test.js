@@ -1320,3 +1320,74 @@ test('a game saved in the retired 3 v 3 mode carries on as team vs team', async 
   assert.equal(reloaded.state.config.mode, MODES.DUEL);
   assert.deepEqual(reloaded.state.teams.map((team) => team.maxPlayers), [20, 20]);
 });
+
+// ------------------------------------------------------------------ awards
+
+test('the summary awards best player, fastest answer and most accurate across all teams', async () => {
+  const { session, alpha, bravo, a, b } = await startedDuel();
+  // Alice: 6 answered, 4 correct. Bob: 5 answered, 5 correct (best accuracy and best player).
+  for (let i = 0; i < 4; i += 1) await answerCorrectly(session, a);
+  for (let i = 0; i < 2; i += 1) await answerWrongly(session, a);
+  for (let i = 0; i < 5; i += 1) await answerCorrectly(session, b);
+  // Make Alice the quickest on one question.
+  session.playerById(a.id).stats.fastestMs = 12;
+  session.playerById(b.id).stats.fastestMs = 700;
+
+  const awards = session.awards();
+  assert.equal(awards.best.name, 'Bob');
+  assert.equal(awards.best.teamName, bravo.name);
+  assert.equal(awards.best.correct, 5);
+  assert.equal(awards.fastest.name, 'Alice');
+  assert.equal(awards.fastest.teamName, alpha.name);
+  assert.equal(awards.fastest.fastestMs, 12);
+  assert.equal(awards.accurate.name, 'Bob');
+  assert.equal(awards.accurate.accuracy, 100);
+});
+
+test('accuracy needs enough answers, and ties go to the player with more correct', async () => {
+  const { session, a, b } = await startedDuel();
+  for (let i = 0; i < 2; i += 1) await answerCorrectly(session, a); // 100% but only 2 answers
+  assert.equal(session.awards().accurate, null, 'too few answers to rank on accuracy');
+
+  for (let i = 0; i < 3; i += 1) await answerCorrectly(session, a); // now 5 of 5
+  for (let i = 0; i < 5; i += 1) await answerCorrectly(session, b);
+  for (let i = 0; i < 3; i += 1) await answerCorrectly(session, b); // 8 of 8
+  assert.equal(session.awards().accurate.name, 'Bob', 'both 100%, Bob has more correct');
+});
+
+test('the fastest correct answer is recorded from when the question was issued', async () => {
+  const { session, a } = await startedDuel();
+  const entry = session.state.round.quiz[a.id];
+  entry.current.issuedAt = new Date(Date.now() - 4000).toISOString();
+  await answerCorrectly(session, a);
+  assert.ok(a.stats.fastestMs >= 3900 && a.stats.fastestMs < 6000, `took ${a.stats.fastestMs}ms`);
+  await answerWrongly(session, a); // wrong answers never set a time
+  const before = a.stats.fastestMs;
+  session.state.round.quiz[a.id].current.issuedAt = new Date(Date.now() - 100).toISOString();
+  await answerCorrectly(session, a);
+  assert.ok(a.stats.fastestMs < before, 'a quicker answer replaces the record');
+});
+
+test('awards are only sent to screens once the game is over', async () => {
+  const { session, a } = await startedDuel();
+  await answerCorrectly(session, a);
+  assert.equal(publicProjection(session).round.awards, null);
+  await session.advance(); // briefing
+  await session.finish();
+  assert.equal(session.phase, PHASES.RESULT);
+  const awards = publicProjection(session).round.awards;
+  assert.equal(awards.best.name, 'Alice');
+  assert.equal(JSON.stringify(awards).includes('tokenHash'), false);
+});
+
+test('an empty game has no awards instead of failing', async () => {
+  const { session } = makeSession({ mode: MODES.DUEL });
+  session.join({ name: 'Solo' });
+  await session.advance();
+  await session.advance(); // briefing
+  await session.finish();
+  const awards = publicProjection(session).round.awards;
+  assert.equal(awards.best, null);
+  assert.equal(awards.fastest, null);
+  assert.equal(awards.accurate, null);
+});

@@ -119,6 +119,11 @@ export const LIMITS = Object.freeze({
 /** Every question offers exactly this many answers. */
 export const OPTIONS_PER_QUESTION = 3;
 
+/** Game-summary awards. Accuracy needs a fair number of answers behind it. */
+export const AWARDS = Object.freeze({
+  minAnswersForAccuracy: 5,
+});
+
 export const SCORING = Object.freeze({
   correct: 10,
   hit: 25,

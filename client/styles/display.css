@@ -1102,6 +1102,153 @@ body.display-page {
   text-transform: uppercase;
 }
 
+/* Game-summary awards under the winner banner. */
+.result {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.awards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.award {
+  --side: var(--cyan);
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+  padding: 0.7rem 1.1rem;
+  background:
+    linear-gradient(120deg, color-mix(in srgb, var(--side) 14%, transparent), transparent 70%),
+    var(--panel);
+  border: 1px solid color-mix(in srgb, var(--side) 45%, transparent);
+}
+
+.award__label {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  letter-spacing: 0.26em;
+}
+
+.award__name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--side);
+  font-family: var(--font-pixel);
+  font-size: 1.35rem;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-shadow: 0 0 22px color-mix(in srgb, var(--side) 55%, transparent);
+}
+
+.award__line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.award__stat {
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 1.8rem;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.award__meta {
+  display: grid;
+  min-width: 0;
+  text-align: right;
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  letter-spacing: 0.06em;
+}
+
+.award__meta b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.award__meta small {
+  font-size: 0.9rem;
+}
+
+.award--empty {
+  --side: var(--muted);
+}
+
+.award__none {
+  color: var(--muted);
+  font-size: 1.2rem;
+}
+
+/* Keep the boards from running over the awards on short screens. */
+.result .battle-body {
+  overflow: hidden;
+}
+
+/* Shorter screens: smaller result boards to make room for the awards strip. */
+@media (max-height: 940px) {
+  .result {
+    --board-size: 38vh;
+  }
+
+  .result .winner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: center;
+    gap: 0.2rem 1rem;
+    padding: 0.6rem 0.8rem;
+  }
+
+  .result .winner__name {
+    font-size: 2rem;
+  }
+}
+
+@media (max-height: 760px) {
+  .result {
+    --board-size: 25vh;
+  }
+
+  .result .winner {
+    padding: 0.4rem 0.8rem;
+  }
+
+  .result .winner__name {
+    font-size: 1.6rem;
+  }
+
+  .award {
+    padding: 0.35rem 0.8rem;
+  }
+
+  .award__label {
+    font-size: 0.8rem;
+  }
+
+  .award__stat {
+    font-size: 1.3rem;
+  }
+
+  .award__meta small {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .awards {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ---------------------------------------------------------------- controls */
 
 .controls {
