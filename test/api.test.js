@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { EVENTS } from '../shared/events.js';
-import { defaultQuestionsFor } from '../shared/questions.js';
+import { DEFAULT_SET_DEFS, defaultQuestionsFor } from '../shared/questions.js';
 import { serializeQuestions } from '../server/questions/csv.js';
 import { bootTestServer, emitAck, joinPlayer, startGameScreen, waitFor } from './helpers.js';
 
@@ -33,7 +33,7 @@ async function setup(t) {
 test('question sets are listed publicly without any answers', async (t) => {
   const { h } = await setup(t);
   const body = await fetch(`${h.baseUrl}/api/questions`).then((response) => response.json());
-  assert.deepEqual(body.sets.map((set) => set.id), ['easy', 'complex']);
+  assert.deepEqual(body.sets.map((set) => set.id), DEFAULT_SET_DEFS.map((def) => def.id));
   assert.equal(body.sets[0].count, defaultQuestionsFor('easy').length);
   assert.equal(body.sets[1].count, defaultQuestionsFor('complex').length);
   assert.ok(!JSON.stringify(body).includes('answerIndex'));
@@ -267,6 +267,7 @@ test('the vault keeps imported lists, selects them, and can delete them', async 
   assert.equal(entry.vault, true);
   assert.equal(entry.count, 12);
   assert.deepEqual(listed.sets.slice(0, 2).map((set) => set.id), ['easy', 'complex']);
+  assert.ok(listed.sets.findIndex((set) => set.vault) >= DEFAULT_SET_DEFS.length, 'saved lists follow the built-ins');
   assert.deepEqual(h.manager.current().config.questionSets, ['easy', body.id], 'the new list is added to this game');
   assert.equal(entry.topic, 'Other');
   assert.equal(h.manager.questions.questionsFor(body.id).length, 12);
@@ -286,7 +287,7 @@ test('lists are grouped by topic and several lists build one question pool', asy
   const nineties = await (await post({ name: "90's hits", topic: 'Music', csv: customCsv(10) })).json();
   const listed = await fetch(`${h.baseUrl}/api/questions`).then((response) => response.json());
   assert.deepEqual(
-    listed.sets.filter((set) => set.topic === 'Music').map((set) => set.name).sort(),
+    listed.sets.filter((set) => set.topic === 'Music' && set.vault).map((set) => set.name).sort(),
     ["70's hits", "90's hits"],
   );
   const session = h.manager.current();

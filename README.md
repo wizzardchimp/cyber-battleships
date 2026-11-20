@@ -108,8 +108,14 @@ players cannot start or end the game even by sending messages directly.
 ## Editing the questions
 
 Questions live in **lists** (one CSV each), grouped under **topics**, all stored in
-the database. The game draws from every list ticked in Settings. The built-in
-**Essentials** and **Advanced** lists sit under the Cyber topic.
+the database. The game draws from every list ticked in Settings.
+
+Built-in lists ship with the code (`shared/bank/`): Cyber (Essentials and Advanced,
+200 questions each), CISM (the four exam domains), Office Worker (everyday
+awareness), General Knowledge (four lists of 50), Films (five genres, 50 each) and Music (the 60s to the
+2010s). Each row is `[question, right answer, wrong, wrong]`. On start-up any
+built-in list you have not edited is refreshed from the code; lists you have
+edited through CSV import are left alone (use RESET to bring the shipped version back).
 
 1. Open **SETTINGS** in the lobby.
 2. Under **Question set**, press **EXPORT CSV** on the set you want to change.

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { DEFAULT_CONFIG, MODES, MODE_LIST, PHASES, SCORING, TIMING } from '../shared/constants.js';
-import { defaultQuestionsFor } from '../shared/questions.js';
+import { DEFAULT_SET_DEFS, defaultQuestionsFor } from '../shared/questions.js';
 import { createStaticQuestions } from '../server/questions/store.js';
 import { playerProjection, publicProjection } from '../server/sessions/projections.js';
 import { CPU_ID } from '../server/sessions/round.js';
@@ -712,7 +712,7 @@ test('projections never expose tokens, the control key or answer keys', async ()
   assert.equal(views.display.viewer.control, true);
   assert.equal(publicProjection(session).viewer.control, false);
   assert.equal(views.display.join.url, 'http://localhost/ABC234');
-  assert.equal(views.display.questionSets.length, 2);
+  assert.equal(views.display.questionSets.length, DEFAULT_SET_DEFS.length);
 });
 
 test('ship positions are revealed only after the result', async () => {

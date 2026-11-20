@@ -58,9 +58,16 @@ export class QuestionStore {
       });
     }
     for (const def of DEFAULT_SET_DEFS) {
-      if (this.sets.has(def.id)) continue;
-      await this.write(def.id, def.name, defaultQuestionsFor(def.id), false, def.topic);
-      this.logger?.info({ set: def.id }, 'Seeded default question set');
+      const existing = this.sets.get(def.id);
+      const questions = defaultQuestionsFor(def.id);
+      if (!existing) {
+        await this.write(def.id, def.name, questions, false, def.topic);
+        this.logger?.info({ set: def.id }, 'Seeded default question set');
+      } else if (!existing.custom && JSON.stringify(existing.questions) !== JSON.stringify(questions)) {
+        // Unedited built-ins follow the questions shipped with the code; edited ones are left alone.
+        await this.write(def.id, def.name, questions, false, def.topic);
+        this.logger?.info({ set: def.id, count: questions.length }, 'Refreshed built-in question set');
+      }
     }
     // Lists saved before topics existed: built-ins join Cyber and the rest go under Other.
     for (const set of [...this.sets.values()]) {

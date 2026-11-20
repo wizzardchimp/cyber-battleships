@@ -89,7 +89,7 @@ export const QUESTION_SET_LABELS = Object.freeze({
 });
 
 /** Topics always offered in settings, even before a list has been added to them. */
-export const DEFAULT_TOPICS = Object.freeze(['Cyber', 'General Knowledge', 'Films', 'Music', 'News']);
+export const DEFAULT_TOPICS = Object.freeze(['Cyber', 'CISM', 'Office Worker', 'General Knowledge', 'Films', 'Music', 'News']);
 export const MAX_TOPIC_LENGTH = 30;
 export const MAX_SELECTED_LISTS = 50;
 

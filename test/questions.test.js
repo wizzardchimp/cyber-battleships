@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { defaultQuestionsFor } from '../shared/questions.js';
+import { DEFAULT_SET_DEFS, defaultQuestionsFor } from '../shared/questions.js';
 import { parseQuestionsCsv, serializeQuestions } from '../server/questions/csv.js';
 
 const HEADER = 'category,question,option_a,option_b,option_c,correct,explanation';
@@ -14,7 +14,7 @@ function rows(count) {
 }
 
 test('export then import round-trips the default sets exactly', () => {
-  for (const id of ['easy', 'complex']) {
+  for (const { id } of DEFAULT_SET_DEFS) {
     const original = defaultQuestionsFor(id);
     const csv = serializeQuestions(original);
     assert.ok(csv.startsWith('\uFEFF'), 'export starts with a byte-order mark for Excel');
@@ -143,11 +143,36 @@ test('an old four-column file still imports, with the fourth answer ignored', ()
 });
 
 test('every built-in question has exactly three different answers', () => {
-  for (const id of ['easy', 'complex']) {
+  for (const { id } of DEFAULT_SET_DEFS) {
     for (const question of defaultQuestionsFor(id)) {
       assert.equal(question.options.length, 3, question.prompt);
       assert.equal(new Set(question.options).size, 3, question.prompt);
       assert.ok(question.answerIndex >= 0 && question.answerIndex < 3, question.prompt);
     }
   }
+});
+
+test('every built-in list is the right size, with three distinct answers and no repeats', () => {
+  const sizes = Object.fromEntries(DEFAULT_SET_DEFS.map((def) => [def.id, def.rows.length]));
+  assert.equal(sizes.easy, 200);
+  assert.equal(sizes.complex, 200);
+  for (const def of DEFAULT_SET_DEFS) {
+    if (['General Knowledge', 'Films', 'Music'].includes(def.topic)) assert.equal(def.rows.length, 50, `${def.id} should have 50`);
+  }
+  for (const def of DEFAULT_SET_DEFS) {
+    const questions = defaultQuestionsFor(def.id);
+    assert.ok(questions.length >= 8 && questions.length <= 500, `${def.id} has ${questions.length} questions`);
+    assert.ok(def.topic, `${def.id} has a topic`);
+    const prompts = new Set(questions.map((question) => question.prompt));
+    assert.equal(prompts.size, questions.length, `${def.id} repeats a question`);
+    for (const question of questions) {
+      assert.equal(question.options.length, 3, `${question.id}`);
+      assert.equal(new Set(question.options).size, 3, `${question.id} has a repeated answer`);
+      assert.equal(typeof question.options[question.answerIndex], 'string');
+    }
+  }
+  assert.deepEqual(
+    [...new Set(DEFAULT_SET_DEFS.map((def) => def.topic))],
+    ['Cyber', 'CISM', 'Office Worker', 'General Knowledge', 'Films', 'Music'],
+  );
 });
