@@ -276,8 +276,11 @@ docs/architecture.md     # design notes
 
 ## Cut scenes and keyboard control
 
-- **F** toggles full screen and **S** toggles the sound on the big screen (the FS and SND
-  buttons do the same).
+- **F** toggles full screen on the big screen (the FS button does the same).
+- **M** (or **S**) mutes and unmutes, hold **N** to dip all sound while you talk (let go
+  and it returns), and **-** / **+** turn the volume down and up in ten steps (it starts at 5). The volume
+  slider is in the bottom left of the screen, and the same tips are at the bottom of the
+  settings page. Volume is remembered per browser.
 
 - **Cut scenes** play on the big screen only, fading up from black over analogue
   interference (static, scan lines, a rolling band) with bold text and the battle

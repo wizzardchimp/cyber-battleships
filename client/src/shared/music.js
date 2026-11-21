@@ -1,4 +1,4 @@
-import { isMuted, onMuteChange } from './audio.js';
+import { isMuted, onLevelChange, onMuteChange, outputLevel } from './audio.js';
 
 /**
  * Looping background music for the facilitator screens. Tracks stream through
@@ -18,11 +18,12 @@ let enabled = true; // the game's sound setting
 let current = null; // { name, audio }
 let gestureHooked = false;
 
-function fade(audio, to, ms, done) {
+function fade(audio, target, ms, done) {
   const from = audio.volume;
   const started = performance.now();
   const step = (now) => {
     const t = Math.min(1, (now - started) / ms);
+    const to = typeof target === 'function' ? target() : target;
     audio.volume = Math.max(0, Math.min(1, from + (to - from) * t));
     if (t < 1) requestAnimationFrame(step);
     else done?.();
@@ -71,7 +72,7 @@ function sync() {
   audio
     .play()
     .then(() => {
-      if (current?.audio === audio) fade(audio, VOLUME[name], FADE_MS);
+      if (current?.audio === audio) fade(audio, () => VOLUME[name] * outputLevel(), FADE_MS);
     })
     .catch(() => {
       // Blocked until a gesture: wait, then start this track from the top.
@@ -95,3 +96,8 @@ export function setMusicEnabled(value) {
 }
 
 onMuteChange(sync);
+
+// Volume and dip move the playing track straight away.
+onLevelChange(() => {
+  if (current) current.audio.volume = Math.max(0, Math.min(1, VOLUME[current.name] * outputLevel()));
+});

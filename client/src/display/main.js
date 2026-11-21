@@ -4,7 +4,7 @@ import '../../styles/display.css';
 import { FLEET_TEMPLATE, LIMITS, MODE_LIST, MODE_PRESETS, PHASES, phaseLabel, setLabel } from '@shared/constants.js';
 import { EVENTS } from '@shared/events.js';
 import { api } from '../shared/api.js';
-import { isMuted, sfx, toggleMute, unlockAudio } from '../shared/audio.js';
+import { VOLUME_STEPS, getVolume, isDipped, isMuted, onLevelChange, setVolume, sfx, setDip, stepVolume, toggleMute, unlockAudio } from '../shared/audio.js';
 import {
   playBattle,
   playShotResult,
@@ -411,7 +411,7 @@ function renderChrome() {
     <div class="chrome__tools">
       ${phase === PHASES.QUIZ ? '<button class="btn btn--small btn--go" type="button" data-action="join">JOIN</button>' : ''}
       ${gear}
-      <button class="icon-btn" type="button" data-action="audio" title="Sound (S)">${isMuted() ? 'OFF' : 'SND'}</button>
+      <button class="icon-btn" type="button" data-action="audio" title="Mute (M)">${isMuted() ? 'OFF' : 'SND'}</button>
       <button class="icon-btn" type="button" data-action="fullscreen" title="Full screen (F)">FS</button>
     </div>`;
   renderChromeStatus();
@@ -1046,8 +1046,35 @@ function renderControls() {
     }
   }
 
-  $('#controls').innerHTML = `<span class="controls__hint">${escapeHtml(hint)}</span>${buttons}`;
+  $('#controls').innerHTML = `${volumeMarkup()}<span class="controls__hint">${escapeHtml(hint)}</span>${buttons}`;
 }
+
+// ------------------------------------------------------------------ volume
+
+function volumeMarkup() {
+  const level = getVolume();
+  return `
+    <label class="vol ${isDipped() ? 'is-dipped' : ''}" title="Volume: - and + keys, hold N to dip">
+      <span class="vol__label">VOL</span>
+      <input class="vol__slider" type="range" min="0" max="${VOLUME_STEPS}" step="1" value="${level}" data-volume aria-label="Volume" />
+      <span class="vol__value" data-volume-value>${isDipped() ? 'DIP' : level}</span>
+    </label>`;
+}
+
+/** Keep the slider and read-out in step with the keys without redrawing the footer. */
+function syncVolumeUi() {
+  const level = getVolume();
+  const slider = document.querySelector('[data-volume]');
+  if (slider && slider !== document.activeElement) slider.value = String(level);
+  const value = document.querySelector('[data-volume-value]');
+  if (value) value.textContent = isDipped() ? 'DIP' : String(level);
+  document.querySelector('.vol')?.classList.toggle('is-dipped', isDipped());
+}
+onLevelChange(syncVolumeUi);
+
+document.addEventListener('input', (event) => {
+  if (event.target?.matches?.('[data-volume]')) setVolume(event.target.value);
+});
 
 // ------------------------------------------------------------------- modal
 
@@ -1228,6 +1255,17 @@ function settingsModal() {
           <div class="setting">
             <span class="setting__label">SOUND EFFECTS</span>
             ${segMarkup('soundEnabled', ['true', 'false'], String(config.soundEnabled), { labels: { true: 'ON', false: 'OFF' } })}
+          </div>
+          <div class="setting">
+            <span class="setting__label">KEYBOARD TIPS</span>
+            <ul class="key-tips">
+              <li><kbd>M</kbd> mute or unmute all sound</li>
+              <li><kbd>N</kbd> hold to dip the sound while you talk, let go and it comes back</li>
+              <li><kbd>-</kbd> <kbd>+</kbd> turn the volume down or up (ten steps, starts at 5)</li>
+              <li><kbd>F</kbd> full screen</li>
+              <li><kbd>Space</kbd> press the big main button (twice to stop a running timer)</li>
+            </ul>
+            <p class="setting__help">The volume slider is in the bottom left of the screen.</p>
           </div>
         </div>
         <footer class="modal__foot">
@@ -1852,7 +1890,13 @@ function toggleFullscreen() {
   else document.documentElement.requestFullscreen?.().catch(() => {});
 }
 
-// F toggles full screen, S toggles the sound, from anywhere on the big screen.
+// F full screen, M (or S) mute, hold N to dip, - and + volume, from anywhere on the big screen.
+// N dips the sound only while it is held down.
+document.addEventListener('keyup', (event) => {
+  if (event.key.toLowerCase() === 'n') setDip(false);
+});
+window.addEventListener('blur', () => setDip(false));
+
 document.addEventListener('keydown', (event) => {
   if (event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
   const tag = document.activeElement?.tagName;
@@ -1861,11 +1905,18 @@ document.addEventListener('keydown', (event) => {
   if (key === 'f') {
     event.preventDefault();
     toggleFullscreen();
-  } else if (key === 's') {
+  } else if (key === 'm' || key === 's') {
     event.preventDefault();
     toggleMute();
     chromeSig = '';
     if (state) render();
+  } else if (key === 'n') {
+    event.preventDefault();
+    setDip(true); // held down; released on keyup
+  } else if (event.key === '-' || event.key === '_' || event.key === '=' || event.key === '+') {
+    event.preventDefault();
+    const level = stepVolume(event.key === '-' || event.key === '_' ? -1 : 1);
+    toast(`Volume ${level} of ${VOLUME_STEPS}`, 'info', '#toast-root');
   }
 });
 

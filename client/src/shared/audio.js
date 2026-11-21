@@ -2,6 +2,68 @@ let context = null;
 let muted = localStorage.getItem('cb.muted') === '1';
 const muteListeners = new Set();
 
+// Master volume in ten steps (0 to 10), kept per browser, plus a temporary "dip"
+// that drops everything to a low level so the host can talk over the sound.
+export const VOLUME_STEPS = 10;
+const DIP_LEVEL = 0.25;
+const DEFAULT_VOLUME = 5;
+const levelListeners = new Set();
+let volumeStep = (() => {
+  try {
+    const raw = localStorage.getItem('cb.volume');
+    const saved = Number(raw);
+    return raw !== null && Number.isInteger(saved) && saved >= 0 && saved <= VOLUME_STEPS ? saved : DEFAULT_VOLUME;
+  } catch {
+    return DEFAULT_VOLUME;
+  }
+})();
+let dipped = false;
+
+/** Be told when the volume or dip changes. */
+export function onLevelChange(listener) {
+  levelListeners.add(listener);
+}
+
+function levelChanged() {
+  levelListeners.forEach((listener) => listener(volumeStep, dipped));
+}
+
+/** 0 to 1 multiplier every sound goes through (volume step, then dip). */
+export function outputLevel() {
+  return (volumeStep / VOLUME_STEPS) * (dipped ? DIP_LEVEL : 1);
+}
+
+export function getVolume() {
+  return volumeStep;
+}
+
+export function setVolume(step) {
+  const next = Math.max(0, Math.min(VOLUME_STEPS, Math.round(Number(step) || 0)));
+  volumeStep = next;
+  try {
+    localStorage.setItem('cb.volume', String(next));
+  } catch {}
+  levelChanged();
+  if (next > 0 && !muted) tone(700, 0.05, 'sine', 0.02);
+  return next;
+}
+
+export function stepVolume(delta) {
+  return setVolume(volumeStep + delta);
+}
+
+export function isDipped() {
+  return dipped;
+}
+
+export function setDip(value) {
+  const next = Boolean(value);
+  if (next === dipped) return dipped;
+  dipped = next;
+  levelChanged();
+  return dipped;
+}
+
 /** Be told when the mute switch changes. */
 export function onMuteChange(listener) {
   muteListeners.add(listener);
@@ -27,6 +89,8 @@ export function unlockAudio() {
 
 function tone(frequency, duration = 0.08, type = 'sine', gain = 0.035, delay = 0) {
   if (muted) return;
+  gain *= outputLevel();
+  if (gain < 0.0002) return;
   const ctx = ensureContext();
   if (!ctx) return;
   if (ctx.state === 'suspended') ctx.resume().catch(() => {});

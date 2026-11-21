@@ -1,4 +1,4 @@
-import { getAudioContext, isMuted } from './audio.js';
+import { getAudioContext, isMuted, outputLevel } from './audio.js';
 
 /**
  * Recorded battle effects. Each group plays in a shuffled order so the same
@@ -91,6 +91,7 @@ export function playBattle(kind, { delay = 0, volume = 0.85 } = {}) {
   const source = ctx.createBufferSource();
   source.buffer = buffer;
   const gain = ctx.createGain();
+  volume *= outputLevel();
   gain.gain.setValueAtTime(volume, start);
   if (buffer.duration > cap) {
     gain.gain.setValueAtTime(volume, start + length - FADE_SECONDS);
