@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
 
+import { LIMITS } from '../../shared/constants.js';
 import { GameError } from '../errors.js';
 import { SessionRepository } from '../db/sessionRepository.js';
 import { QuestionStore } from '../questions/store.js';
@@ -38,7 +39,10 @@ export class SessionManager extends EventEmitter {
       try {
         const state = this.repository.parseState(row);
         // Only the newest game of the current schema survives a restart.
-        if (restored || state.schemaVersion !== SCHEMA_VERSION) {
+        // A game saved with an older join code format (six characters) can no
+        // longer be joined, so it is dropped and the screen starts a fresh one.
+        const legacyCode = !new RegExp(`^[0-9]{${LIMITS.joinCodeLength}}$`).test(String(state.joinCode));
+        if (restored || state.schemaVersion !== SCHEMA_VERSION || legacyCode) {
           await this.repository.delete(row.id);
           continue;
         }
