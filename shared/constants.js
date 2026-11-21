@@ -75,6 +75,26 @@ export function correctPerMissile(configOrMode) {
   return Math.max(1, Number(MODE_PRESETS[mode]?.correctPerMissile) || 1);
 }
 
+/** Teams only count as lopsided when they differ by more than this many players. */
+export const BALANCE_GAP = 2;
+
+/**
+ * Correct answers a team needs for one missile. With the "balance teams"
+ * option on and sides more than BALANCE_GAP players apart, the smallest side
+ * keeps the normal rate and bigger sides need proportionally more, so every
+ * player's answers are worth the same. sizes maps team id to player count.
+ */
+export function perMissileFor(config, teamId, sizes = {}) {
+  const base = correctPerMissile(config);
+  if (!config?.balanceTeams || base <= 1) return base;
+  const counts = Object.values(sizes).filter((n) => n > 0);
+  const mine = Number(sizes[teamId]) || 0;
+  if (counts.length < 2 || !mine) return base;
+  const smallest = Math.min(...counts);
+  if (Math.max(...counts) - smallest <= BALANCE_GAP) return base;
+  return Math.max(1, Math.round((base * mine) / smallest));
+}
+
 export const MODE_LIST = Object.freeze([
   MODE_PRESETS.duel,
   MODE_PRESETS.cpu,
@@ -162,6 +182,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   gridSize: 10,
   questionSets: Object.freeze(['easy']),
   soundEnabled: true,
+  balanceTeams: false,
 });
 
 export const CODE_ALPHABET = '0123456789';

@@ -10,6 +10,7 @@ function safeConfig(config) {
     gridSize: config.gridSize,
     questionSets: config.questionSets,
     soundEnabled: config.soundEnabled,
+    balanceTeams: config.balanceTeams === true,
   };
 }
 
@@ -44,7 +45,7 @@ function scoreFor(session, combatant) {
     answered: Number(score.answered) || 0,
     missiles: combatant.kind === 'cpu' ? 0 : session.arsenalFor(combatant.id),
     ammoProgress: Number(state.ammoProgress?.[combatant.id]) || 0,
-    perMissile: correctPerMissile(state.config),
+    perMissile: session.perMissileFor(combatant.id),
     eliminated: shipsTotal > 0 && shipsSunk >= shipsTotal,
     shipsTotal,
     shipsSunk,
@@ -233,7 +234,7 @@ export function playerProjection(session, playerId) {
       ...voteView(session, combatant, player),
       eliminated: session.fleetDestroyed(player.teamId),
       ammoProgress: team ? Number(state.ammoProgress?.[team.id]) || 0 : 0,
-      perMissile: correctPerMissile(state.config),
+      perMissile: team ? session.perMissileFor(team.id) : correctPerMissile(state.config),
       targetBoards:
         state.phase === PHASES.BATTLE || state.phase === PHASES.RESUPPLY || revealShips
           ? targetIds

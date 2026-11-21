@@ -2477,3 +2477,18 @@ body.display-page {
   text-align: center;
   font: inherit;
 }
+
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  color: var(--ink-soft, #cfe6ff);
+  font-size: 1.15rem;
+  cursor: pointer;
+}
+
+.check-row input {
+  width: 1.4rem;
+  height: 1.4rem;
+  accent-color: var(--cyan, #38e1ff);
+}

@@ -1392,3 +1392,35 @@ test('an empty game has no awards instead of failing', async () => {
   assert.equal(awards.fastest, null);
   assert.equal(awards.accurate, null);
 });
+
+test('balance teams: bigger sides need more correct answers per missile, only when uneven by more than two', async () => {
+  const { perMissileFor, BALANCE_GAP } = await import('../shared/constants.js');
+  const config = { mode: 'duel', balanceTeams: true };
+  assert.equal(BALANCE_GAP, 2);
+  // 20 v 6: gap is big, small side keeps 3, big side needs 10.
+  assert.equal(perMissileFor(config, 'a', { a: 20, b: 6 }), 10);
+  assert.equal(perMissileFor(config, 'b', { a: 20, b: 6 }), 3);
+  // 8 v 6: only two apart, nothing changes.
+  assert.equal(perMissileFor(config, 'a', { a: 8, b: 6 }), 3);
+  // Off by default and when off.
+  assert.equal(perMissileFor({ mode: 'duel' }, 'a', { a: 20, b: 6 }), 3);
+  // An empty side never makes the other side slower.
+  assert.equal(perMissileFor(config, 'a', { a: 20, b: 0 }), 3);
+  // Three teams scale against the smallest.
+  assert.equal(perMissileFor({ mode: 'fleet', balanceTeams: true }, 'a', { a: 12, b: 6, c: 3 }), 12);
+});
+
+test('balance teams reaches the session: per-team rates follow live team sizes', () => {
+  const { session } = makeSession({ mode: MODES.DUEL, balanceTeams: true });
+  const [alpha, bravo] = session.state.teams;
+  for (let i = 0; i < 9; i += 1) session.join({ name: `Big${i}`, teamId: alpha.id });
+  for (let i = 0; i < 3; i += 1) session.join({ name: `Small${i}`, teamId: bravo.id });
+  assert.equal(session.perMissileFor(bravo.id), 3);
+  assert.equal(session.perMissileFor(alpha.id), 9);
+  // Within two players of each other, balancing stays out of the way.
+  const { session: even } = makeSession({ mode: MODES.DUEL, balanceTeams: true });
+  const [a, b] = even.state.teams;
+  for (let i = 0; i < 5; i += 1) even.join({ name: `A${i}`, teamId: a.id });
+  for (let i = 0; i < 3; i += 1) even.join({ name: `B${i}`, teamId: b.id });
+  assert.equal(even.perMissileFor(a.id), 3);
+});

@@ -1,7 +1,7 @@
 import '../../styles/theme.css';
 import '../../styles/display.css';
 
-import { FLEET_TEMPLATE, LIMITS, MODE_LIST, MODE_PRESETS, PHASES, phaseLabel, setLabel } from '@shared/constants.js';
+import { BALANCE_GAP, FLEET_TEMPLATE, LIMITS, MODE_LIST, MODE_PRESETS, PHASES, phaseLabel, setLabel } from '@shared/constants.js';
 import { EVENTS } from '@shared/events.js';
 import { api } from '../shared/api.js';
 import { VOLUME_STEPS, getVolume, isDipped, isMuted, onLevelChange, setVolume, sfx, setDip, stepVolume, toggleMute, unlockAudio } from '../shared/audio.js';
@@ -1193,6 +1193,30 @@ function segMarkup(key, values, current, { suffix = '', labels = null } = {}) {
     .join('')}</div>`;
 }
 
+/** Optional missile balancing for lopsided teams (team modes only). */
+function balanceSetting(config) {
+  const teams = state.teams || [];
+  if (teams.length < 2 || config.mode === 'cpu') return '';
+  const sizes = teams.map((team) => ({ name: team.name, count: team.playerCount ?? 0 }));
+  const counts = sizes.map((team) => team.count);
+  const gap = Math.max(...counts) - Math.min(...counts);
+  const lopsided = gap > BALANCE_GAP;
+  const note = config.balanceTeams
+    ? lopsided
+      ? 'Active: the smaller side earns missiles faster, and bigger sides need more correct answers per missile.'
+      : `Switched on, but it only applies once teams differ by more than ${BALANCE_GAP} players (now ${gap}).`
+    : '';
+  return `
+          <div class="setting">
+            <span class="setting__label">BALANCE TEAMS</span>
+            <label class="check-row">
+              <input type="checkbox" data-balance ${config.balanceTeams ? 'checked' : ''} />
+              <span>Even out missiles when teams are uneven</span>
+            </label>
+            <p class="setting__help">Players stay on their own teams. If one team has more than ${BALANCE_GAP} more players than another, the smaller team keeps the normal rate (every 3 correct answers is a missile) and bigger teams need proportionally more, so every player's answers count the same. For example 20 v 6 means 10 correct answers per missile for the big team and 3 for the small one.${note ? ` ${escapeHtml(note)}` : ''}</p>
+          </div>`;
+}
+
 function settingsModal() {
   const config = configOf();
   const players = state.counts.players;
@@ -1216,6 +1240,7 @@ function settingsModal() {
             <span class="setting__label">GAME MODE</span>
             <div class="mode-cards">${modeCards}</div>
           </div>
+          ${balanceSetting(config)}
           <div class="setting">
             <span class="setting__label">TEAM NAMES</span>
             <div class="team-names">
@@ -1585,6 +1610,10 @@ document.addEventListener('input', (event) => {
   if (event.target?.matches?.('[data-team-name]')) {
     teamNameDrafts.set(event.target.dataset.teamName, event.target.value);
   }
+});
+
+document.addEventListener('change', (event) => {
+  if (event.target?.matches?.('[data-balance]')) patchSettings({ balanceTeams: event.target.checked });
 });
 
 document.addEventListener('change', async (event) => {

@@ -29,6 +29,7 @@ const configShape = {
     .min(1, 'Pick at least one question list.')
     .max(50),
   soundEnabled: z.boolean(),
+  balanceTeams: z.boolean(),
 };
 
 export const sessionConfigSchema = z.object(configShape);
@@ -41,6 +42,7 @@ export const configPatchSchema = z
     gridSize: configShape.gridSize.optional(),
     questionSets: configShape.questionSets.optional(),
     soundEnabled: configShape.soundEnabled.optional(),
+    balanceTeams: configShape.balanceTeams.optional(),
   })
   .strict();
 

@@ -13,6 +13,7 @@ import {
   SCORING,
   TIMING,
   correctPerMissile,
+  perMissileFor,
 } from '../../shared/constants.js';
 import { cleanText, nameKey } from '../../shared/util.js';
 import { GameError, assert } from '../errors.js';
@@ -163,6 +164,20 @@ export class GameSession extends EventEmitter {
 
   teamById(teamId) {
     return this.state.teams.find((team) => team.id === teamId) || null;
+  }
+
+  /** Player count per team, for balancing missile rates between uneven sides. */
+  teamSizes() {
+    const sizes = {};
+    for (const player of this.state.players) {
+      if (player.teamId) sizes[player.teamId] = (sizes[player.teamId] || 0) + 1;
+    }
+    return sizes;
+  }
+
+  /** Correct answers this team needs for a missile (see perMissileFor). */
+  perMissileFor(teamId) {
+    return perMissileFor(this.config, teamId, this.teamSizes());
   }
 
   playersOnTeam(teamId) {
@@ -788,7 +803,7 @@ export class GameSession extends EventEmitter {
         ? SCORING.streakBonusMissiles
         : 0;
     // Big teams earn a missile for every few correct answers; others one each.
-    const perMissile = correctPerMissile(this.config);
+    const perMissile = this.perMissileFor(ownerId);
     const credits = correct ? SCORING.missilesPerCorrect + bonus : 0;
     let reward = credits;
     let progress = 0;
@@ -1366,10 +1381,10 @@ export class GameSession extends EventEmitter {
           // Missiles actually earned since this question round began.
           won: round.quizStartEarned
             ? (Number(this.state.scores[team.id]?.missilesEarned) || 0) - (round.quizStartEarned[team.id] || 0)
-            : Math.floor((correct * SCORING.missilesPerCorrect + bonus) / correctPerMissile(this.config)),
+            : Math.floor((correct * SCORING.missilesPerCorrect + bonus) / this.perMissileFor(team.id)),
           missiles: this.arsenalFor(team.id),
           ammoProgress: Number(this.state.ammoProgress?.[team.id]) || 0,
-          perMissile: correctPerMissile(this.config),
+          perMissile: this.perMissileFor(team.id),
           eliminated: this.fleetDestroyed(team.id),
           points: Number(this.state.scores[team.id]?.points) || 0,
           players,
