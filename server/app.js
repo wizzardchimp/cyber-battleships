@@ -309,9 +309,9 @@ export function createApp({ config, manager, db, logger }) {
   }
 
   // Short player entry point: /ABC123 -> /play?code=ABC123, so QR codes and
-  // printed links stay compact. Only exact six-character join codes qualify;
+  // printed links stay compact. Only exact three-digit join codes qualify;
   // anything else falls through to the regular handlers.
-  app.get('/:code([A-Za-z0-9]{6})', (req, res, next) => {
+  app.get('/:code([0-9]{3})', (req, res, next) => {
     const code = normaliseJoinCode(req.params.code);
     const session = manager.getByCode(code);
     if (!session) {

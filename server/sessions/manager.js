@@ -120,7 +120,7 @@ export class SessionManager extends EventEmitter {
 
     const controlKey = crypto.randomBytes(24).toString('base64url');
     let lastError = null;
-    for (let attempt = 0; attempt < 10; attempt += 1) {
+    for (let attempt = 0; attempt < 50; attempt += 1) {
       const joinCode = makeJoinCode();
       if (await this.repository.codeExists(joinCode)) continue;
 

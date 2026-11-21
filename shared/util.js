@@ -12,7 +12,7 @@ export function nameKey(value) {
 }
 
 export function normaliseCode(value) {
-  return cleanText(value, 16).replace(/[^a-z0-9]/gi, '').toUpperCase();
+  return cleanText(value, 16).replace(/\D/g, '');
 }
 
 export function compactNumber(value) {

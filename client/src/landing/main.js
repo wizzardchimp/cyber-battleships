@@ -12,7 +12,7 @@ const params = new URLSearchParams(window.location.search);
 const preset = normaliseCode(params.get('code') || '');
 if (preset) {
   input.value = preset;
-  if (preset.length === 6) input.focus();
+  if (preset.length === 3) input.focus();
 }
 
 input.addEventListener('input', () => {
@@ -25,8 +25,8 @@ form.addEventListener('submit', (event) => {
   unlockAudio();
   sfx.click();
   const code = normaliseCode(input.value);
-  if (code.length !== 6) {
-    error.textContent = 'Enter the six-character join code from the projector.';
+  if (code.length !== 3) {
+    error.textContent = 'Enter the three-digit join code from the projector.';
     input.focus();
     sfx.error();
     return;

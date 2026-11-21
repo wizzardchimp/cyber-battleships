@@ -15,7 +15,7 @@ export const displayNameSchema = z
 export const joinCodeSchema = z
   .string()
   .transform(normaliseCode)
-  .pipe(z.string().length(LIMITS.joinCodeLength, 'Enter the six-character join code.'));
+  .pipe(z.string().length(LIMITS.joinCodeLength, 'Enter the three-digit join code.'));
 
 const controlKeySchema = z.string().trim().min(10).max(120);
 

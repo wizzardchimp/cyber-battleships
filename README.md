@@ -8,7 +8,7 @@ There is no facilitator dashboard. The big screen **is** the control surface.
 
 ## How a game runs
 
-1. **Lobby.** The big screen shows a QR code, a six-character join code and the
+1. **Lobby.** The big screen shows a QR code, a three-digit join code and the
    sides. Players scan, type a name and pick a side. The facilitator can open
    **SETTINGS** and press **START GAME**.
 2. **Quiz.** A 1, 2 or 3 minute timer runs. Every phone gets its own stream of
@@ -269,7 +269,7 @@ docs/architecture.md     # design notes
   gets a question straight away. Joining closes during the battle and reopens
   with the next question round. The **JOIN** button in the top banner shows the QR
   code, join code and link during a question round.
-- Players can also join by going to the site's address and typing the six-character
+- Players can also join by going to the site's address and typing the three-digit
   code on the welcome page, or by typing the short link shown on the big screen.
 - On a laptop or Chromebook, answer with **1 / 2 / 3** or **A / B / C**, or click.
   The captain fires by clicking a square with the mouse or trackpad.

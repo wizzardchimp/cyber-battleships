@@ -149,9 +149,9 @@ function renderGate() {
   shell(`
     <section class="p-card panel hud">
       <h1 class="p-title p-title--accent">JOIN THE GAME</h1>
-      <p class="p-copy">Enter the six-character code shown on the big screen.</p>
+      <p class="p-copy">Enter the three-digit code shown on the big screen.</p>
       <form id="gate-form" class="p-form" novalidate>
-        <input class="input input--code" name="code" maxlength="6" placeholder="ABC123" autocomplete="off" autocapitalize="characters" spellcheck="false" value="${escapeHtml(code)}" />
+        <input class="input input--code" name="code" maxlength="3" placeholder="123" inputmode="numeric" autocomplete="off" autocapitalize="off" spellcheck="false" value="${escapeHtml(code)}" />
         ${gateError ? `<p class="form-error">${escapeHtml(gateError)}</p>` : ''}
         <button class="btn btn--primary btn--wide" type="submit">CONTINUE</button>
       </form>
@@ -1159,8 +1159,8 @@ app.addEventListener('submit', (event) => {
 
   if (form.id === 'gate-form') {
     const next = normaliseCode(new FormData(form).get('code') || '');
-    if (next.length !== 6) {
-      gateError = 'Enter the six-character code.';
+    if (next.length !== 3) {
+      gateError = 'Enter the three-digit code.';
       renderGate();
       return;
     }

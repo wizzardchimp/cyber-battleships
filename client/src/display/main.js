@@ -590,7 +590,6 @@ function lobbyScreen() {
           <div class="join-card__code">${escapeHtml(join.code)}</div>
         </div>
         <div class="join-card__url"><span>${escapeHtml(hostOf(join.url))}</span><b>${escapeHtml(pathOf(join.url))}</b></div>
-        <div class="join-card__alt">or go to <b>${escapeHtml(hostOf(join.url))}</b> and enter <b>${escapeHtml(join.code)}</b></div>
       </aside>
       <div class="lobby__main">
         <div class="mode-strip">
@@ -1308,7 +1307,6 @@ function joinModal() {
             <div class="join-card__code">${escapeHtml(join.code)}</div>
           </div>
           <div class="join-card__url"><span>${escapeHtml(hostOf(join.url))}</span><b>${escapeHtml(pathOf(join.url))}</b></div>
-        <div class="join-card__alt">or go to <b>${escapeHtml(hostOf(join.url))}</b> and enter <b>${escapeHtml(join.code)}</b></div>
         </div>
         <footer class="modal__foot"><button class="btn btn--primary" type="button" data-modal="close">CLOSE</button></footer>
       </section>

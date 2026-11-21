@@ -104,7 +104,7 @@ export const FLEET_TEMPLATE = Object.freeze([
 export const LIMITS = Object.freeze({
   minNameLength: 2,
   maxNameLength: 16,
-  joinCodeLength: 6,
+  joinCodeLength: 3,
   minQuizMinutes: 1,
   maxQuizMinutes: 3,
   minBattleSeconds: 30,
@@ -164,7 +164,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   soundEnabled: true,
 });
 
-export const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+export const CODE_ALPHABET = '0123456789';
 
 export const PHASE_LABELS = Object.freeze({
   lobby: 'LOBBY',

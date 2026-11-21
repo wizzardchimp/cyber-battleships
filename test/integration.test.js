@@ -42,7 +42,7 @@ test('the game screen creates one game and phones join it by code', async (t) =>
   const screen = await startGameScreen(h.baseUrl, EVENTS);
   sockets.push(screen.socket);
   const code = screen.game.joinCode;
-  assert.match(code, /^[A-Z0-9]{6}$/);
+  assert.match(code, /^[0-9]{3}$/);
   assert.ok(screen.key.length >= 20);
 
   const lobby = await waitFor(() => latestPhase(screen.states, PHASES.LOBBY), {

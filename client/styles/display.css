@@ -255,17 +255,6 @@ body.display-page {
   font-size: 2rem;
 }
 
-.join-card__alt {
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: 1.05rem;
-  overflow-wrap: anywhere;
-}
-
-.join-card__alt b {
-  color: var(--ink-soft);
-}
-
 .lobby__main {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
