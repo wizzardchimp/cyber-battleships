@@ -1235,7 +1235,7 @@ function settingsModal() {
           <h2 class="modal__title">GAME SETTINGS</h2>
           <span class="badge badge--warn">${players} joined</span>
         </header>
-        <div class="modal__body">
+        <div class="modal__body scroll-wide">
           <div class="setting">
             <span class="setting__label">GAME MODE</span>
             <div class="mode-cards">${modeCards}</div>

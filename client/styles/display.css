@@ -2492,3 +2492,61 @@ body.display-page {
   height: 1.4rem;
   accent-color: var(--cyan, #38e1ff);
 }
+
+/* Wide settings scroll bar with up and down arrows. */
+.scroll-wide {
+  scrollbar-width: auto;
+  scrollbar-color: #38e1ff rgba(255, 255, 255, 0.08);
+}
+
+@supports selector(::-webkit-scrollbar) {
+  .scroll-wide {
+    scrollbar-width: auto;
+    scrollbar-color: auto;
+  }
+
+  .scroll-wide::-webkit-scrollbar {
+    width: 26px;
+  }
+
+  .scroll-wide::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.06);
+    border-left: 1px solid var(--line);
+  }
+
+  .scroll-wide::-webkit-scrollbar-thumb {
+    min-height: 3rem;
+    border: 4px solid transparent;
+    border-radius: 10px;
+    background: #38e1ff;
+    background-clip: padding-box;
+  }
+
+  .scroll-wide::-webkit-scrollbar-thumb:hover {
+    background: #8aeeff;
+    background-clip: padding-box;
+  }
+
+  .scroll-wide::-webkit-scrollbar-button:vertical:start:decrement,
+  .scroll-wide::-webkit-scrollbar-button:vertical:end:increment {
+    display: block;
+    width: 26px;
+    height: 26px;
+    background-color: rgba(56, 225, 255, 0.14);
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 20px;
+  }
+
+  .scroll-wide::-webkit-scrollbar-button:vertical:hover {
+    background-color: rgba(56, 225, 255, 0.3);
+  }
+
+  .scroll-wide::-webkit-scrollbar-button:vertical:start:decrement {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 8l6 7H6z' fill='%2338e1ff'/%3E%3C/svg%3E");
+  }
+
+  .scroll-wide::-webkit-scrollbar-button:vertical:end:increment {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 16l-6-7h12z' fill='%2338e1ff'/%3E%3C/svg%3E");
+  }
+}
