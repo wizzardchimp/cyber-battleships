@@ -1,4 +1,4 @@
-import { PHASES, correctPerMissile } from '../../shared/constants.js';
+import { PHASES } from '../../shared/constants.js';
 import { shortJoinUrlFor } from '../util/security.js';
 import { CPU_ID, questionForPlayer } from './round.js';
 
@@ -10,7 +10,6 @@ function safeConfig(config) {
     gridSize: config.gridSize,
     questionSets: config.questionSets,
     soundEnabled: config.soundEnabled,
-    balanceTeams: config.balanceTeams === true,
   };
 }
 
@@ -234,7 +233,7 @@ export function playerProjection(session, playerId) {
       ...voteView(session, combatant, player),
       eliminated: session.fleetDestroyed(player.teamId),
       ammoProgress: team ? Number(state.ammoProgress?.[team.id]) || 0 : 0,
-      perMissile: team ? session.perMissileFor(team.id) : correctPerMissile(state.config),
+      perMissile: session.perMissileFor(team?.id),
       targetBoards:
         state.phase === PHASES.BATTLE || state.phase === PHASES.RESUPPLY || revealShips
           ? targetIds

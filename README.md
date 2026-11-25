@@ -35,9 +35,9 @@ There is no facilitator dashboard. The big screen **is** the control surface.
 
 | Mode | Sides | Notes |
 | --- | --- | --- |
-| **Team vs team** | ALPHA and BRAVO, up to 20 players each | Two teams head to head. Every **3 correct answers** earn the team one missile. A captain fires for each team, chosen again every question round |
+| **Team vs team** | ALPHA and BRAVO, up to 20 players each | Two teams head to head. The number of correct answers per missile scales with the team's own size, from **1** for a lone player up to **5** for a full team of 20, so bigger teams don't out-shoot smaller ones. A captain fires for each team, chosen again every question round |
 | **Everyone vs CPU** | One crew of up to 20 | All players attack the CPU fleet. Every correct answer earns a missile |
-| **3 teams** | ALPHA, BRAVO and CHARLIE, up to 20 players each | Every **3 correct answers** earn the team one missile. Each team may attack either other fleet; the captain picks one with tabs on their phone. A team with every ship sunk is out, and the last fleet afloat wins |
+| **3 teams** | ALPHA, BRAVO and CHARLIE, up to 20 players each | The number of correct answers per missile scales with the team's own size, from **1** for a lone player up to **5** for a full team of 20, so bigger teams don't out-shoot smaller ones. Each team may attack either other fleet; the captain picks one with tabs on their phone. A team with every ship sunk is out, and the last fleet afloat wins |
 
 On the big screen every board is tinted in the colour of the fleet under attack,
 and each shot is coloured by the team that fired it.

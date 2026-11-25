@@ -46,9 +46,9 @@ export const MODE_PRESETS = Object.freeze({
     teams: Object.freeze(['ALPHA', 'BRAVO']),
     perTeam: 20,
     versusCpu: false,
-    // Big teams: every third correct answer earns the team one missile.
-    correctPerMissile: 3,
-    blurb: 'Two teams of up to 20 head to head. Every 3 correct answers earn a missile. A captain fires for each team.',
+    // Bigger teams need more correct answers per missile (see perMissileFor).
+    scaleByTeamSize: true,
+    blurb: 'Two teams of up to 20 head to head. Bigger teams need more correct answers per missile, so size is fair. A captain fires for each team.',
   }),
   fleet: Object.freeze({
     id: 'fleet',
@@ -57,42 +57,32 @@ export const MODE_PRESETS = Object.freeze({
     teams: Object.freeze(['ALPHA', 'BRAVO', 'CHARLIE']),
     perTeam: 20,
     versusCpu: false,
-    // Big teams: every third correct answer earns the team one missile.
-    correctPerMissile: 3,
-    blurb: 'Three teams of up to 20. Every 3 correct answers earn a missile. Last fleet afloat wins.',
+    // Bigger teams need more correct answers per missile (see perMissileFor).
+    scaleByTeamSize: true,
+    blurb: 'Three teams of up to 20. Bigger teams need more correct answers per missile, so size is fair. Last fleet afloat wins.',
   }),
 });
 
-/**
- * How many correct answers a side needs for one missile. Takes a game config
- * (or a mode name). A config may carry its own correctPerMissile, which only
- * tests use; players can never set it.
- */
-export function correctPerMissile(configOrMode) {
-  const own = typeof configOrMode === 'object' ? Number(configOrMode?.correctPerMissile) : NaN;
-  if (Number.isFinite(own) && own >= 1) return Math.floor(own);
-  const mode = typeof configOrMode === 'object' ? configOrMode?.mode : configOrMode;
-  return Math.max(1, Number(MODE_PRESETS[mode]?.correctPerMissile) || 1);
-}
-
-/** Teams only count as lopsided when they differ by more than this many players. */
-export const BALANCE_GAP = 2;
+/** Correct answers per missile for a team of one player, and for a full team. */
+export const PER_MISSILE_SOLO = 1;
+export const PER_MISSILE_FULL = 5;
 
 /**
- * Correct answers a team needs for one missile. With the "balance teams"
- * option on and sides more than BALANCE_GAP players apart, the smallest side
- * keeps the normal rate and bigger sides need proportionally more, so every
- * player's answers are worth the same. sizes maps team id to player count.
+ * Correct answers a team needs for one missile. In the team modes this scales
+ * with the team's own size: 1 for a lone player up to 5 for a full team of 20,
+ * so every player's answers are worth about the same whatever the team sizes.
+ * sizes maps team id to its current player count. A config may carry its own
+ * correctPerMissile, which only tests use; players can never set it.
  */
 export function perMissileFor(config, teamId, sizes = {}) {
-  const base = correctPerMissile(config);
-  if (!config?.balanceTeams || base <= 1) return base;
-  const counts = Object.values(sizes).filter((n) => n > 0);
-  const mine = Number(sizes[teamId]) || 0;
-  if (counts.length < 2 || !mine) return base;
-  const smallest = Math.min(...counts);
-  if (Math.max(...counts) - smallest <= BALANCE_GAP) return base;
-  return Math.max(1, Math.round((base * mine) / smallest));
+  const own = Number(config?.correctPerMissile);
+  if (Number.isFinite(own) && own >= 1) return Math.floor(own);
+  const preset = MODE_PRESETS[config?.mode];
+  if (!preset?.scaleByTeamSize) return 1;
+  const size = Math.max(1, Number(sizes[teamId]) || 1);
+  const full = Math.max(2, Number(preset.perTeam) || 20);
+  const t = Math.min(1, (size - 1) / (full - 1));
+  return Math.max(1, Math.round(PER_MISSILE_SOLO + t * (PER_MISSILE_FULL - PER_MISSILE_SOLO)));
 }
 
 export const MODE_LIST = Object.freeze([
@@ -182,7 +172,6 @@ export const DEFAULT_CONFIG = Object.freeze({
   gridSize: 10,
   questionSets: Object.freeze(['easy']),
   soundEnabled: true,
-  balanceTeams: false,
 });
 
 export const CODE_ALPHABET = '0123456789';

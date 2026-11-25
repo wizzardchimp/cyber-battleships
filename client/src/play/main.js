@@ -69,7 +69,8 @@ function clearToken() {
 
 // ------------------------------------------------------------------ shell
 
-function shell(inner, { side = null } = {}) {
+function shell(inner, { side = null, compact = false } = {}) {
+  app.classList.toggle('is-battle', compact);
   app.innerHTML = `
     <div class="p-bar">
       <span class="p-brand"><img class="p-brand__mark" src="/brand/mark-128.png" alt="" />CYBER BATTLESHIPS</span>
@@ -512,8 +513,8 @@ function renderBattle() {
     message = `<div class="shot-msg shot-msg--out">Out of missiles. Another round of questions is coming so you can earn more.</div>`;
   }
   const role = captain
-    ? `<div class="captain-tag">YOU ARE THE CAPTAIN · YOU FIRE THE MISSILES</div>${swapNote(round)}${passControlsMarkup()}`
-    : `<div class="captain-tag captain-tag--watch">${escapeHtml(me.captainName || 'Your captain')} is the captain and fires the missiles. You are watching.</div>${swapNote(round)}`;
+    ? `<div class="captain-tag">YOU ARE THE CAPTAIN · TAP TO FIRE</div>${swapNote(round)}${passControlsMarkup()}`
+    : `<div class="captain-tag captain-tag--watch">${escapeHtml(me.captainName || 'Your captain')} is captain · you are watching</div>${swapNote(round)}`;
   const shotColors = Object.fromEntries(round.combatants.map((entry) => [entry.id, entry.color]));
   const handover = me.becomingCaptain
     ? `<div class="handover handover--in" role="alert">GET READY: YOU BECOME CAPTAIN IN <b data-countdown="${escapeHtml(round.captainSwapAt || '')}">${formatCountdown(round.captainSwapAt)}</b></div>`
@@ -536,7 +537,7 @@ function renderBattle() {
     </div>
     ${message}
     <p class="p-foot">Ships sunk <b>${board.shipsSunk} / ${board.shipsTotal}</b> · ${escapeHtml(playerState.me.teamName || '')} <b>${round.scores.find((score) => score.id === playerState.me.teamId)?.points ?? 0} pts</b></p>`,
-    { side: color },
+    { side: color, compact: true },
   );
 }
 

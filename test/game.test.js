@@ -908,20 +908,19 @@ function sinkEverything(session, targetId) {
   return cells;
 }
 
-test('the three-team mode holds three sides of twenty with a third of a missile per correct answer', async () => {
+test('the three-team mode holds three sides of twenty, and a side of four needs two correct answers per missile', async () => {
   const { session, alpha, a } = await startedFleet();
   assert.equal(session.state.teams.length, 3);
   assert.equal(alpha.maxPlayers, 20);
 
   const first = await answerCorrectly(session, a[0]);
-  assert.equal(first.reward, 0, 'one correct answer is only a third of a missile');
-  assert.equal(first.perMissile, 3);
+  assert.equal(first.reward, 0, 'one correct answer is only half a missile for a side of four');
+  assert.equal(first.perMissile, 2);
   assert.equal(first.progress, 1);
   assert.equal(session.arsenalFor(alpha.id), 0);
-  await answerCorrectly(session, a[1]);
-  const third = await answerCorrectly(session, a[2]);
-  assert.equal(third.reward, 1, 'the third correct answer earns a whole missile');
-  assert.equal(third.progress, 0);
+  const second = await answerCorrectly(session, a[1]);
+  assert.equal(second.reward, 1, 'the second correct answer earns a whole missile');
+  assert.equal(second.progress, 0);
   assert.equal(session.arsenalFor(alpha.id), 1);
 });
 
@@ -1087,7 +1086,7 @@ test('a sunk team gets no more questions, and the briefing counts the missiles r
   for (const player of a) for (let i = 0; i < 3; i += 1) await answerCorrectly(session, player);
   const brief = session.teamProgress().find((team) => team.id === alpha.id);
   assert.equal(brief.won, session.arsenalFor(alpha.id), 'won matches the missiles earned, not an estimate');
-  assert.equal(brief.perMissile, 3);
+  assert.equal(brief.perMissile, 2);
 
   for (const ship of session.state.fleets[bravo.id].ships) ship.sunk = true;
   const view = playerProjection(session, b[0].id);
@@ -1146,7 +1145,7 @@ test('the first battle opens after the intro cut scene, later ones straight away
   assert.ok(Date.parse(session.state.round.battleOpensAt) <= again + 50);
 });
 
-test('team vs team earns a missile for every three correct answers', async () => {
+test('team vs team: a side of four earns a missile for every two correct answers', async () => {
   const { session } = makeSession({ mode: MODES.DUEL });
   const [alpha] = session.state.teams;
   const crew = ['One', 'Two', 'Three', 'Four'].map((n) => session.join({ name: `Crew ${n}`, teamId: alpha.id }).player);
@@ -1154,10 +1153,9 @@ test('team vs team earns a missile for every three correct answers', async () =>
   await session.advance();
   const first = await answerCorrectly(session, crew[0]);
   assert.equal(first.reward, 0);
-  assert.equal(first.perMissile, 3);
-  await answerCorrectly(session, crew[1]);
-  const third = await answerCorrectly(session, crew[2]);
-  assert.equal(third.reward, 1);
+  assert.equal(first.perMissile, 2);
+  const second = await answerCorrectly(session, crew[1]);
+  assert.equal(second.reward, 1);
   assert.equal(session.arsenalFor(alpha.id), 1);
 });
 
@@ -1393,34 +1391,24 @@ test('an empty game has no awards instead of failing', async () => {
   assert.equal(awards.accurate, null);
 });
 
-test('balance teams: bigger sides need more correct answers per missile, only when uneven by more than two', async () => {
-  const { perMissileFor, BALANCE_GAP } = await import('../shared/constants.js');
-  const config = { mode: 'duel', balanceTeams: true };
-  assert.equal(BALANCE_GAP, 2);
-  // 20 v 6: gap is big, small side keeps 3, big side needs 10.
-  assert.equal(perMissileFor(config, 'a', { a: 20, b: 6 }), 10);
-  assert.equal(perMissileFor(config, 'b', { a: 20, b: 6 }), 3);
-  // 8 v 6: only two apart, nothing changes.
-  assert.equal(perMissileFor(config, 'a', { a: 8, b: 6 }), 3);
-  // Off by default and when off.
-  assert.equal(perMissileFor({ mode: 'duel' }, 'a', { a: 20, b: 6 }), 3);
-  // An empty side never makes the other side slower.
-  assert.equal(perMissileFor(config, 'a', { a: 20, b: 0 }), 3);
-  // Three teams scale against the smallest.
-  assert.equal(perMissileFor({ mode: 'fleet', balanceTeams: true }, 'a', { a: 12, b: 6, c: 3 }), 12);
+test('missiles per correct answer scale with the team own size', async () => {
+  const { perMissileFor } = await import('../shared/constants.js');
+  const duel = { mode: 'duel' };
+  assert.equal(perMissileFor(duel, 'a', { a: 1, b: 20 }), 1);
+  assert.equal(perMissileFor(duel, 'b', { a: 1, b: 20 }), 5);
+  assert.equal(perMissileFor(duel, 'a', { a: 10 }), 3);
+  assert.equal(perMissileFor({ mode: 'fleet' }, 'c', { a: 20, b: 6, c: 1 }), 1);
+  assert.equal(perMissileFor({ mode: 'fleet' }, 'b', { a: 20, b: 6, c: 1 }), 2);
+  // Against the CPU, and with a test override, the rate is not scaled.
+  assert.equal(perMissileFor({ mode: 'cpu' }, 'a', { a: 20 }), 1);
+  assert.equal(perMissileFor({ mode: 'duel', correctPerMissile: 1 }, 'a', { a: 20 }), 1);
 });
 
-test('balance teams reaches the session: per-team rates follow live team sizes', () => {
-  const { session } = makeSession({ mode: MODES.DUEL, balanceTeams: true });
+test('team size reaches the session: each side has its own rate', () => {
+  const { session } = makeSession({ mode: MODES.DUEL, correctPerMissile: undefined });
   const [alpha, bravo] = session.state.teams;
-  for (let i = 0; i < 9; i += 1) session.join({ name: `Big${i}`, teamId: alpha.id });
-  for (let i = 0; i < 3; i += 1) session.join({ name: `Small${i}`, teamId: bravo.id });
-  assert.equal(session.perMissileFor(bravo.id), 3);
-  assert.equal(session.perMissileFor(alpha.id), 9);
-  // Within two players of each other, balancing stays out of the way.
-  const { session: even } = makeSession({ mode: MODES.DUEL, balanceTeams: true });
-  const [a, b] = even.state.teams;
-  for (let i = 0; i < 5; i += 1) even.join({ name: `A${i}`, teamId: a.id });
-  for (let i = 0; i < 3; i += 1) even.join({ name: `B${i}`, teamId: b.id });
-  assert.equal(even.perMissileFor(a.id), 3);
+  for (let i = 0; i < 20; i += 1) session.join({ name: `Big${i}`, teamId: alpha.id });
+  session.join({ name: 'Solo', teamId: bravo.id });
+  assert.equal(session.perMissileFor(bravo.id), 1);
+  assert.equal(session.perMissileFor(alpha.id), 5);
 });
