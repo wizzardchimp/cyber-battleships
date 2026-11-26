@@ -276,7 +276,7 @@ docs/architecture.md     # design notes
 
 ## Wrong-answer penalty
 
-- Three wrong answers in a row lock the player's answer buttons for 2 seconds, after the
+- Three wrong answers in a row lock the player's answer buttons for 5 seconds, after the
   usual feedback screen, with a draining timer bar on their phone. Each further wrong
   answer in the run does the same. A correct answer resets the count.
 

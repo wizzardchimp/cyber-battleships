@@ -1230,7 +1230,7 @@ body.play-page {
   height: 100%;
   background: var(--red);
   transform-origin: left;
-  animation: penalty-drain 2000ms linear both;
+  animation: penalty-drain 5000ms linear both;
 }
 
 @keyframes penalty-drain {

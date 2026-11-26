@@ -1425,10 +1425,10 @@ test('three wrong answers in a row lock the player briefly, and each further wro
   };
   assert.equal((await reply(false)).penaltyMs, 0);
   assert.equal((await reply(false)).penaltyMs, 0);
-  assert.equal((await reply(false)).penaltyMs, 2000);
+  assert.equal((await reply(false)).penaltyMs, 5000);
   await expectReject(() => reply(true), 'PENALTY');
   player.penaltyUntil = Date.now(); // the wait is over
-  assert.equal((await reply(false)).penaltyMs, 2000, 'still wrong, so locked again');
+  assert.equal((await reply(false)).penaltyMs, 5000, 'still wrong, so locked again');
   player.penaltyUntil = Date.now();
   const right = await reply(true);
   assert.equal(right.penaltyMs, 0);
