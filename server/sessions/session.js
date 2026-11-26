@@ -296,6 +296,8 @@ export class GameSession extends EventEmitter {
       lastSeenAt: now,
       cooldownUntil: null,
       streak: 0,
+      wrongStreak: 0,
+      penaltyUntil: 0,
       stats: emptyStats(),
     };
     this.state.players.push(player);
@@ -577,6 +579,8 @@ export class GameSession extends EventEmitter {
       entry.correct = 0;
       entry.bonus = 0;
       player.streak = 0;
+      player.wrongStreak = 0;
+      player.penaltyUntil = 0;
       this.issueQuestion(player.id, now);
     }
 
@@ -792,10 +796,20 @@ export class GameSession extends EventEmitter {
       'Choose one of the answers.',
     );
 
+    assert(
+      now >= (Number(player.penaltyUntil) || 0) - TIMING.penaltyGraceMs,
+      'PENALTY',
+      'Wait for the penalty timer to finish.',
+    );
+
     const ownerId = player.teamId;
     assert(ownerId && this.teamById(ownerId), 'NO_TEAM', 'Join a side first.');
 
     const correct = index === current.answerIndex;
+    player.wrongStreak = correct ? 0 : (Number(player.wrongStreak) || 0) + 1;
+    const penaltyMs = player.wrongStreak >= TIMING.wrongStreakPenaltyFrom ? TIMING.penaltyMs : 0;
+    // The lock covers the feedback screen first, then the penalty itself.
+    player.penaltyUntil = penaltyMs ? now + TIMING.feedbackMs + penaltyMs : 0;
     player.streak = correct ? (Number(player.streak) || 0) + 1 : 0;
     const bonus =
       correct && player.streak >= SCORING.streakBonusFrom && player.streak <= SCORING.streakBonusThrough
@@ -843,6 +857,8 @@ export class GameSession extends EventEmitter {
       progress: perMissile > 1 ? Number(this.state.ammoProgress[ownerId]) || 0 : 0,
       bonus,
       streak: player.streak,
+      wrongStreak: player.wrongStreak,
+      penaltyMs,
       missiles: this.arsenalFor(ownerId),
     };
 
@@ -1297,6 +1313,8 @@ export class GameSession extends EventEmitter {
     }
     for (const player of this.state.players) {
       player.streak = 0;
+      player.wrongStreak = 0;
+      player.penaltyUntil = 0;
       player.stats = emptyStats();
     }
     this.recordEvent('returned_to_lobby', {});

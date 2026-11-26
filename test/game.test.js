@@ -1412,3 +1412,26 @@ test('team size reaches the session: each side has its own rate', () => {
   assert.equal(session.perMissileFor(bravo.id), 1);
   assert.equal(session.perMissileFor(alpha.id), 5);
 });
+
+test('three wrong answers in a row lock the player briefly, and each further wrong one does too', async () => {
+  const { session } = makeSession({ mode: MODES.DUEL });
+  const [alpha, bravo] = session.state.teams;
+  const player = session.join({ name: 'Slowpoke', teamId: alpha.id }).player;
+  session.join({ name: 'Rival', teamId: bravo.id });
+  await session.advance();
+  const reply = (right) => {
+    const current = session.state.round.quiz[player.id].current;
+    return session.answer(player.id, current.number, right ? current.answerIndex : (current.answerIndex + 1) % current.options.length);
+  };
+  assert.equal((await reply(false)).penaltyMs, 0);
+  assert.equal((await reply(false)).penaltyMs, 0);
+  assert.equal((await reply(false)).penaltyMs, 2000);
+  await expectReject(() => reply(true), 'PENALTY');
+  player.penaltyUntil = Date.now(); // the wait is over
+  assert.equal((await reply(false)).penaltyMs, 2000, 'still wrong, so locked again');
+  player.penaltyUntil = Date.now();
+  const right = await reply(true);
+  assert.equal(right.penaltyMs, 0);
+  assert.equal(right.wrongStreak, 0);
+  assert.equal((await reply(false)).penaltyMs, 0, 'a correct answer resets the count');
+});

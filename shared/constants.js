@@ -157,6 +157,11 @@ export const TIMING = Object.freeze({
   feedbackMs: 1900, // wrong answers: long enough to read the right answer
   correctFeedbackMs: 1300,
   bonusFeedbackMs: 2300,
+  // From this many wrong answers in a row, each further wrong one locks the
+  // player out of answering for penaltyMs after the feedback screen.
+  wrongStreakPenaltyFrom: 3,
+  penaltyMs: 2000,
+  penaltyGraceMs: 250,
   captainSwapMs: 30_000,
   // The incoming and outgoing captain are told this long before controls change hands.
   captainWarnMs: 5_000,

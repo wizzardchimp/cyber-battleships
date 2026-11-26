@@ -274,6 +274,12 @@ docs/architecture.md     # design notes
 - On a laptop or Chromebook, answer with **1 / 2 / 3** or **A / B / C**, or click.
   The captain fires by clicking a square with the mouse or trackpad.
 
+## Wrong-answer penalty
+
+- Three wrong answers in a row lock the player's answer buttons for 2 seconds, after the
+  usual feedback screen, with a draining timer bar on their phone. Each further wrong
+  answer in the run does the same. A correct answer resets the count.
+
 ## Cut scenes and keyboard control
 
 - **F** toggles full screen on the big screen (the FS button does the same).

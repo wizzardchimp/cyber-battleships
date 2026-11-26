@@ -1195,3 +1195,49 @@ body.play-page {
   font-size: 0.75rem;
   letter-spacing: 0.05em;
 }
+
+/* ------------------------------------------- wrong-answer penalty timer bar */
+
+.penalty {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.8rem 1rem;
+  text-align: center;
+  border: 2px solid var(--red);
+  background: rgba(255, 77, 109, 0.14);
+}
+
+.penalty strong {
+  color: var(--red);
+  font-family: var(--font-pixel);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.penalty span {
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+}
+
+.penalty__track {
+  height: 0.9rem;
+  overflow: hidden;
+  border: 1px solid var(--red);
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.penalty__fill {
+  height: 100%;
+  background: var(--red);
+  transform-origin: left;
+  animation: penalty-drain 2000ms linear both;
+}
+
+@keyframes penalty-drain {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+
+.answers.is-locked {
+  opacity: 0.45;
+}

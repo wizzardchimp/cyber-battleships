@@ -38,6 +38,9 @@ let joining = false;
 let gateError = '';
 
 let feedback = null;
+// Set while a run of wrong answers is holding the player back: { until, ms, wrong }.
+let penalty = null;
+let penaltyTimer = null;
 let feedbackTimer = null;
 let answering = false;
 let firing = false;
@@ -308,7 +311,7 @@ function renderQuiz() {
         ? `<div class="feedback__bonus"><strong>BONUS AMMUNITION!</strong><span>+${feedback.bonus} extra missile${feedback.bonus === 1 ? '' : 's'} · ${feedback.streak} in a row</span></div>`
         : '';
     body = `
-      <section class="feedback ${right ? '' : 'feedback--wrong'}" data-action="skip-feedback" aria-live="assertive">
+      <section class="feedback ${right ? '' : 'feedback--wrong'}" ${feedback.penaltyMs ? '' : 'data-action="skip-feedback"'} aria-live="assertive">
         ${!right && feedback.correctText ? `<div class="feedback__answer"><span>CORRECT ANSWER</span><strong>${escapeHtml(feedback.correctKey)}. ${escapeHtml(feedback.correctText)}</strong></div>` : ''}
         <svg class="feedback__mark" viewBox="0 0 100 100" role="img" aria-label="${right ? 'Correct' : 'Incorrect'}">${mark}</svg>
         ${right ? rewardMarkup() : ''}
@@ -322,15 +325,25 @@ function renderQuiz() {
   } else if (!question) {
     body = `<div class="waiting"><img class="waiting__pulse" src="/brand/mark-128.png" alt="" /><p>Loading your next question…</p></div>`;
   } else {
+    const locked = Boolean(penalty && Date.now() < penalty.until);
+    // A negative delay keeps the bar in the right place if the screen redraws.
+    const penaltyBar = locked
+      ? `<div class="penalty" role="alert">
+          <strong>${penalty.wrong} WRONG IN A ROW</strong>
+          <span>Take a breath. You can answer in a moment.</span>
+          <div class="penalty__track"><div class="penalty__fill" style="animation-duration:${penalty.ms}ms;animation-delay:-${Math.max(0, penalty.ms - (penalty.until - Date.now()))}ms"></div></div>
+        </div>`
+      : '';
     body = `
+      ${penaltyBar}
       <div class="q-meta">${(round.cycle || 1) > 1 ? `Round ${round.cycle} · ` : ''}Question ${question.number} · ${escapeHtml(question.category)}</div>
       <h1 class="q-text">${escapeHtml(question.prompt)}</h1>
       <p class="key-hint">Click an answer, or press <b>1</b> <b>2</b> <b>3</b> or <b>A</b> <b>B</b> <b>C</b>.</p>
-      <div class="answers">
+      <div class="answers ${locked ? 'is-locked' : ''}">
         ${question.options
           .map(
             (option, index) => `
-          <button class="answer" type="button" data-answer="${index}" ${answering ? 'disabled' : ''}>
+          <button class="answer" type="button" data-answer="${index}" ${answering || locked ? 'disabled' : ''}>
             <span class="answer__key">${LETTERS[index]}</span>
             <span class="answer__text">${escapeHtml(option)}</span>
           </button>`,
@@ -655,6 +668,7 @@ function signature() {
         me?.eliminated,
         Boolean(feedback && Date.now() < feedback.until),
         feedback?.number,
+        penalty?.until,
         answering,
       ]);
     case PHASES.REVIEW:
@@ -791,6 +805,7 @@ function ensureSocket() {
     }
     if (previous && previous !== next.session.phase) {
       feedback = null;
+      penalty = null;
       shotMsg = null;
       passOpen = false;
       if ([PHASES.QUIZ, PHASES.BATTLE, PHASES.RESUPPLY].includes(next.session.phase)) sfx.alert();
@@ -908,9 +923,18 @@ async function join() {
 
 // ----------------------------------------------------------------- actions
 
+function startPenalty(ms, wrong) {
+  penalty = { ms, wrong, until: Date.now() + ms };
+  clearTimeout(penaltyTimer);
+  penaltyTimer = setTimeout(() => {
+    penalty = null;
+    render(true);
+  }, ms);
+}
+
 async function submitAnswer(optionIndex) {
   const question = playerState?.round?.me?.question;
-  if (!question || answering) return;
+  if (!question || answering || (penalty && Date.now() < penalty.until)) return;
   answering = true;
   for (const node of app.querySelectorAll('[data-answer]')) node.disabled = true;
   const snapshot = { prompt: question.prompt, options: [...question.options], number: question.number };
@@ -935,13 +959,17 @@ async function submitAnswer(optionIndex) {
       progress: result.progress || 0,
       bonus: result.bonus || 0,
       streak: result.streak || 0,
+      penaltyMs: result.penaltyMs || 0,
+      wrongStreak: result.wrongStreak || 0,
       until: Date.now() + feedbackMs,
     };
     if (result.correct) sfx.success();
     else sfx.error();
     clearTimeout(feedbackTimer);
     feedbackTimer = setTimeout(() => {
+      const held = feedback;
       feedback = null;
+      if (held?.penaltyMs) startPenalty(held.penaltyMs, held.wrongStreak);
       render(true);
     }, feedbackMs);
   } catch (error) {
@@ -1144,7 +1172,7 @@ document.addEventListener('keydown', (event) => {
   const tag = document.activeElement?.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA') return;
   const question = playerState?.round?.me?.question;
-  if (!question || (feedback && Date.now() < feedback.until)) return;
+  if (!question || (feedback && Date.now() < feedback.until) || (penalty && Date.now() < penalty.until)) return;
   const key = event.key.toLowerCase();
   const index = '123'.includes(key) && key ? Number(key) - 1 : 'abc'.indexOf(key);
   if (key.length !== 1 || index < 0 || index >= question.options.length) return;
