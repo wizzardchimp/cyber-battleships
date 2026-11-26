@@ -764,13 +764,14 @@ function briefingScreen() {
     : '';
 
   return `
-    <section class="screen" style="grid-template-rows:auto minmax(0,1fr) auto">
+    <section class="screen briefing" style="grid-template-rows:auto auto minmax(0,1fr) auto">
       <header class="screen-head">
         <div>
           <h1 class="screen-title">BATTLE BRIEFING</h1>
           <p class="screen-sub">The quiz is over. This is what each side has won.</p>
         </div>
       </header>
+      ${awardsMarkup(round.awards, ['fastest', 'accurate'])}
       <div class="briefing-grid" style="--teams:${columns}">${cards}${cpuCard}</div>
       <p class="briefing-note">${hasControl() ? 'Press START BATTLE when everyone is ready.' : 'Waiting for the facilitator to start the battle.'}</p>
     </section>`;
@@ -832,7 +833,7 @@ function shipLegend(board) {
     </div>`;
 }
 
-function rosterPanel(round, { detailed, afloat = false }) {
+function rosterPanel(round, { detailed }) {
   const scores = new Map(round.scores.map((score) => [score.id, score]));
   const dense = round.teams.some((team) => team.players.length > 6);
   const packed = round.teams.some((team) => team.players.length > 12);
@@ -865,23 +866,27 @@ function rosterPanel(round, { detailed, afloat = false }) {
         })
         .join('')}
       <p class="roster-panel__key">PLAYER HITS / SHOTS</p>
-      ${afloat ? afloatBlock(round) : ''}
     </aside>`;
 }
 
-function afloatBlock(round) {
+/** Battle side panel: just each team's missiles and who has, and gets, the controls. */
+function teamPanel(round) {
   return `
-    <div class="afloat">
-      ${targetBoards(round)
+    <aside class="team-panel" style="--teams:${round.teams.length}">
+      ${round.teams
         .map(
-          (board) => `
-        <div class="afloat__item" style="--side:${board.color}">
-          <span class="afloat__name">${escapeHtml(board.name)}</span>
-          <strong>${board.shipsTotal - board.shipsSunk}<small>/${board.shipsTotal} AFLOAT</small></strong>
-        </div>`,
+          (team) => `
+        <article class="team-card ${team.eliminated ? 'is-eliminated' : ''}" style="--side:${team.color}">
+          <h2 class="team-card__name">${escapeHtml(team.name)}${team.eliminated ? ' · OUT' : ''}</h2>
+          <div class="team-card__missiles"><strong>${team.missiles}</strong><span>MISSILE${team.missiles === 1 ? '' : 'S'} LEFT</span></div>
+          <dl class="team-card__captains">
+            <div class="team-card__captain"><dt>CAPTAIN</dt><dd>${escapeHtml(team.captainName || '—')}</dd></div>
+            <div class="team-card__captain team-card__captain--next"><dt>UP NEXT</dt><dd>${escapeHtml(team.nextCaptainName || '—')}</dd></div>
+          </dl>
+        </article>`,
         )
         .join('')}
-    </div>`;
+    </aside>`;
 }
 
 function battleScreen() {
@@ -889,7 +894,7 @@ function battleScreen() {
   return `
     <section class="screen battle" style="grid-template-rows:minmax(0,1fr)">
       <div class="battle-body">
-        ${rosterPanel(round, { detailed: false, afloat: true })}
+        ${teamPanel(round)}
         <div class="boards boards--battle">${targetBoards(round).map((board) => boardMarkup(round, board, { revealed: false, legend: true })).join('')}</div>
       </div>
     </section>`;
@@ -919,7 +924,7 @@ function resupplyScreen() {
         </div>
       </header>
       <div class="battle-body">
-        ${rosterPanel(round, { detailed: false, afloat: true })}
+        ${teamPanel(round)}
         <div class="boards boards--battle">${targetBoards(round).map((board) => boardMarkup(round, board, { revealed: false, legend: true })).join('')}</div>
       </div>
     </section>`;
@@ -946,35 +951,37 @@ function awardTile({ label, icon, winner, stat, note, empty }) {
 }
 
 /** Game-summary snapshot: standout players from every team. */
-function awardsMarkup(awards) {
+function awardsMarkup(awards, show = ['best', 'fastest', 'accurate']) {
   if (!awards) return '';
   const seconds = (ms) => `${(ms / 1000).toFixed(1)}s`;
-  return `
-    <section class="awards" aria-label="Game awards">
-      ${awardTile({
+  const tiles = {};
+  tiles.best = awardTile({
         label: 'BEST PLAYER',
         icon: '★',
         winner: awards.best,
         stat: awards.best ? `${awards.best.correct} correct` : '',
         note: awards.best ? `${awards.best.accuracy}% accuracy · ${awards.best.answered} answered` : '',
         empty: 'No correct answers',
-      })}
-      ${awardTile({
+      });
+  tiles.fastest = awardTile({
         label: 'FASTEST ANSWER',
         icon: '⚡',
         winner: awards.fastest,
         stat: awards.fastest ? seconds(awards.fastest.fastestMs) : '',
         note: 'quickest correct answer',
         empty: 'No correct answers',
-      })}
-      ${awardTile({
+      });
+  tiles.accurate = awardTile({
         label: 'MOST ACCURATE',
         icon: '◎',
         winner: awards.accurate,
         stat: awards.accurate ? `${awards.accurate.accuracy}%` : '',
         note: awards.accurate ? `${awards.accurate.correct} of ${awards.accurate.answered} correct` : '',
         empty: `Needs ${awards.minAnswers}+ answers`,
-      })}
+      });
+  return `
+    <section class="awards ${show.length === 2 ? 'awards--pair' : ''}" aria-label="Game awards">
+      ${show.map((key) => tiles[key]).join('')}
     </section>`;
 }
 
@@ -1078,7 +1085,7 @@ function renderControls() {
           button('MORE QUESTIONS', { action: 'advance', kind: 'btn--go', main: true });
         break;
       case PHASES.RESULT:
-        hint = 'Same players, fresh fleets. Or reset the room.';
+        hint = 'Same players, fresh fleets. Or reset the room. Returns to the lobby after 5 minutes.';
         buttons =
           button('NEW GAME', { action: 'new-game', kind: 'btn--ghost', confirm: true }) +
           button('BACK TO LOBBY', { action: 'lobby', kind: 'btn--ghost' }) +

@@ -644,6 +644,42 @@ export class GameSession extends EventEmitter {
     for (const team of this.state.teams) this.assignCaptain(team);
   }
 
+  /** True if this player could take over the side's controls at the next swap. */
+  canTakeOver(team, playerId) {
+    const player = this.playerById(playerId);
+    return Boolean(player && player.teamId === team.id && player.connected && player.id !== team.captainPlayerId);
+  }
+
+  /**
+   * Line up each side's following captain so the big screen can show who is
+   * coming up. It does not use their turn until the swap is actually planned.
+   * Returns true if anything changed.
+   */
+  planUpcoming() {
+    const round = this.state.round;
+    round.upcomingCaptains = round.upcomingCaptains || {};
+    let changed = false;
+    for (const team of this.state.teams) {
+      const planned = round.upcomingCaptains[team.id] || null;
+      const possible =
+        Boolean(team.captainPlayerId) &&
+        !this.fleetDestroyed(team.id) &&
+        this.playersOnTeam(team.id).some((player) => this.canTakeOver(team, player.id));
+      if (possible && this.canTakeOver(team, planned)) continue;
+      let next = null;
+      if (possible) {
+        const history = [...(team.captainHistory || [])];
+        // Offline players can still be picked when nobody is online, so check again.
+        const chosen = this.pickCaptain(team);
+        team.captainHistory = history;
+        next = chosen && this.canTakeOver(team, chosen.id) ? chosen.id : null;
+      }
+      if (next !== planned) changed = true;
+      round.upcomingCaptains[team.id] = next;
+    }
+    return changed;
+  }
+
   /**
    * Five seconds before the controls change hands, choose each side's next
    * captain so both players can be told. Sides with nobody else online keep
@@ -659,7 +695,14 @@ export class GameSession extends EventEmitter {
         (player) => player.connected && player.id !== before,
       );
       if (others.length === 0) continue;
-      const chosen = this.pickCaptain(team);
+      // Use whoever the big screen has been showing as next, if they still can.
+      let chosen = this.playerById(round.upcomingCaptains?.[team.id]);
+      if (chosen && this.canTakeOver(team, chosen.id)) {
+        team.captainHistory = Array.isArray(team.captainHistory) ? team.captainHistory : [];
+        if (!team.captainHistory.includes(chosen.id)) team.captainHistory.push(chosen.id);
+      } else {
+        chosen = this.pickCaptain(team);
+      }
       if (chosen && chosen.id !== before) round.nextCaptains[team.id] = chosen.id;
     }
     this.bump();
@@ -687,6 +730,8 @@ export class GameSession extends EventEmitter {
     }
     round.nextCaptains = null;
     round.captainSwapAt = new Date(now + TIMING.captainSwapMs).toISOString();
+    round.upcomingCaptains = {};
+    this.planUpcoming();
     this.bump();
   }
 
@@ -904,6 +949,8 @@ export class GameSession extends EventEmitter {
     if (fresh) this.assignCaptains();
     else this.ensureCaptains();
     this.state.phase = PHASES.BATTLE;
+    round.upcomingCaptains = {};
+    this.planUpcoming();
     this.recordEvent('battle_started', { round: round.number });
     this.bump();
   }
@@ -1208,6 +1255,21 @@ export class GameSession extends EventEmitter {
 
   async tick(now = Date.now()) {
     if (this.closed) return false;
+    // Nobody has moved on from the final scoreboard: tidy up, keeping players and code.
+    if (this.state.phase === PHASES.RESULT) {
+      const endedAt = Date.parse(this.state.endedAt || this.state.round?.endedAt || '');
+      if (this.ticking || !(now >= endedAt + TIMING.resultResetMs)) return false;
+      this.ticking = true;
+      try {
+        await this.returnToLobby();
+        return true;
+      } catch (error) {
+        this.logger?.error({ err: error, sessionId: this.state.id }, 'Game tick failed');
+        return false;
+      } finally {
+        this.ticking = false;
+      }
+    }
     if (this.state.phase !== PHASES.QUIZ && this.state.phase !== PHASES.BATTLE) return false;
     if (this.ticking) return false;
     this.ticking = true;
@@ -1242,6 +1304,12 @@ export class GameSession extends EventEmitter {
           this.planRotation();
           changed = true;
         }
+      }
+
+      // Someone passing the controls or dropping out can change who is next.
+      if (this.state.phase === PHASES.BATTLE && !round.nextCaptains && this.planUpcoming()) {
+        this.bump();
+        changed = true;
       }
 
       if (changed) await this.commit();
@@ -1366,6 +1434,14 @@ export class GameSession extends EventEmitter {
     return { best, fastest, accurate, minAnswers: AWARDS.minAnswersForAccuracy };
   }
 
+  /** Who takes over this side's controls next, while a battle is running. */
+  nextCaptainName(team) {
+    if (this.state.phase !== PHASES.BATTLE) return null;
+    const round = this.state.round;
+    const id = round?.nextCaptains?.[team.id] || round?.upcomingCaptains?.[team.id];
+    return this.canTakeOver(team, id) ? this.playerById(id).displayName : null;
+  }
+
   /** Progress per side, shared by the quiz, briefing and result screens. */
   teamProgress() {
     const round = this.state.round;
@@ -1404,6 +1480,8 @@ export class GameSession extends EventEmitter {
             : Math.floor((correct * SCORING.missilesPerCorrect + bonus) / this.perMissileFor(team.id)),
           missiles: this.arsenalFor(team.id),
           ammoProgress: Number(this.state.ammoProgress?.[team.id]) || 0,
+          captainName: this.playerById(team.captainPlayerId)?.displayName || null,
+          nextCaptainName: this.nextCaptainName(team),
           perMissile: this.perMissileFor(team.id),
           eliminated: this.fleetDestroyed(team.id),
           points: Number(this.state.scores[team.id]?.points) || 0,

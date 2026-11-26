@@ -2709,3 +2709,181 @@ body.display-page {
 .result .board__grid .battle-grid {
   width: min(100cqw, 100cqh);
 }
+
+/* --------------------------------------------- briefing: bigger summaries */
+
+.brief__best-label {
+  font-size: 0.95rem;
+}
+
+.brief__best-stats {
+  font-size: clamp(1.15rem, 1.7vw, 1.6rem);
+  line-height: 1.35;
+}
+
+.awards--pair {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+/* ------------------------------------------ battle: missiles and captains */
+
+.team-panel {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(0.4rem, 1.4vh, 1rem);
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* The cards share the height, and their text scales with their own size. */
+.team-card {
+  --side: var(--cyan);
+  flex: 1 1 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 0;
+  overflow: hidden;
+  container-type: size;
+  padding: 0.4rem 0.9rem;
+  text-align: center;
+  background: color-mix(in srgb, var(--side) 12%, var(--panel));
+  border: 2px solid var(--side);
+}
+
+.team-card__name {
+  margin: 0;
+  color: var(--side);
+  font-family: var(--font-pixel);
+  font-size: clamp(0.8rem, min(9cqh, 7cqw), 1.7rem);
+  line-height: 1.4;
+}
+
+.team-card__missiles {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7rem;
+  min-height: 0;
+}
+
+.team-card__missiles strong {
+  color: var(--amber);
+  font-family: var(--font-mono);
+  font-size: clamp(2rem, min(38cqh, 26cqw), 7rem);
+  line-height: 1;
+  text-shadow: 0 0 30px rgba(255, 194, 71, 0.55);
+}
+
+.team-card__missiles span {
+  max-width: 6em;
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: clamp(0.7rem, min(7cqh, 5cqw), 1.2rem);
+  letter-spacing: 0.18em;
+  text-align: left;
+}
+
+.team-card__captains {
+  display: grid;
+  gap: 0.15rem;
+  margin: 0;
+}
+
+.team-card__captain {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.team-card__captain dt {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: clamp(0.65rem, min(6cqh, 4.4cqw), 1rem);
+  letter-spacing: 0.2em;
+  white-space: nowrap;
+}
+
+.team-card__captain dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: #fff;
+  font-size: clamp(1rem, min(15cqh, 8.5cqw), 2.2rem);
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-card__captain--next dd {
+  color: var(--ink-soft);
+  font-size: clamp(0.9rem, min(12cqh, 7cqw), 1.7rem);
+  font-weight: 500;
+}
+
+.team-card.is-eliminated {
+  opacity: 0.45;
+}
+
+/* The briefing now carries two awards as well, so it sizes itself to the screen height. */
+.briefing {
+  gap: clamp(0.45rem, 1.4vh, 1.2rem);
+}
+
+.briefing .screen-sub {
+  display: none;
+}
+
+.briefing .brief {
+  gap: clamp(0.25rem, 1vh, 0.8rem);
+  padding: clamp(0.45rem, 1.4vh, 1.1rem) clamp(0.7rem, 1.2vw, 1.3rem);
+  overflow: hidden;
+}
+
+.briefing .brief__name {
+  font-size: clamp(1.1rem, 3.6vh, 2rem);
+}
+
+.briefing .brief__won strong {
+  font-size: clamp(1.7rem, 6vh, 4.2rem);
+}
+
+.briefing .brief__won span {
+  white-space: nowrap;
+  letter-spacing: 0.12em;
+}
+
+.briefing .brief__fact strong {
+  font-size: clamp(1.1rem, 3.2vh, 1.9rem);
+}
+
+.briefing .brief__fact span {
+  font-size: clamp(0.65rem, 1.5vh, 0.85rem);
+}
+
+.briefing .brief__best {
+  gap: 0;
+  padding: clamp(0.25rem, 0.8vh, 0.6rem) 0.8rem;
+}
+
+.briefing .brief__best-label {
+  font-size: clamp(0.7rem, 1.7vh, 0.95rem);
+}
+
+.briefing .brief__best-name {
+  font-size: clamp(0.85rem, 2.5vh, 1.5rem);
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.briefing .brief__best-stats {
+  font-size: clamp(0.95rem, 2.5vh, 1.6rem);
+  line-height: 1.25;
+}
+
+.briefing .brief__ready,
+.briefing .briefing-note {
+  font-size: clamp(0.85rem, 2vh, 1.25rem);
+}

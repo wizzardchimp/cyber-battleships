@@ -113,7 +113,7 @@ function roundProjection(session) {
     boards: round.combatants.map((combatant) => boardFor(session, combatant, { revealShips })),
     shotsFired: round.attacks.length,
     outcome: round.outcome || null,
-    awards: state.phase === PHASES.RESULT ? session.awards() : null,
+    awards: state.phase === PHASES.REVIEW || state.phase === PHASES.RESULT ? session.awards() : null,
   };
 }
 

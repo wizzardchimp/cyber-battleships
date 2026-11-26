@@ -170,6 +170,8 @@ export const TIMING = Object.freeze({
   // How long the regroup and end videos cover the big screen (phones show the captain meanwhile).
   regroupSceneMs: 6_000,
   endSceneMs: 13_000,
+  // A finished game left on the final scoreboard this long goes back to the lobby.
+  resultResetMs: 5 * 60_000,
 });
 
 export const DEFAULT_CONFIG = Object.freeze({

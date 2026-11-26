@@ -1461,3 +1461,36 @@ test('only the squares of sunk ships are shown on a live board', async () => {
   assert.equal(boardOf().sunkCells.length, ship.cells.length);
   assert.equal(boardOf().ships, undefined);
 });
+
+test('a finished game left on the scoreboard for five minutes goes back to the lobby', async () => {
+  const { session } = makeSession({ mode: MODES.DUEL });
+  const [alpha, bravo] = session.state.teams;
+  session.join({ name: 'Idle', teamId: alpha.id });
+  session.join({ name: 'Away', teamId: bravo.id });
+  await session.advance();
+  session.finishBattle(Date.now(), { reason: 'Ended by facilitator' });
+  const code = session.state.joinCode;
+  assert.equal(await session.tick(Date.now() + 4 * 60_000), false, 'still showing at four minutes');
+  assert.equal(session.state.phase, PHASES.RESULT);
+  assert.equal(await session.tick(Date.now() + 5 * 60_000 + 1000), true);
+  assert.equal(session.state.phase, PHASES.LOBBY);
+  assert.equal(session.state.round, null);
+  assert.equal(session.state.players.length, 2, 'players are kept');
+  assert.equal(session.state.joinCode, code, 'the join code is kept');
+});
+
+test('the next captain is known during battle and is the one who takes over', async () => {
+  const { session, alpha, alphaPlayers } = await startedSquad();
+  for (const player of alphaPlayers) await answerCorrectly(session, player);
+  await session.advance(); // briefing
+  assert.ok(publicProjection(session).round.awards, 'the briefing shows awards');
+  await session.advance(); // battle
+  const card = () => publicProjection(session).round.teams.find((team) => team.id === alpha.id);
+  for (let swap = 1; swap <= 3; swap += 1) {
+    const { captainName, nextCaptainName } = card();
+    assert.ok(captainName && nextCaptainName);
+    assert.notEqual(captainName, nextCaptainName);
+    session.rotateCaptains(Date.now());
+    assert.equal(card().captainName, nextCaptainName, `swap ${swap} matches what was shown`);
+  }
+});

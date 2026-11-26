@@ -550,7 +550,7 @@ function renderBattle() {
       ${renderGrid({ size: board.gridSize, shots: board.shots, interactive: captain, disabled: !canFire || firing, axes: false, label: 'Target grid', color: targetColor, shotColor: color, shotColors, sunkCells: board.sunkCells })}
     </div>
     ${message}
-    <p class="p-foot">Ships sunk <b>${board.shipsSunk} / ${board.shipsTotal}</b> · ${escapeHtml(playerState.me.teamName || '')} <b>${round.scores.find((score) => score.id === playerState.me.teamId)?.points ?? 0} pts</b></p>`,
+    <p class="p-foot">Ships sunk <b>${board.shipsSunk} / ${board.shipsTotal}</b> · ${escapeHtml(playerState.me.teamName || '')}</p>`,
     { side: color, compact: true },
   );
 }
@@ -568,7 +568,6 @@ function renderResupply() {
       : reason === 'time'
         ? 'The battle timer ran out.'
         : 'The battle round was ended.';
-  const points = round.scores.find((score) => score.id === playerState.me.teamId)?.points ?? 0;
   shell(
     `
     <section class="p-card panel hud" style="--bracket:var(--amber)">
@@ -577,7 +576,6 @@ function renderResupply() {
       <div class="stat-grid">
         <div class="stat-box stat-box--missiles"><strong>${me.missiles}</strong><span>MISSILES LEFT</span></div>
         <div class="stat-box"><strong>${board ? `${board.shipsSunk}/${board.shipsTotal}` : '-'}</strong><span>SHIPS SUNK</span></div>
-        <div class="stat-box"><strong>${points}</strong><span>YOUR POINTS</span></div>
       </div>
     </section>
     <div class="waiting">

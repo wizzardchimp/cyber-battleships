@@ -283,6 +283,18 @@ docs/architecture.md     # design notes
 - **Game over:** `client/public/sounds/gameover.mp3` plays with the end scene on the big
   screen, with the background music paused while it does.
 
+## Briefing and battle screens
+
+- The battle briefing shows the fastest answer and most accurate player so far, above the
+  team boxes.
+- During the battle each team's side panel shows only its missiles left, its captain and who
+  is up next. Points stay hidden, on the big screen and phones, until the game is over.
+
+## Idle scoreboard
+
+- A finished game left on the final scoreboard for 5 minutes goes back to the lobby by
+  itself. Players, teams, settings and the join code are kept; fleets and scores are cleared.
+
 ## Wrong-answer penalty
 
 - Three wrong answers in a row lock the player's answer buttons for 5 seconds, after the
