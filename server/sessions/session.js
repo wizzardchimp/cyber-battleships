@@ -559,7 +559,9 @@ export class GameSession extends EventEmitter {
     round.chosenTargets = {};
     round.cycle = (round.cycle || 0) + 1;
     round.quizStartedAt = new Date(now).toISOString();
-    round.quizEndsAt = new Date(now + this.config.quizMinutes * 60_000).toISOString();
+    const opensAt = now + TIMING.quizCountdownMs;
+    round.quizOpensAt = new Date(opensAt).toISOString();
+    round.quizEndsAt = new Date(opensAt + this.config.quizMinutes * 60_000).toISOString();
     round.battleStartedAt = null;
     round.battleEndsAt = null;
     round.battleEndReason = null;
@@ -581,7 +583,8 @@ export class GameSession extends EventEmitter {
       player.streak = 0;
       player.wrongStreak = 0;
       player.penaltyUntil = 0;
-      this.issueQuestion(player.id, now);
+      // Timed from when answering opens, so the countdown does not count against anyone.
+      this.issueQuestion(player.id, opensAt);
     }
 
     // Captains are drawn when the battle starts, after the questions.

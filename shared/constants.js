@@ -162,7 +162,9 @@ export const TIMING = Object.freeze({
   wrongStreakPenaltyFrom: 3,
   penaltyMs: 5000,
   penaltyGraceMs: 250,
-  captainSwapMs: 30_000,
+  captainSwapMs: 15_000,
+  // "Get ready, 3, 2, 1, go!" before each question round. Added to the quiz timer.
+  quizCountdownMs: 4000,
   // The incoming and outgoing captain are told this long before controls change hands.
   captainWarnMs: 5_000,
   // How long the regroup and end videos cover the big screen (phones show the captain meanwhile).

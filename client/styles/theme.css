@@ -762,3 +762,127 @@ button.battle-cell:disabled {
 .battle-cell.is-sunk {
   background: color-mix(in srgb, var(--shot) 35%, #1a0710);
 }
+
+/* ----------------------------------------------- sunk ships glow slowly */
+
+.battle-cell.is-sunk {
+  animation: sunk-glow-cell 3s ease-in-out infinite;
+}
+
+@keyframes sunk-glow-cell {
+  0%, 100% { box-shadow: inset 0 0 3px rgba(255, 77, 109, 0.5); filter: brightness(0.9); }
+  50% { box-shadow: inset 0 0 10px 3px rgba(255, 105, 170, 0.95), 0 0 10px rgba(255, 77, 143, 0.85); filter: brightness(1.45); }
+}
+
+/* ------------------------------------------- get ready, 3, 2, 1, go */
+
+.get-ready {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  background: rgba(2, 5, 12, 0.95);
+}
+
+.get-ready:not(.is-blocking) {
+  pointer-events: none;
+  background: transparent;
+}
+
+.get-ready__card {
+  width: min(92vw, 60rem);
+  padding: clamp(1.5rem, 6vh, 4rem) 1rem;
+  text-align: center;
+  background: rgba(2, 5, 12, 0.96);
+  border: 4px solid var(--cyan);
+  box-shadow: 0 0 70px rgba(25, 227, 255, 0.65);
+  animation: get-ready-pop 0.45s ease-out both;
+}
+
+.get-ready__card strong {
+  color: var(--cyan);
+  font-family: var(--font-pixel);
+  font-size: clamp(2rem, 8vw, 6rem);
+  line-height: 1.4;
+  text-shadow: 0 0 30px currentColor;
+}
+
+.get-ready__card--count strong {
+  font-size: clamp(4.5rem, 20vw, 12rem);
+}
+
+.get-ready__card--go {
+  border-color: var(--green);
+  box-shadow: 0 0 70px rgba(125, 255, 107, 0.7);
+}
+
+.get-ready__card--go strong {
+  color: var(--green);
+  font-size: clamp(3.5rem, 15vw, 9rem);
+}
+
+@keyframes get-ready-pop {
+  0% { opacity: 0; transform: scale(0.65); }
+  60% { opacity: 1; transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+
+/* ------------------------------------------------------- last boat notice */
+
+.last-boat {
+  position: fixed;
+  inset: 0;
+  z-index: 88;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 1.2rem;
+  padding: 1rem;
+  text-align: center;
+  pointer-events: none;
+  animation: last-boat 3.6s ease both;
+}
+
+.last-boat strong {
+  color: #fff;
+  font-family: var(--font-pixel);
+  font-size: clamp(2.2rem, 9vw, 7rem);
+  line-height: 1.4;
+  text-shadow: 0 0 24px #ff2d55, 0 0 60px #ff2d55;
+}
+
+.last-boat span {
+  padding: 0.6rem 1.4rem;
+  color: #fff;
+  font-size: clamp(1.1rem, 3vw, 2.2rem);
+  background: rgba(2, 5, 12, 0.85);
+  border: 3px solid var(--side);
+}
+
+@keyframes last-boat {
+  0% { opacity: 0; background: rgba(150, 0, 30, 0.92); }
+  8% { opacity: 1; }
+  25% { background: rgba(60, 0, 14, 0.88); }
+  40% { background: rgba(150, 0, 30, 0.92); }
+  55% { background: rgba(60, 0, 14, 0.88); }
+  70% { opacity: 1; background: rgba(150, 0, 30, 0.92); }
+  100% { opacity: 0; background: rgba(60, 0, 14, 0.88); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .battle-cell.is-sunk,
+  .get-ready__card {
+    animation: none;
+  }
+
+  .last-boat {
+    animation-name: last-boat-calm;
+    background: rgba(110, 0, 24, 0.92);
+  }
+}
+
+@keyframes last-boat-calm {
+  0%, 100% { opacity: 0; }
+  10%, 85% { opacity: 1; }
+}

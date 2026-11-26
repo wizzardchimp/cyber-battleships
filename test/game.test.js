@@ -1045,7 +1045,7 @@ test('a sunk fleet is out; the last fleet afloat wins', async () => {
   assert.equal(session.state.round.outcome.reason, 'Fleet destroyed');
 });
 
-test('controls swap to another teammate every 30 seconds of battle', async () => {
+test('controls swap to another teammate every 15 seconds of battle', async () => {
   const { session, alpha, alphaPlayers, bravo } = await startedSquad();
   for (const player of alphaPlayers) await answerCorrectly(session, player);
   await session.advance(); // briefing
@@ -1055,14 +1055,14 @@ test('controls swap to another teammate every 30 seconds of battle', async () =>
 
   const first = alpha.captainPlayerId;
   const bravoFirst = bravo.captainPlayerId;
-  assert.equal(await session.tick(Date.now() + 10_000), false, 'nothing happens early');
+  assert.equal(await session.tick(Date.now() + 5_000), false, 'nothing happens early');
   assert.equal(alpha.captainPlayerId, first);
 
-  assert.equal(await session.tick(Date.now() + 31_000), true);
+  assert.equal(await session.tick(Date.now() + 16_000), true);
   assert.notEqual(alpha.captainPlayerId, first, 'alpha has a new captain');
   assert.notEqual(bravo.captainPlayerId, bravoFirst, 'bravo has a new captain');
   assert.ok(alphaPlayers.some((player) => player.id === alpha.captainPlayerId));
-  assert.ok(Date.parse(round.captainSwapAt) > Date.now() + 25_000, 'the next swap is rescheduled');
+  assert.ok(Date.parse(round.captainSwapAt) > Date.now() + 10_000, 'the next swap is rescheduled');
   const view = publicProjection(session);
   assert.ok(view.round.captainSwapAt);
 });
@@ -1434,4 +1434,30 @@ test('three wrong answers in a row lock the player briefly, and each further wro
   assert.equal(right.penaltyMs, 0);
   assert.equal(right.wrongStreak, 0);
   assert.equal((await reply(false)).penaltyMs, 0, 'a correct answer resets the count');
+});
+
+test('each question round opens with a countdown that does not shorten the quiz', async () => {
+  const { session } = makeSession({ mode: MODES.DUEL, quizMinutes: 1 });
+  const [alpha, bravo] = session.state.teams;
+  const player = session.join({ name: 'Ready', teamId: alpha.id }).player;
+  session.join({ name: 'Steady', teamId: bravo.id });
+  await session.advance();
+  const view = publicProjection(session).round;
+  assert.equal(Date.parse(view.quizEndsAt) - Date.parse(view.quizOpensAt), 60_000);
+  assert.ok(Date.parse(view.quizOpensAt) > Date.now() + 2_000);
+  assert.equal(session.state.round.quiz[player.id].current.issuedAt, view.quizOpensAt);
+});
+
+test('only the squares of sunk ships are shown on a live board', async () => {
+  const { session } = makeSession({ mode: MODES.DUEL });
+  const [alpha, bravo] = session.state.teams;
+  session.join({ name: 'One', teamId: alpha.id });
+  session.join({ name: 'Two', teamId: bravo.id });
+  await session.advance();
+  const ship = session.state.fleets[bravo.id].ships[0];
+  const boardOf = () => publicProjection(session).round.boards.find((board) => board.id === bravo.id);
+  assert.deepEqual(boardOf().sunkCells, []);
+  ship.sunk = true;
+  assert.equal(boardOf().sunkCells.length, ship.cells.length);
+  assert.equal(boardOf().ships, undefined);
 });

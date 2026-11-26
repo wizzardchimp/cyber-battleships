@@ -65,6 +65,10 @@ function boardFor(session, combatant, { revealShips }) {
     shipsTotal: fleet?.ships?.length || 0,
     shipsSunk: fleet?.ships?.filter((ship) => ship.sunk).length || 0,
     sunkShips: (fleet?.ships || []).filter((ship) => ship.sunk).map((ship) => ship.name),
+    // Squares of sunk ships only: every one has been hit, so nothing hidden is given away.
+    sunkCells: (fleet?.ships || [])
+      .filter((ship) => ship.sunk)
+      .flatMap((ship) => ship.cells.map((cell) => ({ x: cell.x, y: cell.y }))),
   };
   if (!revealShips || !fleet) return base;
   return {
@@ -87,6 +91,7 @@ function roundProjection(session) {
   return {
     number: round.number,
     cycle: round.cycle || 1,
+    quizOpensAt: state.phase === PHASES.QUIZ ? round.quizOpensAt || null : null,
     quizEndsAt: round.quizEndsAt,
     battleEndsAt: round.battleEndsAt,
     battleOpensAt: round.battleOpensAt || null,

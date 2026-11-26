@@ -1539,7 +1539,7 @@ body.display-page {
   margin: 0;
   color: var(--muted);
   font-family: var(--font-mono);
-  font-size: 0.7rem;
+  font-size: 0.95rem;
   font-weight: 400;
   letter-spacing: 0.2em;
 }
@@ -1562,8 +1562,8 @@ body.display-page {
 }
 
 .ship-legend__shape i {
-  width: 0.95rem;
-  height: 0.75rem;
+  width: 1.45rem;
+  height: 1.15rem;
   background: color-mix(in srgb, var(--cyan) 55%, transparent);
   border: 1px solid var(--cyan);
 }
@@ -1573,14 +1573,14 @@ body.display-page {
   justify-items: center;
   color: var(--ink-soft);
   font-family: var(--font-mono);
-  font-size: 0.72rem;
+  font-size: 1.05rem;
   text-align: center;
   line-height: 1.15;
 }
 
 .ship-legend__name small {
   color: var(--muted);
-  font-size: 0.7rem;
+  font-size: 0.9rem;
 }
 
 /* A sunk ship turns red: it is out of play. */
@@ -1625,7 +1625,7 @@ body.display-page {
 
 /* The grid and the fleet key share one square-based width, so they line up. */
 .boards--battle .board__grid {
-  --legend-h: 8.6rem;
+  --legend-h: clamp(7.2rem, 31cqh, 12.4rem);
   --fit: min(100cqw, calc(100cqh - var(--legend-h) - 0.5rem));
   container-type: size;
   display: grid;
@@ -1642,7 +1642,12 @@ body.display-page {
 }
 
 .boards--battle .board__grid .ship-legend {
-  width: var(--fit);
+  /* May be wider than the grid on short screens, so the names never collide. */
+  justify-self: center;
+  width: min(100cqw, max(var(--fit), 26rem));
+  overflow: hidden;
+  padding-block: 0.3rem;
+  gap: min(0.35rem, 0.8cqh);
   height: var(--legend-h);
   box-sizing: border-box;
   align-content: center;
@@ -2549,4 +2554,158 @@ body.display-page {
   .scroll-wide::-webkit-scrollbar-button:vertical:end:increment {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 16l-6-7h12z' fill='%2338e1ff'/%3E%3C/svg%3E");
   }
+}
+
+/* ------------------------------------------- sunk ships and the last boat */
+
+/* Sunk ships in the key glow slowly. */
+.ship-legend__row.is-sunk .ship-legend__shape i {
+  animation: sunk-glow-block 3s ease-in-out infinite;
+}
+
+@keyframes sunk-glow-block {
+  0%, 100% { box-shadow: 0 0 2px rgba(255, 77, 109, 0.4); filter: brightness(0.85); }
+  50% { box-shadow: 0 0 14px 3px rgba(255, 77, 143, 0.95); filter: brightness(1.35); }
+}
+
+/* One ship left: the whole key flashes red. */
+.ship-legend.is-last {
+  border-color: var(--red);
+  animation: last-key 0.8s steps(1, end) infinite;
+}
+
+.ship-legend.is-last .ship-legend__title,
+.ship-legend.is-last .ship-legend__name,
+.ship-legend.is-last .ship-legend__name small {
+  color: #fff;
+}
+
+@keyframes last-key {
+  0% { background: rgba(255, 30, 70, 0.75); box-shadow: 0 0 28px rgba(255, 45, 85, 0.9); }
+  50% { background: rgba(90, 8, 24, 0.75); box-shadow: 0 0 6px rgba(255, 45, 85, 0.4); }
+}
+
+/* ------------------------------------------------------- making the winner clear */
+
+.winner--champion {
+  border: 4px solid var(--win);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--win) 38%, transparent), color-mix(in srgb, var(--win) 12%, transparent) 50%, color-mix(in srgb, var(--win) 38%, transparent)),
+    var(--panel);
+  animation: champion-glow 2.4s ease-in-out infinite;
+}
+
+.winner--champion .winner__eyebrow {
+  color: #fff;
+}
+
+.result .winner--champion .winner__name {
+  color: #fff;
+  font-size: clamp(2.6rem, 5.4vw, 5rem);
+  text-shadow: 0 0 18px var(--win), 0 0 44px var(--win);
+}
+
+@keyframes champion-glow {
+  0%, 100% { box-shadow: 0 0 30px color-mix(in srgb, var(--win) 35%, transparent); }
+  50% { box-shadow: 0 0 80px color-mix(in srgb, var(--win) 80%, transparent); }
+}
+
+.result .board.is-winner {
+  outline: 4px solid var(--side);
+  outline-offset: 4px;
+  box-shadow: 0 0 40px color-mix(in srgb, var(--side) 55%, transparent);
+}
+
+.result .board.is-loser {
+  opacity: 0.55;
+}
+
+.board__crown {
+  color: #ffd75e;
+  text-shadow: 0 0 14px rgba(255, 215, 94, 0.8);
+}
+
+.result .roster-team.is-winner {
+  outline: 3px solid var(--side);
+  box-shadow: 0 0 28px color-mix(in srgb, var(--side) 60%, transparent);
+}
+
+/* The battle key scales with the room the board has: large on a projector. */
+.boards--battle .board__grid {
+  justify-content: stretch;
+  grid-template-columns: 100%;
+  justify-items: center;
+}
+
+.boards--battle .ship-legend__list {
+  gap: min(0.6rem, 1.4cqh) 0.5rem;
+}
+
+.boards--battle .ship-legend__title {
+  font-size: clamp(0.65rem, 2.6cqh, 0.95rem);
+  text-align: center;
+}
+
+.boards--battle .ship-legend__shape i {
+  width: clamp(0.7rem, 3.6cqh, 1.45rem);
+  height: clamp(0.55rem, 2.9cqh, 1.15rem);
+}
+
+.boards--battle .ship-legend__name {
+  font-size: clamp(0.65rem, 2.9cqh, 1.05rem);
+}
+
+.boards--battle .ship-legend__name small {
+  font-size: clamp(0.6rem, 2.5cqh, 0.9rem);
+}
+
+/* Keep the champion banner short so the final boards still fit under it. */
+.result .winner--champion {
+  gap: 0.15rem;
+  padding: 0.6rem 1rem;
+}
+
+.result .winner--champion .winner__name {
+  font-size: clamp(2.2rem, min(5.4vw, 7vh), 5rem);
+  line-height: 1.25;
+}
+
+.board__crown {
+  font-size: 0.75em;
+}
+
+/* Final boards take whatever height is left, so nothing overlaps. */
+.result .boards {
+  min-height: 0;
+  height: 100%;
+}
+
+.result .board {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 0.35rem;
+  height: 100%;
+  min-height: 0;
+  max-width: none;
+}
+
+.result .board__title {
+  font-size: clamp(0.8rem, 2.1vh, 1.3rem);
+}
+
+.result .board__title small {
+  display: none;
+}
+
+.result .board__grid {
+  container-type: size;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+}
+
+.result .board__grid .battle-grid {
+  width: min(100cqw, 100cqh);
 }

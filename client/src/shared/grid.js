@@ -20,7 +20,9 @@ export function renderGrid({
   color = null,
   shotColor = null,
   shotColors = null,
+  sunkCells = [],
 } = {}) {
+  const sunkSet = new Set((sunkCells || []).map((cell) => `${cell.x},${cell.y}`));
   const shotMap = new Map();
   for (const shot of shots) shotMap.set(`${shot.x},${shot.y}`, shot);
 
@@ -51,8 +53,8 @@ export function renderGrid({
       if (shot) classes.push(shot.hit ? 'is-hit' : 'is-miss');
       if (ship) {
         classes.push('is-ship');
-        if (ship.sunk) classes.push('is-sunk');
       }
+      if (ship?.sunk || sunkSet.has(key)) classes.push('is-sunk');
       const coordinate = coordLabel(x, y);
       const byColor = shot && shotColors && shot.by ? shotColors[shot.by] : null;
       const cellStyle = byColor ? ` style="--shot:${byColor}"` : '';

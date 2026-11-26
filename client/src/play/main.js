@@ -4,6 +4,7 @@ import '../../styles/play.css';
 import { PHASES, TIMING } from '@shared/constants.js';
 import { EVENTS } from '@shared/events.js';
 import { normaliseCode } from '@shared/util.js';
+import { cancelGetReady, getReadyBlocking, newLastBoats, runGetReady, showLastBoat } from '../shared/notices.js';
 import { api } from '../shared/api.js';
 import { sfx, unlockAudio } from '../shared/audio.js';
 import {
@@ -354,7 +355,7 @@ function renderQuiz() {
 
   shell(
     `
-    ${topBar(round.quizEndsAt, me.missiles, me)}
+    ${topBar(round.quizEndsAt, me.missiles, me, round.quizOpensAt)}
     ${body}
     <p class="p-foot"><b>${escapeHtml(playerState.me.teamName || '')}</b> · you answered ${me.answered}, ${me.correct} correct</p>`,
     { side: color },
@@ -546,7 +547,7 @@ function renderBattle() {
       <span class="target__name">${escapeHtml(boards.length > 1 ? board.name : me.targetName || board.name)}</span>
     </div>
     <div class="fire-grid ${captain ? '' : 'fire-grid--watch'}">
-      ${renderGrid({ size: board.gridSize, shots: board.shots, interactive: captain, disabled: !canFire || firing, axes: false, label: 'Target grid', color: targetColor, shotColor: color, shotColors })}
+      ${renderGrid({ size: board.gridSize, shots: board.shots, interactive: captain, disabled: !canFire || firing, axes: false, label: 'Target grid', color: targetColor, shotColor: color, shotColors, sunkCells: board.sunkCells })}
     </div>
     ${message}
     <p class="p-foot">Ships sunk <b>${board.shipsSunk} / ${board.shipsTotal}</b> · ${escapeHtml(playerState.me.teamName || '')} <b>${round.scores.find((score) => score.id === playerState.me.teamId)?.points ?? 0} pts</b></p>`,
@@ -798,6 +799,7 @@ function ensureSocket() {
     watchShots(before, next);
     playerState = next;
     maybeDrawCaptain(before, next);
+    announceMoments(before, next);
     announceControlChange(before, next);
     setBattleSoundsEnabled(next.session?.config?.soundEnabled !== false);
     if ([PHASES.REVIEW, PHASES.BATTLE, PHASES.RESUPPLY].includes(next.session.phase)) {
@@ -934,7 +936,7 @@ function startPenalty(ms, wrong) {
 
 async function submitAnswer(optionIndex) {
   const question = playerState?.round?.me?.question;
-  if (!question || answering || (penalty && Date.now() < penalty.until)) return;
+  if (!question || answering || getReadyBlocking() || (penalty && Date.now() < penalty.until)) return;
   answering = true;
   for (const node of app.querySelectorAll('[data-answer]')) node.disabled = true;
   const snapshot = { prompt: question.prompt, options: [...question.options], number: question.number };
@@ -1004,7 +1006,39 @@ function flashHit({ hit, sunk, shipName }, elapsed = 0) {
   );
 }
 
-/** Pop-ups when the attack controls arrive or leave, e.g. the 30 second swap. */
+// The question round the countdown has already been shown for.
+let readyShownFor = null;
+
+/** The countdown into questions and the last boat warning. */
+function announceMoments(before, after) {
+  const phase = after?.session?.phase;
+  const sound = after?.session?.config?.soundEnabled !== false;
+
+  const opensAt = phase === PHASES.QUIZ ? after.round?.quizOpensAt : null;
+  if (opensAt && opensAt !== readyShownFor) {
+    readyShownFor = opensAt;
+    runGetReady({ opensIn: Date.parse(opensAt) - serverNow(), sound });
+  } else if (phase !== PHASES.QUIZ) {
+    cancelGetReady();
+  }
+
+  if (phase !== PHASES.BATTLE) return;
+  const myTeamId = after.me?.teamId;
+  for (const board of newLastBoats(before, after)) {
+    const mine = board.id === myTeamId;
+    // After the "ship sunk" pop-up has had a moment.
+    window.setTimeout(() => {
+      if (playerState?.session?.phase !== PHASES.BATTLE) return;
+      showLastBoat({
+        detail: mine ? 'Your fleet has one ship left!' : `${board.name} has one ship left`,
+        color: board.color,
+        sound,
+      });
+    }, 3000);
+  }
+}
+
+/** Pop-ups when the attack controls arrive or leave, e.g. the captain swap. */
 function announceControlChange(before, after) {
   const was = before?.round?.me?.isCaptain;
   const now = after?.round?.me?.isCaptain;
@@ -1172,7 +1206,7 @@ document.addEventListener('keydown', (event) => {
   const tag = document.activeElement?.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA') return;
   const question = playerState?.round?.me?.question;
-  if (!question || (feedback && Date.now() < feedback.until) || (penalty && Date.now() < penalty.until)) return;
+  if (!question || getReadyBlocking() || (feedback && Date.now() < feedback.until) || (penalty && Date.now() < penalty.until)) return;
   const key = event.key.toLowerCase();
   const index = '123'.includes(key) && key ? Number(key) - 1 : 'abc'.indexOf(key);
   if (key.length !== 1 || index < 0 || index >= question.options.length) return;

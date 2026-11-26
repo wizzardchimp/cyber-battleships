@@ -13,7 +13,8 @@ import {
 } from '../shared/battleSounds.js';
 import { captainDrawActive, runCaptainDraw } from '../shared/captainDraw.js';
 import { cutsceneActive, playCutscene, skipCutscene } from './cutscene.js';
-import { setMusic, setMusicEnabled } from '../shared/music.js';
+import { playJingle, setMusic, setMusicEnabled, stopJingle } from '../shared/music.js';
+import { cancelGetReady, newLastBoats, runGetReady, showLastBoat } from '../shared/notices.js';
 import { formatCountdown, msRemaining, serverNow, syncClock } from '../shared/clock.js';
 import { $, escapeHtml, toast } from '../shared/dom.js';
 import { renderGrid } from '../shared/grid.js';
@@ -345,16 +346,49 @@ function maybePlayCutscene(previous, next) {
   }
 }
 
+// The question round the countdown has already been shown for.
+let readyShownFor = null;
+
+/** The countdown into questions, the last boat warning and the game over sting. */
+function announceMoments(previous, before, next) {
+  const phase = next.session.phase;
+  const sound = next.session?.config?.soundEnabled !== false && !isMuted();
+
+  const opensAt = phase === PHASES.QUIZ ? next.round?.quizOpensAt : null;
+  if (opensAt && opensAt !== readyShownFor) {
+    readyShownFor = opensAt;
+    runGetReady({ opensIn: Date.parse(opensAt) - serverNow(), sound });
+  } else if (phase !== PHASES.QUIZ) {
+    cancelGetReady();
+  }
+
+  if (phase === PHASES.BATTLE) {
+    for (const board of newLastBoats(before, next)) {
+      const name = board.kind === 'cpu' ? board.name : `${board.name} FLEET`;
+      // After the "ship sunk" banner has had a moment.
+      window.setTimeout(() => {
+        if (state?.session?.phase !== PHASES.BATTLE) return;
+        showLastBoat({ detail: `${name} has one ship left`, color: board.color, sound });
+      }, 3000);
+    }
+  }
+
+  if (phase === PHASES.RESULT && previous !== null && previous !== phase) playJingle('/sounds/gameover.mp3');
+  else if (phase !== PHASES.RESULT) stopJingle();
+}
+
 function applyState(next) {
   const previous = state?.session?.phase ?? null;
   setBattleSoundsEnabled(next.session?.config?.soundEnabled !== false);
   preloadBattleSounds();
   battleSoundsFor(state, next);
+  const before = state;
   state = next;
   const phase = next.session.phase;
   setMusicEnabled(next.session?.config?.soundEnabled !== false);
   maybePlayCutscene(previous, next);
   setMusic(sceneOn() ? 'battle' : (MUSIC_BY_PHASE[phase] ?? 'menu'));
+  announceMoments(previous, before, next);
   if (previous !== null && previous !== phase) {
     if (phase !== PHASES.LOBBY) settingsOpen = false;
     if (phase === PHASES.QUIZ || phase === PHASES.BATTLE) play('alert');
@@ -647,7 +681,7 @@ function quizScreen() {
           <h1 class="screen-title">${later ? `QUESTION ROUND ${round.cycle}` : 'QUIZ UNDERWAY'}</h1>
           <p class="screen-sub">${later ? 'Earn more missiles. The battle goes on until every ship on a fleet is sunk.' : 'Answer on your phone. Every correct answer earns a missile.'}</p>
         </div>
-        ${timerBlock('TIME LEFT', round.quizEndsAt)}
+        ${timerBlock('TIME LEFT', round.quizEndsAt, round.quizOpensAt)}
       </header>
       <div class="progress-grid" style="--teams:${teams.length}">
         ${teams.map((team) => progressCard(team, scale, many)).join('')}
@@ -770,19 +804,22 @@ function attackersOf(round, boardId) {
 
 function boardMarkup(round, board, { revealed, legend = false }) {
   const title = board.kind === 'cpu' ? board.name : `${board.name} FLEET`;
+  const winnerId = round.outcome?.winnerId;
+  const verdict = winnerId ? (board.id === winnerId ? 'is-winner' : 'is-loser') : '';
   return `
-    <article class="board ${board.shipsSunk >= board.shipsTotal && board.shipsTotal > 0 ? 'is-eliminated' : ''}" style="--side:${board.color};--board-size:${revealed ? '36vh' : '50vh'}">
-      <h2 class="board__title">${escapeHtml(title)}<small>${board.shipsSunk >= board.shipsTotal && board.shipsTotal > 0 ? 'ELIMINATED' : `ATTACKED BY ${escapeHtml(attackersOf(round, board.id))}`}</small></h2>
-      <div class="board__grid">${renderGrid({ size: board.gridSize, shots: board.shots, ships: board.ships || [], label: title, color: board.color, shotColor: attackerColorOf(round, board.id), shotColors: shotColorsOf(round) })}${legend ? shipLegend(board) : ''}</div>
+    <article class="board ${verdict} ${board.shipsSunk >= board.shipsTotal && board.shipsTotal > 0 ? 'is-eliminated' : ''}" style="--side:${board.color};--board-size:${revealed ? '36vh' : '50vh'}">
+      <h2 class="board__title">${verdict === 'is-winner' ? '<span class="board__crown">★ WINNER</span> ' : ''}${escapeHtml(title)}<small>${board.shipsSunk >= board.shipsTotal && board.shipsTotal > 0 ? 'ELIMINATED' : `ATTACKED BY ${escapeHtml(attackersOf(round, board.id))}`}</small></h2>
+      <div class="board__grid">${renderGrid({ size: board.gridSize, shots: board.shots, ships: board.ships || [], label: title, color: board.color, shotColor: attackerColorOf(round, board.id), shotColors: shotColorsOf(round), sunkCells: board.sunkCells })}${legend ? shipLegend(board) : ''}</div>
       <div class="board__foot"><span>SUNK <b>${board.shipsSunk}/${board.shipsTotal}</b></span><span>SHOTS <b>${board.shots.length}</b></span></div>
     </article>`;
 }
 
 function shipLegend(board) {
   const sunk = new Set(board.sunkShips || []);
+  const lastBoat = board.shipsTotal > 1 && board.shipsTotal - board.shipsSunk === 1;
   return `
-    <div class="ship-legend" aria-label="Fleet key">
-      <h3 class="ship-legend__title">FLEET KEY</h3>
+    <div class="ship-legend ${lastBoat ? 'is-last' : ''}" aria-label="Fleet key">
+      <h3 class="ship-legend__title">${lastBoat ? 'LAST BOAT!' : 'FLEET KEY'}</h3>
       <div class="ship-legend__list">
         ${FLEET_TEMPLATE.map(
           (ship) => `
@@ -814,9 +851,9 @@ function rosterPanel(round, { detailed, afloat = false }) {
             )
             .join('');
           return `
-          <article class="roster-team ${team.eliminated ? 'is-eliminated' : ''}" style="--side:${team.color}">
+          <article class="roster-team ${team.eliminated ? 'is-eliminated' : ''} ${round.outcome?.winnerId === team.id ? 'is-winner' : ''}" style="--side:${team.color}">
             <header class="roster-team__head">
-              <h2 class="roster-team__name">${escapeHtml(team.name)}</h2>
+              <h2 class="roster-team__name">${round.outcome?.winnerId === team.id ? '★ ' : ''}${escapeHtml(team.name)}</h2>
               <div class="roster-team__nums">
                 <span class="roster-team__pts">${team.points}<small>PTS</small></span>
                 <span class="roster-team__ammo">${team.missiles}${team.perMissile > 1 ? `<em class="roster-team__frac">+${team.ammoProgress}/${team.perMissile}</em>` : ''}<small>MISSILES</small></span>
@@ -945,18 +982,24 @@ function resultScreen() {
   const round = state.round;
   const outcome = round.outcome || {};
   const preset = MODE_PRESETS[state.session.mode];
+  const won = preset?.versusCpu ? Boolean(outcome.humanWin) : !outcome.draw;
   const eyebrow = preset?.versusCpu
     ? outcome.humanWin
       ? 'MISSION COMPLETE'
       : 'MISSION FAILED'
     : outcome.draw
       ? 'NO WINNER'
-      : 'WINNER';
+      : 'THE WINNERS ARE';
+  const headline = outcome.draw
+    ? 'IT\'S A DRAW'
+    : outcome.winnerName
+      ? `${outcome.winnerName} WINS!`
+      : 'GAME OVER';
   return `
     <section class="screen battle result">
-      <div class="winner" style="--win:${escapeHtml(outcome.winnerColor || '#19e3ff')}">
+      <div class="winner ${outcome.draw ? '' : 'winner--champion'}" style="--win:${escapeHtml(outcome.winnerColor || '#19e3ff')}">
         <span class="winner__eyebrow">${eyebrow}</span>
-        <h1 class="winner__name">${escapeHtml(outcome.winnerName || 'GAME OVER')}</h1>
+        <h1 class="winner__name">${won ? '<span aria-hidden="true">🏆</span> ' : ''}${escapeHtml(headline)}${won ? ' <span aria-hidden="true">🏆</span>' : ''}</h1>
         <span class="winner__reason">${escapeHtml(outcome.reason || '')}</span>
       </div>
       ${awardsMarkup(round.awards)}

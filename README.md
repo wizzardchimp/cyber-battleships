@@ -243,8 +243,8 @@ docs/architecture.md     # design notes
   every question round, and a different player is chosen each time, so everyone
   gets a turn before anyone repeats. If the captain goes offline during a battle,
   a teammate takes over.
-- **Controls swap every 30 seconds.** During a battle the controls pass to a random,
-  different, connected teammate every 30 seconds. The new captain gets a green
+- **Controls swap every 15 seconds.** During a battle the controls pass to a random,
+  different, connected teammate every 15 seconds. The new captain gets a green
   "you have the controls" pop-up and the old one an amber "controls passed" pop-up.
   A captain can also press **PASS CONTROLS TO A TEAMMATE** at any time. A side with
   only one player online keeps its captain.
@@ -254,7 +254,7 @@ docs/architecture.md     # design notes
   then plays the intro video; while any video plays on the big screen, phones show who
   their captain is ("YOUR CAPTAIN: …" or "YOU ARE THE CAPTAIN") and the board appears only
   when the video ends. The big screen shows each team's captain under the video too.
-- **Hand-overs are announced.** Five seconds before the 30 second swap, the outgoing captain
+- **Hand-overs are announced.** Five seconds before the 15 second swap, the outgoing captain
   sees "NAME TAKES THE CONTROLS IN 5" and the incoming captain sees "GET READY: YOU BECOME
   CAPTAIN IN 5". At the swap the new captain's phone flashes three times with "YOU ARE NOW
   THE CAPTAIN".
@@ -273,6 +273,15 @@ docs/architecture.md     # design notes
   code on the welcome page, or by typing the short link shown on the big screen.
 - On a laptop or Chromebook, answer with **1 / 2 / 3** or **A / B / C**, or click.
   The captain fires by clicking a square with the mouse or trackpad.
+
+## Big moments
+
+- **Get ready:** each question round opens with "GET READY, 3, 2, 1, GO!" on the big screen
+  and phones. The 4 seconds are added on top of the question time.
+- **Last boat:** when a fleet is down to one ship, its fleet key flashes red and a
+  full-screen "LAST BOAT!" warning shows on the big screen and phones. Sunk ships glow.
+- **Game over:** `client/public/sounds/gameover.mp3` plays with the end scene on the big
+  screen, with the background music paused while it does.
 
 ## Wrong-answer penalty
 
