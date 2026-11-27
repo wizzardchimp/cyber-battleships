@@ -886,3 +886,61 @@ button.battle-cell:disabled {
   0%, 100% { opacity: 0; }
   10%, 85% { opacity: 1; }
 }
+
+/* ------------------------------------------------ captain draw fruit reel */
+
+.reel {
+  --row: 1.7em;
+  position: relative;
+  width: 17ch;
+  max-width: 100%;
+  height: calc(var(--row) * 3);
+  overflow: hidden;
+  font-family: var(--font-mono);
+  line-height: var(--row);
+  text-align: center;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid color-mix(in srgb, var(--side) 55%, transparent);
+}
+
+.reel__strip {
+  will-change: transform;
+}
+
+.reel__name {
+  display: block;
+  height: var(--row);
+  overflow: hidden;
+  color: var(--ink);
+  font-weight: 700;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.reel.is-fast .reel__strip {
+  filter: blur(1.2px);
+}
+
+/* The win line across the middle row. */
+.reel::before {
+  content: '';
+  position: absolute;
+  inset: var(--row) 0;
+  z-index: 1;
+  border-block: 2px solid var(--side);
+  background: color-mix(in srgb, var(--side) 12%, transparent);
+}
+
+/* Shading top and bottom, so the names seem to roll round a drum. */
+.reel::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: linear-gradient(rgba(2, 5, 12, 0.92), transparent 34%, transparent 66%, rgba(2, 5, 12, 0.92));
+}
+
+.captain-draw__team.is-locked .reel__name:nth-child(3) {
+  color: var(--green);
+  text-shadow: 0 0 18px color-mix(in srgb, var(--green) 70%, transparent);
+}

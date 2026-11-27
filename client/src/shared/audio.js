@@ -131,6 +131,13 @@ export const sfx = {
   tick() {
     tone(1000, 0.12, 'square', 0.16);
   },
+  reelTick() {
+    tone(520, 0.025, 'square', 0.05);
+  },
+  reelStop() {
+    tone(180, 0.09, 'square', 0.1);
+    tone(660, 0.12, 'sine', 0.05, 0.03);
+  },
   error() {
     tone(160, 0.14, 'square', 0.025);
     tone(120, 0.2, 'square', 0.02, 0.12);

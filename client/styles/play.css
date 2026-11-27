@@ -774,7 +774,7 @@ body.play-page {
   align-content: center;
   justify-items: center;
   gap: 1.4rem;
-  background: rgba(2, 5, 12, 0.94);
+  background: #02050c;
   text-align: center;
   pointer-events: none;
 }
@@ -813,11 +813,8 @@ body.play-page {
   font-size: 0.8rem;
 }
 
-.captain-draw__name {
-  color: var(--ink);
-  font-family: var(--font-mono);
-  font-size: 1.8rem;
-  overflow-wrap: anywhere;
+.captain-draw .reel {
+  font-size: 1.5rem;
 }
 
 .captain-draw__tag {
@@ -830,7 +827,6 @@ body.play-page {
   box-shadow: 0 0 40px color-mix(in srgb, var(--side) 60%, transparent);
 }
 
-.captain-draw__team.is-locked .captain-draw__name,
 .captain-draw__team.is-locked .captain-draw__tag {
   color: var(--green);
 }

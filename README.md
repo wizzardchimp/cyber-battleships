@@ -174,7 +174,7 @@ needed.
 | `PUBLIC_URL` | Railway domain / LAN | Base URL used in QR codes and join links |
 | `FACILITATOR_PIN` | `rocu` | PIN to start or replace a game; empty turns it off |
 | `BATTLE_INTRO_MS` | `10600` | Delay before the first battle opens while the intro video plays; `0` removes it |
-| `CAPTAIN_DRAW_MS` | `5000` | Length of the captain draw at the start of every battle; `0` removes it |
+| `CAPTAIN_DRAW_MS` | `6000` | Length of the captain draw at the start of every battle; `0` removes it |
 | `DATABASE_URL` | empty | PostgreSQL URL; empty uses embedded PGlite |
 | `PGSSL` | on in production | Set `false` for a local Postgres without TLS |
 | `DATA_DIR` | `./data` | PGlite data directory |
@@ -249,8 +249,9 @@ docs/architecture.md     # design notes
   A captain can also press **PASS CONTROLS TO A TEAMMATE** at any time. A side with
   only one player online keeps its captain.
 - **When the battle starts** (after the questions and the briefing), each side's captain is
-  drawn with a 5 second "CHOOSING CAPTAINS" reveal on the big screen and every phone, then
-  straight into the battle. Nobody is captain while the questions run. The first battle
+  drawn with a 6 second "CHOOSING CAPTAINS" reveal on the big screen and every phone: a
+  fruit machine reel of each side's names spins, slows and stops on the captain, one side
+  after another. Then it goes straight into the battle. Nobody is captain while the questions run. The first battle
   then plays the intro video; while any video plays on the big screen, phones show who
   their captain is ("YOUR CAPTAIN: …" or "YOU ARE THE CAPTAIN") and the board appears only
   when the video ends. The big screen shows each team's captain under the video too.
