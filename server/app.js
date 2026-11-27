@@ -104,6 +104,25 @@ export function createApp({ config, manager, db, logger }) {
     res.json({ ok: true, sets: manager.questions.summaries() });
   });
 
+  // The questions with their answers, for the host to look through before a game.
+  app.get(
+    '/api/questions/:set/preview',
+    asyncHandler(async (req, res) => {
+      requireControl(req);
+      const id = requireSet(req);
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({
+        ok: true,
+        questions: manager.questions.questionsFor(id).map((question) => ({
+          category: question.category,
+          prompt: question.prompt,
+          options: question.options,
+          answerIndex: question.answerIndex,
+        })),
+      });
+    }),
+  );
+
   app.get(
     '/api/questions/:set/export.csv',
     asyncHandler(async (req, res) => {

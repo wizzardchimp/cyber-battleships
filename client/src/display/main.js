@@ -13,6 +13,7 @@ import {
 } from '../shared/battleSounds.js';
 import { captainDrawActive, runCaptainDraw } from '../shared/captainDraw.js';
 import { cutsceneActive, playCutscene, skipCutscene } from './cutscene.js';
+import { closeQuestionPreview, openQuestionPreview } from './questionPreview.js';
 import { playJingle, setMusic, setMusicEnabled, stopJingle } from '../shared/music.js';
 import { cancelGetReady, newLastBoats, runGetReady, showLastBoat } from '../shared/notices.js';
 import { formatCountdown, msRemaining, serverNow, syncClock } from '../shared/clock.js';
@@ -1156,6 +1157,7 @@ function topicsMarkup(config) {
               <button class="list-row__name" type="button" data-list-toggle="${id}">${escapeHtml(set.name)}</button>
               <span class="list-row__count">${set.count} Q</span>
               <span class="list-row__actions">
+                <button class="btn btn--small btn--ghost" type="button" data-preview="${id}">PREVIEW</button>
                 <button class="btn btn--small btn--ghost" type="button" data-export="${id}">EXPORT</button>
                 ${
                   set.vault
@@ -1193,7 +1195,10 @@ function topicsMarkup(config) {
     })
     .join('');
   return `
-    <p class="topics__summary"><b>${picked.length}</b> list${picked.length === 1 ? '' : 's'} chosen · <b>${total}</b> questions in the mix</p>
+    <div class="topics__bar">
+      <p class="topics__summary"><b>${picked.length}</b> list${picked.length === 1 ? '' : 's'} chosen · <b>${total}</b> questions in the mix</p>
+      <button class="btn btn--small" type="button" data-preview-chosen>PREVIEW QUESTIONS</button>
+    </div>
     <div class="topics">${groups}</div>
     <div class="vault-import topics__new">
       <input class="input" type="text" maxlength="30" placeholder="New topic, e.g. Sport" value="${escapeHtml(newTopicName)}" data-new-topic />
@@ -1365,6 +1370,7 @@ function joinModal() {
 }
 
 function renderModal() {
+  if (!settingsOpen || !hasControl() || state.session.phase !== PHASES.LOBBY) closeQuestionPreview();
   if (teamsOpen && (state.session.phase !== PHASES.LOBBY || !hasControl())) teamsOpen = false;
   if (teamsOpen) {
     const sig = `teams|${JSON.stringify(state.teams.map((team) => [team.id, team.name]))}`;
@@ -1502,6 +1508,7 @@ async function runAction(action, node) {
 async function patchSettings(patch) {
   const ok = await send(EVENTS.DISPLAY_SETTINGS, { patch });
   if (ok) play('click');
+  return Boolean(ok);
 }
 
 function parseValue(raw) {
@@ -1509,6 +1516,25 @@ function parseValue(raw) {
   if (raw === 'false') return false;
   if (/^\d+$/.test(raw)) return Number(raw);
   return raw;
+}
+
+/** Add a question list to the game, or take it out. Resolves to whether it is in the game. */
+async function toggleList(id) {
+  const now = configOf().questionSets || [];
+  const had = now.includes(id);
+  const next = had ? now.filter((entry) => entry !== id) : [...now, id];
+  if (!next.length) {
+    toast('Keep at least one list selected.', 'error', '#toast-root');
+    return had;
+  }
+  return (await patchSettings({ questionSets: next })) ? !had : had;
+}
+
+async function loadQuestions(id) {
+  const body = await api(`/api/questions/${encodeURIComponent(id)}/preview`, {
+    headers: { 'x-control-key': controlKey() },
+  });
+  return body.questions;
 }
 
 async function exportSet(id) {
@@ -1747,11 +1773,32 @@ document.addEventListener('click', (event) => {
 
   const listToggle = target.closest('[data-list-toggle]');
   if (listToggle) {
-    const id = listToggle.dataset.listToggle;
-    const now = configOf().questionSets || [];
-    const next = now.includes(id) ? now.filter((entry) => entry !== id) : [...now, id];
-    if (!next.length) toast('Keep at least one list selected.', 'error', '#toast-root');
-    else patchSettings({ questionSets: next });
+    toggleList(listToggle.dataset.listToggle);
+    return;
+  }
+
+  if (target.closest('[data-preview-chosen]')) {
+    const chosen = new Set(configOf().questionSets || []);
+    openQuestionPreview({
+      title: 'QUESTIONS IN THIS GAME',
+      lists: state.questionSets.filter((set) => chosen.has(set.id)),
+      load: loadQuestions,
+    });
+    return;
+  }
+
+  const previewButton = target.closest('[data-preview]');
+  if (previewButton) {
+    const id = previewButton.dataset.preview;
+    openQuestionPreview({
+      title: setName(id).toUpperCase(),
+      lists: [{ id, name: setName(id) }],
+      load: loadQuestions,
+      selection: {
+        isChosen: () => (configOf().questionSets || []).includes(id),
+        toggle: () => toggleList(id),
+      },
+    });
     return;
   }
 

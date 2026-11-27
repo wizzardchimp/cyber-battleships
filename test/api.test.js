@@ -296,3 +296,15 @@ test('lists are grouped by topic and several lists build one question pool', asy
   assert.equal(h.manager.questions.questionsForMany(session.config.questionSets).length, 19);
   assert.ok(h.manager.questions.topics().includes('Music'));
 });
+
+test('only the game screen can preview a list with its answers', async (t) => {
+  const { h, screen } = await setup(t);
+  const url = `${h.baseUrl}/api/questions/easy/preview`;
+  assert.equal((await fetch(url)).status, 401);
+  assert.equal((await fetch(url, { headers: { 'x-control-key': 'nope' } })).status, 401);
+  const body = await fetch(url, { headers: { 'x-control-key': screen.key } }).then((response) => response.json());
+  assert.equal(body.questions.length, 200);
+  assert.ok(body.questions.every((q) => q.options.length === 3 && Number.isInteger(q.answerIndex)));
+  const missing = await fetch(`${h.baseUrl}/api/questions/nope/preview`, { headers: { 'x-control-key': screen.key } });
+  assert.equal(missing.status, 404);
+});

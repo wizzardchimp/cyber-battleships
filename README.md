@@ -283,6 +283,12 @@ docs/architecture.md     # design notes
 - **Game over:** `client/public/sounds/gameover.mp3` plays with the end scene on the big
   screen, with the background music paused while it does.
 
+## Previewing questions
+
+- In Settings, **PREVIEW QUESTIONS** shows everything in the chosen lists with the correct
+  answers marked, and each list has its own **PREVIEW** button with add or remove. Only the
+  game screen that holds the control key can load answers.
+
 ## Briefing and battle screens
 
 - The battle briefing shows the fastest answer and most accurate player so far, above the
