@@ -1286,6 +1286,11 @@ function settingsModal() {
             </div>
             <p class="setting__help">Rename the teams, for example to your department or class names. Press Enter or click away to save.</p>
           </div>
+          <div class="setting">
+            <span class="setting__label">PLAYER NAMES</span>
+            <div>${button('RESET PLAYER NAMES', { action: 'reset-players', kind: 'btn--ghost', confirm: true })}</div>
+            <p class="setting__help">Removes every joined player and keeps this join code. Their phones go back to the start, where they type a name, pick a team and join again.</p>
+          </div>
           <div class="setting-grid">
             <div class="setting">
               <span class="setting__label">QUIZ TIME</span>

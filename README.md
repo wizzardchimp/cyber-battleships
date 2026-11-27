@@ -274,6 +274,17 @@ docs/architecture.md     # design notes
 - On a laptop or Chromebook, answer with **1 / 2 / 3** or **A / B / C**, or click.
   The captain fires by clicking a square with the mouse or trackpad.
 
+## Joining on a phone or laptop
+
+- Joining takes two screens: type a name, then pick a team and press **JOIN GAME**. Players
+  can swap teams from their waiting screen until the game starts. In Everyone vs CPU there
+  are no teams to pick.
+- Names are not remembered between games. A page refresh during a game keeps the player's
+  place.
+- **SETTINGS → PLAYER NAMES → RESET PLAYER NAMES** (tap twice) removes everyone and keeps
+  the join code. Phones go back to the name screen.
+- On a laptop or desktop, **F** toggles full screen in the player app.
+
 ## Big moments
 
 - **Get ready:** each question round opens with "GET READY, 3, 2, 1, GO!" on the big screen

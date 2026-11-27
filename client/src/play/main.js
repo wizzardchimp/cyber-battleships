@@ -33,7 +33,11 @@ let resuming = false;
 let playerState = null;
 let closedMessage = '';
 
-let joinDraft = { name: localStorage.getItem('cb.play.name') || '', teamId: null };
+// The name is never remembered between games: every new join asks for it.
+localStorage.removeItem('cb.play.name');
+let joinDraft = { name: '', teamId: null };
+// Joining takes two screens: the name first, then the side.
+let joinStep = 'name';
 let joinError = '';
 let joining = false;
 let gateError = '';
@@ -78,6 +82,7 @@ function shell(inner, { side = null, compact = false } = {}) {
   app.innerHTML = `
     <div class="p-bar">
       <span class="p-brand"><img class="p-brand__mark" src="/brand/mark-128.png" alt="" />CYBER BATTLESHIPS</span>
+      <span class="p-fs-tip"><kbd>F</kbd> FULL SCREEN</span>
       <span id="p-link" class="p-link"></span>
     </div>
     <main class="p-main" ${side ? `style="--side:${escapeHtml(side)}"` : ''}>${inner}</main>`;
@@ -183,38 +188,51 @@ function renderJoin() {
     return;
   }
 
-  const options =
-    teams.length > 1
-      ? teams
-          .map((team) => {
-            const isFull = team.playerCount >= team.maxPlayers;
-            const checked =
-              joinDraft.teamId === team.id && !isFull ? 'checked' : '';
-            return `
-            <label class="side-opt" style="--side:${team.color}">
-              <input type="radio" name="team" value="${escapeHtml(team.id)}" ${checked} ${isFull ? 'disabled' : ''} />
-              <span class="side-opt__name">${escapeHtml(team.name)}</span>
-              <span class="side-opt__count">${isFull ? 'FULL' : `${team.playerCount} / ${team.maxPlayers}`}</span>
-            </label>`;
-          })
-          .join('')
-      : '';
+  const picking = teams.length > 1;
+  if (picking && joinStep === 'team') {
+    renderJoinTeam(session, teams);
+    return;
+  }
 
   shell(`
     <section class="p-card panel hud">
       <h1 class="p-title p-title--accent">JOIN THE GAME</h1>
-      <form id="join-form" class="p-form" novalidate>
+      <form id="name-form" class="p-form" novalidate>
         <label class="field">
           <span class="field__label">Your name</span>
-          <input class="input" name="name" value="${escapeHtml(joinDraft.name)}" maxlength="16" autocomplete="nickname" placeholder="Type a name" required />
+          <input class="input" name="name" value="${escapeHtml(joinDraft.name)}" maxlength="16" autocomplete="off" placeholder="Type a name" required />
         </label>
-        ${
-          options
-            ? `<div class="field"><span class="field__label">Pick your side</span><div class="side-pick">${options}</div></div>`
-            : '<p class="p-copy">You are on the crew. Everyone plays together against the CPU.</p>'
-        }
+        ${picking ? '' : '<p class="p-copy">You are on the crew. Everyone plays together against the CPU.</p>'}
+        ${joinError ? `<p class="form-error">${escapeHtml(joinError)}</p>` : ''}
+        <button class="btn btn--go btn--wide" type="submit" ${joining ? 'disabled' : ''}>${picking ? 'NEXT' : joining ? 'JOINING…' : 'JOIN GAME'}</button>
+      </form>
+    </section>
+    <p class="p-hint">Game code <b>${escapeHtml(session.joinCode)}</b></p>`);
+}
+
+function renderJoinTeam(session, teams) {
+  const options = teams
+    .map((team) => {
+      const isFull = team.playerCount >= team.maxPlayers;
+      const checked = joinDraft.teamId === team.id && !isFull ? 'checked' : '';
+      return `
+        <label class="side-opt" style="--side:${team.color}">
+          <input type="radio" name="team" value="${escapeHtml(team.id)}" ${checked} ${isFull ? 'disabled' : ''} />
+          <span class="side-opt__name">${escapeHtml(team.name)}</span>
+          <span class="side-opt__count">${isFull ? 'FULL' : `${team.playerCount} / ${team.maxPlayers}`}</span>
+        </label>`;
+    })
+    .join('');
+
+  shell(`
+    <section class="p-card panel hud">
+      <h1 class="p-title p-title--accent">PICK YOUR TEAM</h1>
+      <p class="p-copy">Playing as <b>${escapeHtml(joinDraft.name)}</b>. You can swap teams until the game starts.</p>
+      <form id="join-form" class="p-form" novalidate>
+        <div class="side-pick">${options}</div>
         ${joinError ? `<p class="form-error">${escapeHtml(joinError)}</p>` : ''}
         <button class="btn btn--go btn--wide" type="submit" ${joining ? 'disabled' : ''}>${joining ? 'JOINING…' : 'JOIN GAME'}</button>
+        <button class="btn btn--ghost btn--wide" type="button" data-action="change-name" ${joining ? 'disabled' : ''}>CHANGE NAME</button>
       </form>
     </section>
     <p class="p-hint">Game code <b>${escapeHtml(session.joinCode)}</b></p>`);
@@ -233,7 +251,7 @@ function renderLobby() {
 
   shell(
     `
-    <section class="team-banner hud" style="--bracket:${color}">
+    <section class="team-banner hud" style="--side:${color};--bracket:${color}">
       <span class="team-banner__label">YOU ARE IN</span>
       <span class="team-banner__name">${escapeHtml(me.teamName || 'THE GAME')}</span>
       <span class="team-banner__you">${escapeHtml(me.name)}</span>
@@ -644,6 +662,7 @@ function signature() {
       JSON.stringify((sessionInfo.teams || []).map((team) => [team.id, team.playerCount])),
       joining,
       joinError,
+      joinStep,
     ].join('|');
   }
   const state = playerState;
@@ -820,10 +839,11 @@ function ensureSocket() {
   });
   socket.on(EVENTS.PLAYER_REMOVED, (info) => {
     clearToken();
-    closedMessage =
-      info?.reason === 'reset'
-        ? 'The facilitator reset the room. Enter the join code again to rejoin.'
-        : 'The facilitator removed you from the game.';
+    if (info?.reason === 'reset') {
+      startOver('The facilitator reset the players. Enter your name to join again.');
+      return;
+    }
+    closedMessage = 'The facilitator removed you from the game.';
     render(true);
   });
   socket.on(EVENTS.PLAYER_SUPERSEDED, () => {
@@ -845,17 +865,30 @@ async function resume() {
   } catch (error) {
     if (error.code === 'RESUME_FAILED' || error.code === 'SESSION_NOT_FOUND') {
       clearToken();
-      joined = false;
-      playerState = null;
-      joinError = 'Your saved place is no longer valid. Join again.';
-      await refreshSession();
-      render(true);
+      await startOver('Enter your name to join.');
     } else {
       toast(error.message, 'error', '#toast-root');
     }
   } finally {
     resuming = false;
   }
+}
+
+/** Forget this player and go back to the name screen of the same game. */
+async function startOver(message) {
+  joined = false;
+  playerState = null;
+  joinDraft = { name: '', teamId: null };
+  joinStep = 'name';
+  joinError = message;
+  clearTimeout(feedbackTimer);
+  clearTimeout(penaltyTimer);
+  feedback = null;
+  penalty = null;
+  shotMsg = null;
+  cancelGetReady();
+  await refreshSession();
+  render(true);
 }
 
 async function refreshSession() {
@@ -908,11 +941,11 @@ async function join() {
       teamId: joinDraft.teamId || null,
     });
     saveToken(result.token, result.playerId, joinDraft.name);
-    localStorage.setItem('cb.play.name', joinDraft.name);
     joined = true;
     sfx.join();
   } catch (error) {
     joinError = error.message;
+    if (error.code === 'NAME_TAKEN' || error.code === 'INVALID_NAME') joinStep = 'name';
     sfx.error();
     await refreshSession();
   } finally {
@@ -1190,11 +1223,27 @@ app.addEventListener('click', (event) => {
   } else if (action === 'pass-open' || action === 'pass-cancel') {
     passOpen = action === 'pass-open';
     render(true);
+  } else if (action === 'change-name') {
+    joinStep = 'name';
+    joinError = '';
+    render(true);
   } else if (action === 'reload') {
     window.location.reload();
   } else if (action === 'home') {
     window.location.href = '/';
   }
+});
+
+// Laptops and Chromebooks: F switches full screen on and off.
+document.addEventListener('keydown', (event) => {
+  if (event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
+  if (event.key.toLowerCase() !== 'f') return;
+  // Not while typing: names can have an F in them. Team radio buttons are fine.
+  const focused = document.activeElement;
+  if (focused?.tagName === 'TEXTAREA' || (focused?.tagName === 'INPUT' && focused.type !== 'radio')) return;
+  event.preventDefault();
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  else document.documentElement.requestFullscreen?.().catch(() => {});
 });
 
 // Laptops and Chromebooks: answer with 1, 2, 3 or A, B, C.
@@ -1232,19 +1281,29 @@ app.addEventListener('submit', (event) => {
     return;
   }
 
-  if (form.id === 'join-form') {
-    const data = new FormData(form);
-    joinDraft = {
-      name: String(data.get('name') || '').trim(),
-      teamId: data.get('team') ? String(data.get('team')) : null,
-    };
+  if (form.id === 'name-form') {
+    joinDraft.name = String(new FormData(form).get('name') || '').trim();
     if (joinDraft.name.length < 2) {
       joinError = 'Type a name with at least two letters.';
       render(true);
       return;
     }
-    if ((sessionInfo?.teams?.length || 0) > 1 && !joinDraft.teamId) {
-      joinError = 'Pick a side to join.';
+    joinError = '';
+    if ((sessionInfo?.teams?.length || 0) > 1) {
+      joinStep = 'team';
+      render(true);
+      return;
+    }
+    joinDraft.teamId = null;
+    join();
+    return;
+  }
+
+  if (form.id === 'join-form') {
+    const teamId = new FormData(form).get('team');
+    joinDraft.teamId = teamId ? String(teamId) : null;
+    if (!joinDraft.teamId) {
+      joinError = 'Pick a team to join.';
       render(true);
       return;
     }
@@ -1293,7 +1352,7 @@ setInterval(updateCountdowns, 250);
 setInterval(async () => {
   if (!code || joined || joining || closedMessage || !sessionInfo || document.hidden) return;
   const input = document.activeElement;
-  if (input && input.tagName === 'INPUT') return;
+  if (input && input.tagName === 'INPUT' && input.type !== 'radio') return;
   await refreshSession();
   render();
 }, 5000);
